@@ -113,14 +113,15 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 当前项目已完成 P04 核心业务场景及收尾一致性审查，处于 P04 决策收敛阶段；P05 尚未开始，当前被 P0 业务决策阻塞。
 
-当前任务：P04-DECISION-002 继续确认 P0 决策包 01（下一项：BD-P04-008）。
+当前任务：P04-DECISION-002 继续确认 P0 决策包 01（下一项：BD-P04-013）。
 
-下一任务：继续确认 BD-P04-008。
+下一任务：继续确认 BD-P04-013：标本身份、扫码和核对规则。
 
 P04 决策收敛文档入口：
 
 - `project/p0-decision-batch-plan.md`：P0 业务决策分批计划；
-- `decisions/p0-decision-pack-01.md`：首批核心业务对象身份与来源链决策包。
+- `decisions/p0-decision-pack-01.md`：首批核心业务对象身份与来源链决策包；
+- `project/controlled-business-correction-principles.md`：业务信息灵活修改与受控纠错原则。
 
 P04 收尾文档入口：
 
