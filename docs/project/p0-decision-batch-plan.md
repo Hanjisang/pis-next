@@ -21,7 +21,7 @@
 | 唯一稳定编号 | 46 个，未发现重复 |
 | 来源 | `docs/project/p04-business-decision-backlog.md` |
 | 原始问题追溯 | 每项保留原始 Q 编号、场景编号和阻塞的后续工作 |
-| 当前确认状态 | BD-P04-001、BD-P04-003、BD-P04-008 已确认；其余 43 项为“待业务确认” |
+| 当前确认状态 | BD-P04-001、BD-P04-003、BD-P04-008、BD-P04-013 已确认；其余 42 项为“待业务确认” |
 | P1/P2 混入 | 无 |
 
 以上是台账核对结果，不代表任何业务规则已经确认。
@@ -67,7 +67,7 @@
 | BD-P04-001 | 申请与病例形成关系及拆分合并边界 | SCN-PIS-001、SCN-PIS-003 | Q-SCN-PIS-001-01、Q-SCN-PIS-003-01、Q-SCN-PIS-003-04 | 已确认 |
 | BD-P04-003 | 患者与就诊权威来源、快照和冲突处理 | SCN-PIS-001、SCN-PIS-003 | Q-SCN-PIS-001-03、Q-SCN-PIS-003-05 | 已确认 |
 | BD-P04-008 | 标本容器、标本和申请的边界 | SCN-PIS-004 | Q-SCN-PIS-004-01 | 已确认 |
-| BD-P04-013 | 标本身份、扫码和核对规则 | SCN-PIS-010、SCN-PIS-012 | Q-SCN-PIS-010-01、Q-SCN-PIS-010-02、Q-SCN-PIS-012-04 | 待业务确认 |
+| BD-P04-013 | 标本身份、扫码和核对规则 | SCN-PIS-010、SCN-PIS-012 | Q-SCN-PIS-010-01、Q-SCN-PIS-010-02、Q-SCN-PIS-012-04 | 已确认 |
 | BD-P04-020 | 组织盒独立身份、用途和位置 | SCN-PIS-021、SCN-PIS-022 | Q-SCN-PIS-021-03、Q-SCN-PIS-021-05、Q-SCN-PIS-021-06、Q-SCN-PIS-021-07、Q-SCN-PIS-021-08、Q-SCN-PIS-021-10、Q-SCN-PIS-022-03、Q-SCN-PIS-022-04、Q-SCN-PIS-022-06、Q-SCN-PIS-022-08、Q-SCN-PIS-022-09 | 待业务确认 |
 | BD-P04-025 | 包埋活动、蜡块形成和重包埋 | SCN-PIS-032 | Q-SCN-PIS-032-01、Q-SCN-PIS-032-02、Q-SCN-PIS-032-03、Q-SCN-PIS-032-04、Q-SCN-PIS-032-05、Q-SCN-PIS-032-06、Q-SCN-PIS-032-07、Q-SCN-PIS-032-08、Q-SCN-PIS-032-09、Q-SCN-PIS-032-10、Q-SCN-PIS-032-11、Q-SCN-PIS-032-12、Q-SCN-PIS-032-13、Q-SCN-PIS-032-14、Q-SCN-PIS-032-15、Q-SCN-PIS-032-16、Q-SCN-PIS-032-17、Q-SCN-PIS-032-18 | 待业务确认 |
 | BD-P04-026 | 蜡块身份、编号和组织盒来源 | SCN-PIS-032 | Q-SCN-PIS-032-19 | 待业务确认 |
@@ -270,7 +270,7 @@
 
 ## 8. 状态和变更控制
 
-- `BD-P04-001`、`BD-P04-003` 和 `BD-P04-008` 已完成业务确认；其余 43 个 P0 项当前状态为 `待业务确认`。
+- `BD-P04-001`、`BD-P04-003`、`BD-P04-008` 和 `BD-P04-013` 已完成业务确认；其余 42 个 P0 项当前状态为 `待业务确认`。
 - 已建立 `docs/project/controlled-business-correction-principles.md`，作为后续 P0 决策、P05 领域对象识别以及权限、审计和状态设计的统一业务输入。
 - 不得因进入决策包、写入推荐方向或通过内部审阅而自动变更为 `已确认`。
 - 每次业务确认都应记录最终结论、确认人、确认日期、适用范围和影响追踪。
