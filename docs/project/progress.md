@@ -769,6 +769,39 @@ Git提交：
 
 ---
 
+### 记录 P03-FIX-001 / P04-FIX-001：修正组织盒与蜡块术语边界
+
+日期：2026-08-05
+阶段：P03 病理业务术语 / P04 核心业务场景
+
+已完成：
+
+- 新增并明确组织盒定义；
+- 明确组织盒不等于蜡块；
+- 明确取材形成组织盒，组织盒完成组织处理后经包埋形成蜡块；
+- 明确组织盒号和蜡块号属于编号策略；
+- 修正 SCN-PIS-020 至 SCN-PIS-024；
+- 修正 SCN-PIS-030 至 SCN-PIS-033；
+- 保留组织盒与蜡块基数为待业务确认；
+- 记录范围外疑似语义问题但未修改范围外文件。
+
+更新文件：
+
+- `docs/domain/glossary.md`；
+- `docs/domain/terminology-rules.md`；
+- `docs/workflows/core-scenario-catalog.md`；
+- `docs/workflows/grossing-and-block-scenarios.md`；
+- `docs/workflows/histology-technical-scenarios.md`；
+- `docs/project/MASTER_PLAN.md`；
+- `docs/project/progress.md`。
+
+阶段状态：
+
+- P04 进行中；
+- 下一任务：P04-004D 配置、权限、审计与运维核心场景。
+
+---
+
 ## 4. 当前遗留问题
 
 当前没有业务或技术阻断问题。
