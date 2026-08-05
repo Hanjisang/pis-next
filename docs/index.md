@@ -111,16 +111,18 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景及收尾一致性审查，处于 P04 决策收敛阶段；P05 尚未开始，当前被 P0 业务决策阻塞。
+当前项目已完成 P04 核心业务场景及收尾一致性审查，处于 P04 决策收敛与技术流程模型修订阶段；P05 尚未开始，当前被 P0 业务决策阻塞。
 
-当前任务：P04-DECISION-002 继续确认 P0 决策包 01（下一项：BD-P04-025）。
+当前任务：P04-DECISION-CORRECTION-002 建立轻量技术流程原则并重新评估首批技术对象决策。
 
-下一任务：继续确认 BD-P04-025：包埋活动、蜡块形成和重包埋。
+下一任务：P03-FIX-002 修正轻量技术流程术语，随后执行 P04-FIX-002 修正轻量技术流程场景。
 
 P04 决策收敛文档入口：
 
 - `project/p0-decision-batch-plan.md`：P0 业务决策分批计划；
 - `decisions/p0-decision-pack-01.md`：首批核心业务对象身份与来源链决策包；
+- `decisions/lightweight-technical-workflow-principles.md`：轻量技术流程原则；
+- `decisions/technical-workflow-model-correction.md`：技术流程模型修订记录；
 - `project/controlled-business-correction-principles.md`：业务信息灵活修改与受控纠错原则。
 
 P04 收尾文档入口：
