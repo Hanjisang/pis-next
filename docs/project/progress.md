@@ -28,14 +28,14 @@
 
 ## 2. 当前项目摘要
 
-当前阶段：P04 核心业务场景  
-当前状态：进行中（收尾审查）
+当前阶段：P04 核心业务场景（已完成）
+当前状态：已完成（有条件通过）
 当前分支：main  
 远程仓库：origin  
 生产数据：未使用  
 业务代码：尚未开始  
 已完成：59 个核心场景详细定义
-下一任务：P04-CLOSE-001 全场景一致性审查与待确认问题归并
+下一任务：P05-001 核心领域对象识别（先处理 P0 业务决策项）
 
 ---
 
@@ -367,7 +367,7 @@ Git提交：
 
 创建文件：
 
-- `docs/workflows/grossing-and-block-scenarios.md`
+- `docs/workflows/grossing-and-cassette-scenarios.md`
 
 更新文件：
 
@@ -834,7 +834,7 @@ Git提交：
 - `docs/domain/glossary.md`；
 - `docs/domain/terminology-rules.md`；
 - `docs/workflows/core-scenario-catalog.md`；
-- `docs/workflows/grossing-and-block-scenarios.md`；
+- `docs/workflows/grossing-and-cassette-scenarios.md`；
 - `docs/workflows/histology-technical-scenarios.md`；
 - `docs/project/MASTER_PLAN.md`；
 - `docs/project/progress.md`。
@@ -846,13 +846,55 @@ Git提交：
 
 ---
 
+### 记录 P04-CLOSE-001：全场景一致性审查与待确认问题归并
+
+日期：2026-08-05
+阶段：P04 核心业务场景
+
+已完成：
+
+- 完成 59 个核心场景的编号、完整性、唯一性和目录覆盖检查；
+- 确认详细场景与核心场景目录一一对应，未发现缺失、重复或无效关联引用；
+- 修正主动文档中组织盒与蜡块混用的 4 处表述；
+- 完成角色引用、外部系统引用和系统边界一致性检查；
+- 从 59 个场景提取 1,108 条原始待确认问题并分配稳定 Q 编号；
+- 将全部原始问题归并为 79 个业务决策项，追溯覆盖率 100%；
+- 明确 P0 决策项共 46 项，未确认前阻塞 P05-001；
+- 未新增核心业务场景，未开始 P05 领域模型设计；
+- 未导入、读取、分析或参考任何旧 PIS 材料。
+
+创建文件：
+
+- `docs/reviews/p04-consistency-review.md`；
+- `docs/reviews/p04-question-traceability.md`；
+- `docs/project/p04-business-decision-backlog.md`。
+
+重命名文件：
+
+- 取材场景文档已统一使用 `docs/workflows/grossing-and-cassette-scenarios.md` 文件名。
+
+阶段状态：
+
+- P04 已完成（有条件通过）；
+- P0 业务决策项待确认；
+- 不得在 P0 决策确认前开始 P05-001。
+
+下一步：
+
+- P05-001 核心领域对象识别；
+- 开始前先完成 P0 业务决策项确认；
+- 本次不进入 P05，不创建领域对象、数据库、API、页面或代码。
+
+---
+
 ## 4. 当前遗留问题
 
-当前没有业务或技术阻断问题。
+当前存在 P0 业务决策待确认项，构成 P05-001 的前置阻断；不影响 P04 文档阶段关闭。
 
 尚未开始处理：
 
-- P04-CLOSE-001 全场景一致性审查与待确认问题归并；
+- P0 业务决策项确认；
+- P05-001 核心领域对象识别；
 - 新系统需求基线；
 - 领域模型；
 - 状态机；
@@ -865,8 +907,8 @@ Git提交：
 
 下一步只执行：
 
-1. 执行 P04-CLOSE-001 全场景一致性审查与待确认问题归并；
-2. 暂不进入 P05；
+1. 先处理业务决策台账中的 P0 项；
+2. 具备确认条件后执行 P05-001 核心领域对象识别；
 3. 不导入、不读取、不分析、不参考旧 PIS 材料；
-4. 暂不设计数据库、API、页面和代码；
-5. 不开始生成代码。
+4. 未经后续任务明确授权，不设计数据库、API、页面和代码；
+5. 不在本任务中开始 P05。
