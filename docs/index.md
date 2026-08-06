@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机和 P09 全病理产品需求基线。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线和 P10 全病理系统架构设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
-当前任务：`P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL` 已完成：107项正式需求、182项验收准则、73个场景、52项确认决策、63个对象、18个聚合、70条不变量和1,220个Q均已通过关闭审查。
+当前任务：`P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL` 已完成：15个逻辑模块、7个运行时逻辑组件、14个外部适配器、15个事务场景、21个架构事件、11项ADR，以及全量需求、领域、流程、异常和状态机追溯均已通过关闭审查。
 
-当前状态：P09 已完成，等待启动 P10。不得在本批次提前创建 P10 架构、数据库、接口、页面或代码。
+当前状态：P10 已完成，等待启动 P11。不得在本批次提前创建 P11 数据库、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -189,6 +189,32 @@ P09 全病理产品需求基线入口：
 - `requirements/p09-requirement-traceability.md`：需求双向追溯矩阵；
 - `reviews/p09-consistency-review.md`：P09全病理需求基线一致性与关闭审查。
 
+P10 全病理系统架构入口：
+
+- `architecture/p10-architecture-design-rules.md`：P10架构设计规则；
+- `architecture/p10-architecture-drivers.md`：架构驱动因素与约束；
+- `architecture/p10-system-context.md`：系统上下文与责任边界；
+- `architecture/p10-module-boundaries.md`：模块、聚合和对象归属；
+- `architecture/p10-component-dependency-rules.md`：组件依赖和调用规则；
+- `architecture/p10-transaction-consistency.md`：事务与一致性策略；
+- `architecture/p10-event-integration-architecture.md`：事件与集成架构；
+- `architecture/p10-security-governance-architecture.md`：安全与治理架构；
+- `architecture/p10-file-report-imaging-architecture.md`：文件、报告与数字材料架构；
+- `architecture/p10-observability-continuity.md`：可观测性、连续性与恢复；
+- `architecture/p10-architecture-traceability.md`：架构双向追溯矩阵；
+- `architecture/adr/ADR-001.md`：总体架构风格；
+- `architecture/adr/ADR-002.md`：模块与聚合归属；
+- `architecture/adr/ADR-003.md`：事务和一致性策略；
+- `architecture/adr/ADR-004.md`：领域事件及可靠投递；
+- `architecture/adr/ADR-005.md`：身份、编号、版本和历史；
+- `architecture/adr/ADR-006.md`：领域状态机与任务编排；
+- `architecture/adr/ADR-007.md`：外部系统防腐层；
+- `architecture/adr/ADR-008.md`：安全、授权、代理和强认证；
+- `architecture/adr/ADR-009.md`：审计、质量事件和受控纠错；
+- `architecture/adr/ADR-010.md`：报告、文件和数字切片；
+- `architecture/adr/ADR-011.md`：可观测性、连续性和恢复；
+- `reviews/p10-consistency-review.md`：P10全病理系统架构一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -207,4 +233,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL 和 P08-ALL-MODALITY-FINAL 的关闭审查均已通过。P08 已完成；本任务未进入 P09 需求、数据库、接口、页面、代码、测试或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL 和 P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL 的关闭审查均已通过。P10 已完成；本任务未进入 P11 数据库、接口、页面、代码、测试或部署设计。
