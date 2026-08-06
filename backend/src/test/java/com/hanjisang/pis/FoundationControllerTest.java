@@ -17,10 +17,10 @@ class FoundationControllerTest {
     private FoundationController foundationController;
 
     @Test
-    void foundationEndpointExposesTheP15ModuleCatalog() {
+    void foundationEndpointExposesTheP17ModuleCatalog() {
         var response = foundationController.foundation();
 
-        assertThat(response.phase()).isEqualTo("P15");
+        assertThat(response.phase()).isEqualTo("P17");
         assertThat(response.modules()).hasSize(15);
     }
 }

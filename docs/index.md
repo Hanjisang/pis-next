@@ -307,6 +307,18 @@ P15 登记与标本接收实现入口：
 - `implementation/p15-traceability.md`：需求、场景、状态机、API、权限、数据和事件追溯；
 - `reviews/p15-consistency-review.md`：P15 一致性与关闭审查。
 
+P17 组织处理与包埋实现入口：
+
+- `implementation/p17-implementation-scope.md`：P17 正式范围、依赖、排除边界与交付清单；
+- `implementation/p17-domain-data-design.md`：处理批次、执行事实、包埋事实和实际蜡块形成数据设计；
+- `implementation/p17-processing-program-execution-design.md`：程序版本、人工/设备执行、原始结果、确认、异常和恢复；
+- `implementation/p17-embedding-actual-block-design.md`：包埋任务、形成事实、返工替代和作废；
+- `implementation/p17-api-security-mapping.md`：API、权限、责任、组织范围和错误映射；
+- `implementation/p17-frontend-workflow.md`：P17 前端工作台和后端权威状态交互；
+- `implementation/p17-test-evidence.md`：P17 自动化和运行验证证据；
+- `implementation/p17-traceability.md`：需求、场景、流程、异常、状态机、权限、数据和事件追溯；
+- `reviews/p17-consistency-review.md`：P17 一致性与关闭审查。
+
 P16 取材与蜡块实现入口：
 
 - `implementation/p16-implementation-scope.md`：P16 范围、正式依据、实现清单与排除项；

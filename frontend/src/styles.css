@@ -354,6 +354,94 @@ footer {
   word-break: break-all;
 }
 
+.p17-workbench {
+  margin-top: 2rem;
+  border: 1px solid #d8e3db;
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: #fbfdfb;
+}
+
+.p17-toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.p17-toolbar label,
+.p17-card label {
+  display: grid;
+  gap: 0.35rem;
+  color: #60736a;
+  font-size: 0.78rem;
+}
+
+.p17-toolbar input,
+.p17-card input,
+.p17-card textarea {
+  width: 100%;
+  border: 1px solid #cbd9cf;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+}
+
+.p17-card textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.p17-toolbar button,
+.p17-card button {
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  background: #1e5d50;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.p17-toolbar button:disabled,
+.p17-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.p17-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem;
+}
+
+.p17-card {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 1.1rem;
+  border: 1px solid #d8e3db;
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.p17-card h3,
+.p17-card p {
+  margin: 0;
+}
+
+.p17-card p {
+  color: #60736a;
+  font-size: 0.84rem;
+}
+
+.p17-card output {
+  min-height: 1.2rem;
+  color: #2b734f;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 700px) {
   .p16-toolbar {
     align-items: stretch;

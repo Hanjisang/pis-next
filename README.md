@@ -2,6 +2,8 @@
 
 Next-generation Pathology Information System.
 
+当前阶段：P17 组织处理与包埋已实现，包含处理任务/批次、程序版本快照、原始执行事实、人工确认、异常恢复、包埋和实际蜡块形成。详见 [`docs/implementation/p17-implementation-scope.md`](docs/implementation/p17-implementation-scope.md) 与 [`docs/reviews/p17-consistency-review.md`](docs/reviews/p17-consistency-review.md)。
+
 当前阶段：P16 取材与蜡块已完成，等待启动下一正式阶段。
 
 工程基础说明见 [`docs/engineering/p13-engineering-foundation.md`](docs/engineering/p13-engineering-foundation.md)，关闭审查见 [`docs/reviews/p13-consistency-review.md`](docs/reviews/p13-consistency-review.md)。

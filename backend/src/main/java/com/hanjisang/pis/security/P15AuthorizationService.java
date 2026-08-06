@@ -17,13 +17,14 @@ public class P15AuthorizationService {
             @Value("${pis.runtime-environment:local}") String runtimeEnvironment,
             @Value("${pis.actor-id:p15-local-registration-actor}") String actorId,
             @Value("${pis.actor-permissions:}") String permissions,
-            @Value("${pis.actor-task-scope:P15-REGISTRATION-RECEIVING}") String taskScope) {
+            @Value("${pis.actor-task-scope:P15-REGISTRATION-RECEIVING}") String taskScope,
+            @Value("${pis.subject-type-code:HUMAN_USER}") String subjectTypeCode) {
         this.runtimeEnvironment = runtimeEnvironment;
         Set<String> permissionSet = Arrays.stream(permissions.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())
                 .collect(Collectors.toUnmodifiableSet());
-        this.actor = new ActorContext(actorId, "HUMAN_USER", runtimeEnvironment, permissionSet,
+        this.actor = new ActorContext(actorId, subjectTypeCode, runtimeEnvironment, permissionSet,
                 "LOCAL_HOSPITAL", "PATHOLOGY", taskScope);
     }
 

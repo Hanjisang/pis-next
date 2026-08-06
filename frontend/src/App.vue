@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import P15RegistrationWorkbench from './components/P15RegistrationWorkbench.vue';
 import P16GrossingWorkbench from './components/P16GrossingWorkbench.vue';
+import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessingWorkbench.vue';
 </script>
 
 <template>
@@ -34,6 +35,7 @@ import P16GrossingWorkbench from './components/P16GrossingWorkbench.vue';
 
     <P15RegistrationWorkbench />
     <P16GrossingWorkbench />
+    <P17TechnicalProcessingWorkbench />
 
     <footer>
       <span>PIS Next · Clean-room design</span>

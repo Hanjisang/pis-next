@@ -27,7 +27,7 @@ public class FoundationController {
 
     @GetMapping("/api/foundation")
     public FoundationResponse foundation() {
-        return new FoundationResponse("PIS Next", "P15", MODULES);
+        return new FoundationResponse("PIS Next", "P17", MODULES);
     }
 
     public record FoundationResponse(String system, String phase, List<String> modules) {

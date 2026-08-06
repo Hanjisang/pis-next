@@ -79,6 +79,82 @@ export type GrossingPrintResult = {
   submitted: boolean;
 };
 
+export type ProcessingTaskResult = {
+  taskId: string;
+  taskNo: string;
+  tissueBlockId: string;
+  stateCode: string;
+  assignedActor: string | null;
+  actualActor: string | null;
+  concurrencyVersion: number;
+  duplicate: boolean;
+};
+
+export type ProcessingBatchResult = {
+  batchId: string;
+  taskId: string;
+  batchNo: string;
+  stateCode: string;
+  executionMode: string;
+  deviceIdentity: string | null;
+  programVersionSnapshot: string;
+  assignedActor: string | null;
+  concurrencyVersion: number;
+  duplicate: boolean;
+};
+
+export type ProcessingMemberResult = {
+  memberId: string;
+  batchId: string;
+  tissueBlockId: string;
+  plannedBlockNo: string;
+  stateCode: string;
+  canEnterEmbedding: boolean;
+  concurrencyVersion: number;
+  duplicate: boolean;
+};
+
+export type ProcessingRunResult = {
+  runId: string;
+  batchId: string;
+  runNo: number;
+  stateCode: string;
+  executionMode: string;
+  externalRunId: string;
+  duplicate: boolean;
+};
+
+export type ProcessingResult = {
+  resultId: string;
+  runId: string;
+  memberId: string;
+  stateCode: string;
+  canEnterEmbedding: boolean;
+  duplicate: boolean;
+};
+
+export type EmbeddingTaskResult = {
+  taskId: string;
+  taskNo: string;
+  tissueBlockId: string;
+  processingResultId: string;
+  stateCode: string;
+  requirementSnapshot: string | null;
+  orientationReference: string | null;
+  concurrencyVersion: number;
+  duplicate: boolean;
+};
+
+export type ActualBlockFormationResult = {
+  formationId: string;
+  tissueBlockId: string;
+  inheritedBlockNo: string;
+  formationVersion: number;
+  stateCode: string;
+  currentValid: boolean;
+  duplicate: boolean;
+};
+
 const apiPrefix = '/api/p15';
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -103,6 +179,19 @@ async function p16Request<T>(path: string, init: RequestInit): Promise<T> {
   if (!response.ok) {
     const error = body as { error_code?: string; message?: string };
     throw new Error(`${error.error_code ?? 'P16-REQUEST-FAILED'}: ${error.message ?? '请求失败'}`);
+  }
+  return body as T;
+}
+
+async function p17Request<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`/api/p17${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const error = body as { error_code?: string; message?: string };
+    throw new Error(`${error.error_code ?? 'P17-REQUEST-FAILED'}: ${error.message ?? '请求失败'}`);
   }
   return body as T;
 }
@@ -304,5 +393,162 @@ export function completeGrossingBatch(
   return p16Request(`/grossing-batches/${batchId}/complete`, {
     method: 'POST',
     body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function getProcessingQueue(): Promise<Record<string, unknown>[]> {
+  return p17Request('/processing-queue', { method: 'GET' });
+}
+
+export function getEmbeddingQueue(): Promise<Record<string, unknown>[]> {
+  return p17Request('/embedding-queue', { method: 'GET' });
+}
+
+export function createProcessingTask(input: {
+  tissueBlockId: string;
+  idempotencyKey: string;
+}): Promise<ProcessingTaskResult> {
+  return p17Request('/processing-tasks', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function takeoverProcessingTask(
+  taskId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<ProcessingTaskResult> {
+  return p17Request(`/processing-tasks/${taskId}/takeover`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function createProcessingBatch(input: {
+  taskId: string;
+  programCode: string;
+  versionLabel: string;
+  executionMode: string;
+  deviceIdentity?: string;
+  idempotencyKey: string;
+}): Promise<ProcessingBatchResult> {
+  const { taskId, ...body } = input;
+  return p17Request(`/processing-tasks/${taskId}/batches`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function addProcessingMember(
+  batchId: string,
+  tissueBlockId: string,
+  idempotencyKey: string,
+): Promise<ProcessingMemberResult> {
+  return p17Request(`/processing-batches/${batchId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ tissueBlockId, idempotencyKey }),
+  });
+}
+
+export function startProcessingBatch(
+  batchId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<ProcessingRunResult> {
+  return p17Request(`/processing-batches/${batchId}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function receiveProcessingRawResult(input: {
+  runId: string;
+  externalMessageId: string;
+  payloadDigest: string;
+  rawStateCode: string;
+  payloadReference?: string;
+  idempotencyKey: string;
+}): Promise<{ rawResultId: string; runId: string; stateCode: string; duplicate: boolean }> {
+  return p17Request('/processing-runs/raw-results', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function confirmProcessingResult(input: {
+  runId: string;
+  memberId: string;
+  resultStateCode: string;
+  canEnterEmbedding: boolean;
+  summary: string;
+  expectedMemberVersion: number;
+  idempotencyKey: string;
+}): Promise<ProcessingResult> {
+  return p17Request('/processing-runs/results', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function completeProcessingBatch(
+  batchId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<ProcessingBatchResult> {
+  return p17Request(`/processing-batches/${batchId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function createEmbeddingTask(input: {
+  tissueBlockId: string;
+  processingResultId: string;
+  idempotencyKey: string;
+}): Promise<EmbeddingTaskResult> {
+  return p17Request('/embedding-tasks', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function takeoverEmbeddingTask(
+  taskId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<EmbeddingTaskResult> {
+  return p17Request(`/embedding-tasks/${taskId}/takeover`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function startEmbeddingTask(
+  taskId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<EmbeddingTaskResult> {
+  return p17Request(`/embedding-tasks/${taskId}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function recordEmbeddingRequirements(input: {
+  taskId: string;
+  requirementSnapshot: string;
+  orientationReference: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<EmbeddingTaskResult> {
+  const { taskId, ...body } = input;
+  return p17Request(`/embedding-tasks/${taskId}/requirements`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function completeEmbeddingTask(input: {
+  taskId: string;
+  expectedTaskVersion: number;
+  expectedBlockVersion: number;
+  idempotencyKey: string;
+}): Promise<ActualBlockFormationResult> {
+  const { taskId, ...body } = input;
+  return p17Request(`/embedding-tasks/${taskId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }

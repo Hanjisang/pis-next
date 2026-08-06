@@ -42,8 +42,8 @@ Invoke-CheckedCommand { & $dockerCommand compose version } 'Docker Compose check
 Invoke-CheckedCommand { & $dockerCommand info } 'Docker Engine check'
 Invoke-CheckedCommand { & $dockerCommand run --rm hello-world } 'Linux container check'
 Invoke-CheckedCommand { & $dockerCommand compose config } 'Compose configuration check'
-Invoke-CheckedCommand { & $dockerCommand build -f infra/docker/backend.Dockerfile -t pis-next-backend:p16 . } 'Backend image build'
-Invoke-CheckedCommand { & $dockerCommand build -f infra/docker/frontend.Dockerfile -t pis-next-frontend:p16 . } 'Frontend image build'
+Invoke-CheckedCommand { & $dockerCommand build -f infra/docker/backend.Dockerfile -t pis-next-backend:p17 . } 'Backend image build'
+Invoke-CheckedCommand { & $dockerCommand build -f infra/docker/frontend.Dockerfile -t pis-next-frontend:p17 . } 'Frontend image build'
 Invoke-CheckedCommand { & $dockerCommand compose --profile full up -d --build } 'Full-stack container startup'
 Invoke-CheckedCommand { & $dockerCommand compose ps } 'Full-stack container status'
 
@@ -65,6 +65,8 @@ if (-not $backendHealthy) {
 if ((Invoke-WebRequest 'http://localhost:5173' -UseBasicParsing).StatusCode -ne 200) {
     throw 'Frontend HTTP check did not return 200.'
 }
+
+Invoke-CheckedCommand { & (Join-Path $repositoryRoot 'scripts\p17-smoke.ps1') } 'P17 normal and failure-recovery smoke'
 
 Push-Location $repositoryRoot
 try {
