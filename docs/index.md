@@ -260,6 +260,24 @@ P13 工程基础入口：
 - `engineering/p13-engineering-foundation.md`：工程边界、版本、15个模块、数据库、容器、脚本、追溯和假设；
 - `reviews/p13-consistency-review.md`：P13环境、工程、验证、安全和范围关闭审查。
 
+P14 全病理身份与授权入口：
+
+- `security/p14-authorization-design-rules.md`：22条P14授权安全设计规则和阶段边界；
+- `security/p14-subject-identity-model.md`：人工、服务、任务、设备和外部系统主体模型；
+- `security/p14-capability-permission-catalog.md`：70个内部API和12个外部接口的82项能力/权限目录；
+- `security/p14-role-model.md`：21个业务角色来源、能力族和系统管理员边界；
+- `security/p14-resource-action-scope-model.md`：资源、动作、对象状态和10个范围维度；
+- `security/p14-organization-data-scope.md`：医院、院区、科室、工作组、队列、病例和用途范围；
+- `security/p14-task-responsibility-authorization.md`：分配、接管、交接、代理、批准和复核责任；
+- `security/p14-delegation-temporary-emergency.md`：角色/任务代理、临时授权和紧急授权；
+- `security/p14-high-risk-controls.md`：16个高风险动作、增强认证和第二人复核；
+- `security/p14-segregation-of-duties.md`：12条职责分离规则和受控例外；
+- `security/p14-service-device-identities.md`：服务、后台任务、设备和外部系统身份边界；
+- `security/p14-authorization-decision-model.md`：18类决策输入和7类授权结果；
+- `security/p14-authorization-audit-evidence.md`：13类授权和审计证据；
+- `security/p14-authorization-traceability.md`：模块、API、接口、事件、状态机、异常、需求和决策追溯；
+- `reviews/p14-consistency-review.md`：P14全病理身份与授权一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -278,4 +296,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL、P11-ALL-MODALITY-DATABASE-DESIGN-FINAL 和 P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL 的关闭审查均已通过。P12 已完成；本任务未进入下一阶段代码、页面、测试或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL、P11-ALL-MODALITY-DATABASE-DESIGN-FINAL、P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL、P13-ENGINEERING-FOUNDATION-FINAL 和 P14-ALL-MODALITY-AUTHORIZATION-SECURITY-FINAL 的关闭审查均已通过。P14 仅完成身份与授权安全设计；未进入 P15 业务实现。

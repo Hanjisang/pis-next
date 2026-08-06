@@ -2007,6 +2007,71 @@ Git提交：本任务提交后记录。
 
 ---
 
+### 记录 P14-ALL-MODALITY-AUTHORIZATION-SECURITY-FINAL：一次性完成全病理身份、授权、数据范围、任务责任、代理授权与安全审计设计并关闭P14
+
+日期：2026-08-06
+阶段：P14 用户权限与审计
+状态：已完成
+关闭审查结论：通过
+
+基线与前置门禁：
+
+- 开始前 HEAD 与 `origin/main` 均为 `4494b96f2d8c69ff559e30d34fce5ec27a235066`；工作区和暂存区干净；
+- P04–P13 正式文档、架构、数据、契约、工程基础和既有关闭审查已读取并核对；
+- 基线统计与仓库一致：107 项需求、182 条验收准则、63 个对象、18 个聚合、70 条不变量、36 个流程、216 个步骤、108 个决策点、108 个异常、26 个 SEV-1、31 个状态机、93 个转换、31 组禁止转换、73 个场景、40 个原有效 P0、12 个扩展决策、52 个有效决策和 1,220 个 Q；
+- P12 接口基线核对为 70 个内部 API、12 个医院接口、21 个事件、82 个错误，其中 15 个患者安全关键错误。
+
+已完成：
+
+- 建立 P14-RULE-001 至 P14-RULE-022 共 22 条授权安全设计规则；
+- 建立 5 类主体类型、21 个人工业务角色来源、2 类服务侧身份、1 类设备身份和 1 类外部系统身份；
+- 建立 82 项正式能力/权限，覆盖 P12-API-001 至 P12-API-070 和 P12-HIF-001 至 P12-HIF-012；
+- 建立 10 个数据范围维度、6 类任务责任、5 类代理/临时/紧急授权关系；
+- 建立 16 个高风险动作，16 项增强认证要求，16 个目录项的独立第二人复核要求和 12 条职责分离规则；
+- 建立服务身份 5 类允许能力/5 类禁止能力、设备身份 3 类允许能力/4 类禁止能力，明确非人工身份不能承担医学责任；
+- 建立 18 类授权决策输入、7 类授权结果和 13 类授权审计证据；
+- 建立全量追溯，覆盖 15 个模块、21 个事件、31 个状态机、93 个转换、31 组禁止转换、63 个对象、18 个聚合、70 条不变量、108 个异常、26 个 SEV-1、15 个患者安全关键错误、107 项需求、182 条验收准则、36 个流程、216 个步骤、108 个决策点、73 个场景、52 个有效决策和 1,220 个 Q；
+- P14 正式关闭审查包含 58 项门禁，结论为通过；孤儿主体、权限、接口、事件、状态机、异常和安全错误计数为 0。
+
+正式产出：
+
+- `security/p14-authorization-design-rules.md`；
+- `security/p14-subject-identity-model.md`；
+- `security/p14-capability-permission-catalog.md`；
+- `security/p14-role-model.md`；
+- `security/p14-resource-action-scope-model.md`；
+- `security/p14-organization-data-scope.md`；
+- `security/p14-task-responsibility-authorization.md`；
+- `security/p14-delegation-temporary-emergency.md`；
+- `security/p14-high-risk-controls.md`；
+- `security/p14-segregation-of-duties.md`；
+- `security/p14-service-device-identities.md`；
+- `security/p14-authorization-decision-model.md`；
+- `security/p14-authorization-audit-evidence.md`；
+- `security/p14-authorization-traceability.md`；
+- `reviews/p14-consistency-review.md`；
+- 更新 `docs/index.md`、`docs/project/MASTER_PLAN.md` 和本进度文件。
+
+验证方式：
+
+- 实际核对主体、能力、权限、角色、范围、任务责任、代理、临时/紧急授权、高风险、职责分离、服务/设备身份、决策和审计证据编号；
+- 实际核对 70 个内部 API、12 个医院接口、21 个事件、31 个状态机、93 个转换和 31 组禁止转换；
+- 执行 Git 差异、允许文件范围、危险设计词和实现边界检查；
+- P14 未要求构建或运行时测试，且未进入认证实现、权限代码、数据库 DDL、页面、真实身份或部署配置。
+
+遗留问题：
+
+- 医院组织编码、资格来源、跨院区规则、敏感度分级和导出审批待业务确认；
+- 认证协议、IAM 产品、强认证因子、会话/令牌生命周期和具体实现待后续技术决策；
+- P14 只定义授权安全设计，后续阶段负责实现、测试、安全加固、部署和运维验证；上述问题不降低 P14 的设计规则，也不阻塞 P14 关闭。
+
+Git提交：本任务提交后记录。
+推送：本任务提交后记录。
+
+下一步：P15 登记与标本接收；不开始 P15。
+
+---
+
 ### 记录 P13-ENGINEERING-FOUNDATION-FINAL：完成工程基础初始化并关闭P13
 
 日期：2026-08-06
