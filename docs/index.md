@@ -113,9 +113,9 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正和 P06 全病理业务流程设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
-当前任务：`P06-ALL-MODALITY-FINAL` 已完成：36项流程、73个场景、63个对象、18个聚合、70条不变量、1,220个 Q 和关闭审查均已通过。
+当前任务：`P07-ALL-MODALITY-FINAL` 已完成：108项正式异常、26项患者安全关键异常、36个流程、73个场景和P06入口追溯均已通过关闭审查。
 
-当前状态：P06 已完成，等待启动 P07。不得在本批次提前创建 P07 异常矩阵、P08 状态定义、数据库、接口、页面或代码。
+当前状态：P07 已完成，等待启动 P08。不得在本批次提前创建 P08 对象状态设计、数据库、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -153,6 +153,16 @@ P06 全病理业务流程入口：
 - `workflows/p06-process-traceability.md`：场景、决策、对象、聚合、不变量和Q追溯；
 - `reviews/p06-consistency-review.md`：P06一致性与关闭审查。
 
+P07 全病理异常场景矩阵入口：
+
+- `workflows/p07-exception-design-rules.md`：P07异常设计规则和阶段边界；
+- `workflows/p07-exception-catalog.md`：108项正式异常目录；
+- `workflows/p07-exception-matrix.md`：异常触发、影响、阻断、处置、恢复和后续输入矩阵；
+- `workflows/p07-critical-safety-exceptions.md`：26项患者安全关键异常；
+- `workflows/p07-exception-handling-rules.md`：异常处置、补偿和恢复规则；
+- `workflows/p07-exception-traceability.md`：P06入口、流程、场景、决策、对象、聚合、不变量和Q追溯；
+- `reviews/p07-consistency-review.md`：P07一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -171,4 +181,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审均已完成；P06-ALL-MODALITY-FINAL 的关闭审查也已通过。P06 已完成；本任务未进入 P07、P08、数据库、接口、页面、代码或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL 和 P07-ALL-MODALITY-FINAL 的关闭审查均已通过。P07 已完成；本任务未进入 P08 对象状态、数据库、接口、页面、代码或部署设计。
