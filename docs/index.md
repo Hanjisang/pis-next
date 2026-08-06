@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景及收尾一致性审查，并完成 P05 病理类型覆盖受控修正同步；P02 范围、P03 术语、P04 场景/问题治理和 P05 领域模型已完成本批次同步。原有效 P0 40 项继续作为历史基线，新增 12 项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正和 P06 全病理业务流程设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
-当前任务：`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 已完成：P05 对象、关系、18 个聚合、70 条不变量、73 个场景、1,220 个 Q 和重新关闭审查已通过。
+当前任务：`P06-ALL-MODALITY-FINAL` 已完成：36项流程、73个场景、63个对象、18个聚合、70条不变量、1,220个 Q 和关闭审查均已通过。
 
-当前状态：P05 已重新关闭；P06 仍未启动。不得提前创建 P06 业务流程、状态机、数据库、API、页面或代码。
+当前状态：P06 已完成，等待启动 P07。不得在本批次提前创建 P07 异常矩阵、P08 状态定义、数据库、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -140,6 +140,19 @@ P05 核心领域模型入口：
 - `workflows/molecular-and-referral-scenarios.md`：6 个分子病理与外送检测场景；
 - `workflows/core-scenario-catalog.md`：59 个历史场景与 14 个追加场景的统一目录。
 
+P06 全病理业务流程入口：
+
+- `workflows/p06-process-design-rules.md`：P06 流程设计规则和阶段边界；
+- `workflows/p06-process-catalog.md`：36项正式流程目录；
+- `workflows/p06-common-processes.md`：共性流程 P06-PROC-001～005；
+- `workflows/p06-histology-frozen-processes.md`：组织与术中冰冻流程 P06-PROC-006～014；
+- `workflows/p06-cytology-processes.md`：细胞病理流程 P06-PROC-015～022；
+- `workflows/p06-molecular-processes.md`：分子病理和外送流程 P06-PROC-023～030；
+- `workflows/p06-cross-modality-processes.md`：多模态及支撑流程 P06-PROC-031～036；
+- `workflows/p06-process-handoffs.md`：跨流程衔接和业务流图；
+- `workflows/p06-process-traceability.md`：场景、决策、对象、聚合、不变量和Q追溯；
+- `reviews/p06-consistency-review.md`：P06一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -158,4 +171,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审均已完成。P05 当前已重新关闭；本任务未进入数据库、API、页面、代码或完整状态机设计。
+P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审均已完成；P06-ALL-MODALITY-FINAL 的关闭审查也已通过。P06 已完成；本任务未进入 P07、P08、数据库、接口、页面、代码或部署设计。
