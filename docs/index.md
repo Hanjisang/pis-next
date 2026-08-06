@@ -113,9 +113,9 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 当前项目已完成 P04 核心业务场景及收尾一致性审查，并完成 P03 轻量技术流程术语修订、P04-FIX-002A 至 P04-FIX-002C 三批场景修订、P04-FIX-002E 一致性收尾修正、P04-DECISION-REBASE-001 技术物料决策重建、P04-DECISION-BATCH-CONFIRM-001 至 P04-DECISION-BATCH-CONFIRM-005 五批业务决策确认以及 P04-P0-FINAL-CONFIRM 最终确认；P04 已完成，当前有效 P0 40 项全部已确认，P05 阻塞已解除。
 
-当前任务：P04-CLOSE-SYNC-001 与 P05-001/WP-01 已完成：P04 最终关闭状态已同步，P05 核心领域模型设计规则、核心对象候选目录和追溯矩阵基线已建立。
+当前任务：P05-001-FINAL 已完成：P05 核心领域模型、关系、聚合、不变量、追溯矩阵和一致性关闭审查已通过。
 
-下一任务：P05-001/WP-02 核心对象识别深化。
+当前状态：P05 已完成，下一正式阶段为 P06 业务流程设计；P06 尚未启动。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -127,8 +127,12 @@ P03 术语文档入口：
 P05 核心领域模型入口：
 
 - `domain/p05-design-rules.md`：P05 统一设计规则与完成门禁；
-- `domain/core-object-catalog.md`：核心领域对象候选目录；
-- `domain/p05-traceability.md`：场景、决策、Q 编号与模型追溯矩阵。
+- `domain/core-object-catalog.md`：43 项核心领域对象最终处理目录；
+- `domain/domain-relationships.md`：核心领域关系和来源链；
+- `domain/aggregate-boundaries.md`：聚合及跨聚合一致性边界；
+- `domain/domain-invariants.md`：48 条正式业务不变量；
+- `domain/p05-traceability.md`：场景、决策、Q 编号与模型追溯矩阵；
+- `reviews/p05-consistency-review.md`：P05 核心领域模型一致性与关闭审查。
 
 P04 决策收敛文档入口：
 
@@ -144,4 +148,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001 已按 P04 关闭条件启动。当前仅完成 WP-01 文档骨架与设计规范，不代表已完成全部领域模型，也不进入数据库、API、页面或代码设计。
+P05-001-FINAL 已通过关闭审查。P05 已完成；本阶段未进入数据库、API、页面、代码或完整状态机设计。
