@@ -28,7 +28,7 @@
 
 ## 2. 当前项目摘要
 
-当前阶段：P12 全病理API与接口契约设计已完成，等待启动P13
+当前阶段：P13 工程基础初始化已完成，下一阶段为P14 用户权限与审计
 P04 状态：已完成，原场景和问题历史继续有效；本批次已完成范围扩展同步
 P05 状态：已完成，`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 重新关闭审查通过
 P06 状态：已完成，`P06-ALL-MODALITY-FINAL` 关闭审查通过
@@ -45,8 +45,8 @@ P12 状态：已完成，`P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL` 关闭�
 已完成：73 个当前正式场景（59 个历史场景 + 14 个新增场景），当前 Q 为 1,220（历史 1,108 + 新增 112）
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0；DB-P0-02 当前有效 P0 7、已确认 7、待确认 0；DB-P0-03 当前有效 P0 6、已确认 6、待确认 0；DB-P0-04 当前有效 P0 6、已确认 6、待确认 0；DB-P0-05 当前有效 P0 8、已确认 8、待确认 0；DB-P0-06 当前有效 P0 4、已确认 4、待确认 0；DB-P0-07 当前有效 P0 2、已确认 2、待确认 0
 历史任务：P04-DECISION-BATCH-CONFIRM-005 已完成：批量确认并归档 BD-P04-052、BD-P04-053、BD-P04-054、BD-P04-055、BD-P04-023、BD-P04-032、BD-P04-033、BD-P04-034、BD-P04-040、BD-P04-041
-当前任务：P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL：一次性完成全病理API与接口契约、追溯、审查、提交和推送
-下一任务：P13：工程基础初始化（等待启动）
+当前任务：P13-ENGINEERING-FOUNDATION-FINAL：一次性完成工程基础、追溯、审查、提交和推送
+下一任务：P14：用户权限与审计（等待启动）
 
 ---
 
@@ -2003,4 +2003,41 @@ Git提交：本任务提交后记录。
 - 18项P09参数仍未确认，P12只引用参数编号和配置边界，不写正式数值；
 - P13及后续阶段负责代码、ORM、数据库安装、客户端、部署、权限矩阵和测试实现。
 
-下一步：等待正式启动P13，不开始P13。
+下一步：等待正式启动P14，不开始P14。
+
+---
+
+### 记录 P13-ENGINEERING-FOUNDATION-FINAL：完成工程基础初始化并关闭P13
+
+日期：2026-08-06
+阶段：P13 工程基础初始化
+状态：已完成
+关闭审查结论：通过
+
+已完成：
+
+- 通过 P13 修正后的环境门禁：Git 基线、Java 21、系统 Maven 3.9.11、Node.js 24.18.0、npm.cmd 11.16.0、Docker Engine、Compose v2 和 Linux `hello-world`；
+- 创建 Java 21、Spring Boot 4.1.0、Spring Modulith 2.1.0 后端基础，并生成 Maven Wrapper 3.9.16；
+- 建立并验证 P10 的 15 个逻辑模块边界，未将模块机械拆分成远程服务；
+- 创建 Vue 3.5.40、TypeScript、Vite 8.1.0 前端基础、格式化、Lint、类型检查、Vitest 和生产构建；
+- 创建 PostgreSQL 18.4 参考 Compose 服务、Flyway V1 基础迁移、后端/前端 Dockerfile、NGINX 代理和全栈 Compose；
+- 创建 Windows/Unix 构建和 Compose 脚本、GitHub Actions 与 Dependabot 配置；
+- 新增 P13 工程追溯文档和关闭审查文档，并同步 MASTER_PLAN、README 和本进度文件；
+- 未实现 P14 及后续阶段的业务功能，未生成真实患者数据或生产凭据。
+
+验证方式：
+
+- `backend\\mvnw.cmd test`：2 项测试通过；
+- `npm.cmd ci`、`format:check`、`lint`、`typecheck`、`test:unit -- --run` 和 `build` 全部通过；
+- 后端和前端 Docker 镜像构建通过；`docker compose config` 通过；
+- 全栈容器运行通过，PostgreSQL healthy，Flyway 生成 `PIS_NEXT / P13`，后端 health 为 UP，前端 HTML 和 `/api/foundation` 代理响应正常；
+- Git 差异、敏感信息、范围越界和文档同步在提交前审查；
+- 正式提交信息：`chore: initialize P13 engineering foundation`。
+
+遗留问题：
+
+- P11 逻辑数据库平台仍需在后续 ADR 中确认；P13 的 PostgreSQL 18.4 仅为参考运行时；
+- P14–P30 仍需按阶段实现权限、审计、业务流程、接口、测试、安全、性能、部署和迁移能力；
+- 前端 Lint 当前无错误、无 warning；后续前端工作站阶段仍需补充业务组件测试。
+
+下一步：等待正式启动P14，不开始P14。

@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${PIS_DB_NAME:-pis}
+      POSTGRES_USER: ${PIS_DB_USER:-pis}
+      POSTGRES_PASSWORD: ${PIS_DB_PASSWORD:?PIS_DB_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - pis-postgres-data:/var/lib/postgresql
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PIS_DB_HOST: postgres
+      PIS_DB_PORT: 5432
+      PIS_DB_NAME: ${PIS_DB_NAME:-pis}
+      PIS_DB_USER: ${PIS_DB_USER:-pis}
+      PIS_DB_PASSWORD: ${PIS_DB_PASSWORD:?PIS_DB_PASSWORD must be set}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pis-postgres-data:

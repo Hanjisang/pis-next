@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: pis-next
+  datasource:
+    url: jdbc:postgresql://${PIS_DB_HOST:localhost}:${PIS_DB_PORT:5432}/${PIS_DB_NAME:pis}
+    username: ${PIS_DB_USER:pis}
+    password: ${PIS_DB_PASSWORD}
+  flyway:
+    enabled: true
+    schemas: pis
+    default-schema: pis
+    baseline-on-migrate: true
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PIS_SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+info:
+  app:
+    name: PIS Next
+    phase: P13
