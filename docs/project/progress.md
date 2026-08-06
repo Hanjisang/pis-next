@@ -28,11 +28,16 @@
 
 ## 2. 当前项目摘要
 
-当前阶段：P07 全病理异常场景矩阵已完成，等待启动P08
+当前阶段：P12 全病理API与接口契约设计已完成，等待启动P13
 P04 状态：已完成，原场景和问题历史继续有效；本批次已完成范围扩展同步
 P05 状态：已完成，`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 重新关闭审查通过
 P06 状态：已完成，`P06-ALL-MODALITY-FINAL` 关闭审查通过
 P07 状态：已完成，`P07-ALL-MODALITY-FINAL` 关闭审查通过
+P08 状态：已完成，`P08-ALL-MODALITY-FINAL` 关闭审查通过
+P09 状态：已完成，`P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL` 关闭审查通过
+P10 状态：已完成，`P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL` 关闭审查通过
+P11 状态：已完成，`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 关闭审查通过
+P12 状态：已完成，`P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL` 关闭审查通过
 当前分支：main  
 远程仓库：origin  
 生产数据：未使用  
@@ -40,8 +45,8 @@ P07 状态：已完成，`P07-ALL-MODALITY-FINAL` 关闭审查通过
 已完成：73 个当前正式场景（59 个历史场景 + 14 个新增场景），当前 Q 为 1,220（历史 1,108 + 新增 112）
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0；DB-P0-02 当前有效 P0 7、已确认 7、待确认 0；DB-P0-03 当前有效 P0 6、已确认 6、待确认 0；DB-P0-04 当前有效 P0 6、已确认 6、待确认 0；DB-P0-05 当前有效 P0 8、已确认 8、待确认 0；DB-P0-06 当前有效 P0 4、已确认 4、待确认 0；DB-P0-07 当前有效 P0 2、已确认 2、待确认 0
 历史任务：P04-DECISION-BATCH-CONFIRM-005 已完成：批量确认并归档 BD-P04-052、BD-P04-053、BD-P04-054、BD-P04-055、BD-P04-023、BD-P04-032、BD-P04-033、BD-P04-034、BD-P04-040、BD-P04-041
-当前任务：P07-ALL-MODALITY-FINAL：一次性完成全病理异常场景矩阵、追溯、审查、提交和推送
-下一任务：P08：对象状态机设计（等待启动）
+当前任务：P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL：一次性完成全病理API与接口契约、追溯、审查、提交和推送
+下一任务：P13：工程基础初始化（等待启动）
 
 ---
 
@@ -1943,3 +1948,59 @@ Git提交：本任务提交后记录。
 - 数据库产品、字符/时间/JSON类型、物理索引、分区、保留期限、重试、容量、并发、RPO和RTO尚未确认；这些是后续平台适配和技术决策输入，不阻塞P11逻辑设计。
 
 下一步：等待正式启动P12，不开始P12。
+
+---
+
+### 记录 P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL：一次性完成全病理API与接口契约设计并关闭P12
+
+日期：2026-08-06
+阶段：P12 API与接口契约
+状态：已完成
+关闭审查结论：通过
+
+已完成：
+
+- 核验P11完整基线`a0be786783822a818ec1353a1af6c8a7d1be0dbf`、main分支、origin/main一致和工作区干净；
+- 读取P04–P11正式输入，核实15个逻辑模块、7个运行时组件、15个事务场景、21个架构事件、14个外部适配器、89个逻辑表、96个关系和P11全部追溯输入；
+- 确认仓库没有正式REST、HTTP、OpenAPI、AsyncAPI、HL7、FHIR、DICOM或其他传输协议决策；将内部API定义为逻辑应用能力，医院和设备接口定义为规范化语义+防腐适配器，不生成机器可读规范；
+- 建立P12规则、决策、53个规范化Schema、70项内部应用能力（42命令、18查询、6文件能力、4内部协调）、12项医院及外部业务接口、21个事件契约、6项文件能力、安全和审计上下文；
+- 完成54项幂等写操作、12项外部消息幂等接口、27项预期版本控制操作、10项兼容规则和82个稳定错误代码，其中15个患者安全关键错误代码；
+- 完成107/107需求、182/182验收准则、18/18未确认参数、15/15模块、18/18聚合、63/63对象、70/70不变量、36/36流程、216/216步骤、108/108决策点、108/108异常、26/26 SEV-1、31/31状态机、93/93转换、31/31禁止转换、15/15事务、21/21事件、14/14适配器、89/89逻辑表、96/96关系、73/73场景、40/40原有效P0、12/12扩展决策、52/52有效决策和1,220个Q追溯；
+- 登记P12-IRISK-001至P12-IRISK-024共24项接口风险，均不阻塞P12；
+- P12关闭审查79项门禁全部通过；未创建OpenAPI/AsyncAPI、应用代码、Controller、DTO、SDK、ORM、DDL、页面、测试代码、设备实际配置或部署设计。
+
+正式产出：
+
+- `contracts/p12-contract-design-rules.md`；
+- `contracts/p12-contract-decisions.md`；
+- `contracts/p12-canonical-contract-models.md`；
+- `contracts/p12-internal-api-catalog.md`；
+- `contracts/p12-command-api-contracts.md`；
+- `contracts/p12-query-api-contracts.md`；
+- `contracts/p12-hospital-interface-catalog.md`；
+- `contracts/p12-hospital-inbound-contracts.md`；
+- `contracts/p12-hospital-outbound-contracts.md`；
+- `contracts/p12-event-contracts.md`；
+- `contracts/p12-file-imaging-contracts.md`；
+- `contracts/p12-idempotency-version-error-contracts.md`；
+- `contracts/p12-security-audit-contracts.md`；
+- `contracts/p12-contract-traceability.md`；
+- `reviews/p12-consistency-review.md`；
+- 更新`docs/index.md`、`docs/project/MASTER_PLAN.md`和本进度文件。
+
+验证方式：
+
+- 契约编号、Schema/API/HIF/EVC/ERR/COMP/IRISK范围、模块/聚合/对象/表映射、21个事件、14个适配器和79项关闭审查逐项核验；
+- 协议候选搜索、阶段越界扫描、危险设计扫描、工作区允许文件范围、UTF-8、Markdown、相对链接和P04–P11正式文件保护检查通过；
+- P12协议未确认、18项参数未确认和机器规范未生成均已登记为非阻塞输入；下一阶段正式名称和产出从MASTER_PLAN读取为P13工程基础初始化：Java、Vue、数据库、Docker、CI。
+
+Git提交：本任务提交后记录。
+推送：本任务提交后记录。
+
+遗留问题：
+
+- 具体医院、设备、外送机构、文件平台、消息平台和传输协议仍待接入项目或后续技术决策确认；
+- 18项P09参数仍未确认，P12只引用参数编号和配置边界，不写正式数值；
+- P13及后续阶段负责代码、ORM、数据库安装、客户端、部署、权限矩阵和测试实现。
+
+下一步：等待正式启动P13，不开始P13。

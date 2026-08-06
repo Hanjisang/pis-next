@@ -21,6 +21,7 @@ PIS Next 采用净室设计，不以任何旧 PIS 系统作为新系统设计输
 | `state-machines/` | 病例、标本、蜡块、切片、报告等对象状态机 |
 | `architecture/` | 系统架构、模块边界、事务和安全架构 |
 | `database/` | 数据库模型、数据字典、约束和索引设计 |
+| `contracts/` | 内部应用API、医院接口、事件、文件和契约追溯 |
 | `api/` | 内部 API、医院接口和接口契约 |
 | `testing/` | 测试策略、黄金场景、测试用例和测试报告 |
 | `deployment/` | 安装、环境配置和生产参考架构 |
@@ -111,11 +112,13 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计和 P11 全病理数据库设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计、P11 全病理数据库设计和 P12 全病理API与接口契约设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
 当前任务：`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 已完成：89个逻辑实体和正式表、96个正式关系、1,164个逻辑列、878项逻辑数据库约束、160个索引，以及全量对象、聚合、不变量、需求、状态机、事件和Q追溯均已通过关闭审查。
 
-当前状态：P11 已完成，等待启动 P12。不得在本批次提前创建 P12 API、接口、页面或代码。
+当前任务：`P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL` 已完成：53个规范化Schema、70项内部应用能力、12项医院及外部业务接口、21个事件契约、6项文件能力、54项幂等写操作、27项预期版本操作和82个稳定错误代码，协议未确认时未生成OpenAPI/AsyncAPI。
+
+当前状态：P12 已完成，等待读取下一正式阶段定义。不得在本批次提前创建下一阶段代码、页面、测试或部署设计。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -232,6 +235,24 @@ P11 全病理数据库设计入口：
 - `data/p11-database-traceability.md`：数据库双向追溯矩阵和19项数据风险；
 - `reviews/p11-consistency-review.md`：P11全病理数据库设计一致性与关闭审查。
 
+P12 全病理API与接口契约入口：
+
+- `contracts/p12-contract-design-rules.md`：P12契约设计规则和机器规范边界；
+- `contracts/p12-contract-decisions.md`：接口风格、协议、版本、幂等和机器规范决策；
+- `contracts/p12-canonical-contract-models.md`：53个规范化公共和事件Schema；
+- `contracts/p12-internal-api-catalog.md`：15个模块、70项内部应用能力目录；
+- `contracts/p12-command-api-contracts.md`：42项命令API契约；
+- `contracts/p12-query-api-contracts.md`：18项查询API契约；
+- `contracts/p12-hospital-interface-catalog.md`：14个外部适配器和12项正式业务接口；
+- `contracts/p12-hospital-inbound-contracts.md`：3项医院入站接口契约；
+- `contracts/p12-hospital-outbound-contracts.md`：4项医院出站接口契约；
+- `contracts/p12-event-contracts.md`：21个P10架构事件的P12契约；
+- `contracts/p12-file-imaging-contracts.md`：6项文件、报告和数字切片能力；
+- `contracts/p12-idempotency-version-error-contracts.md`：幂等、并发、版本、兼容和82个错误代码；
+- `contracts/p12-security-audit-contracts.md`：安全、责任、代理、服务身份和审计上下文；
+- `contracts/p12-contract-traceability.md`：全量双向追溯和24项接口风险；
+- `reviews/p12-consistency-review.md`：P12全病理API与接口契约一致性和关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -250,4 +271,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL 和 P11-ALL-MODALITY-DATABASE-DESIGN-FINAL 的关闭审查均已通过。P11 已完成；本任务未进入 P12 API、接口、页面、代码、测试或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL、P11-ALL-MODALITY-DATABASE-DESIGN-FINAL 和 P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL 的关闭审查均已通过。P12 已完成；本任务未进入下一阶段代码、页面、测试或部署设计。
