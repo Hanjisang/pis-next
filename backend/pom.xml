@@ -20,7 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-modulith.version>2.1.0</spring-modulith.version>
-        <flyway.version>11.8.2</flyway.version>
+        <flyway.version>13.1.0</flyway.version>
         <testcontainers.version>1.20.5</testcontainers.version>
     </properties>
 
