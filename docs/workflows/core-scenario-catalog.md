@@ -3,7 +3,7 @@
 文档状态：草稿  
 文档版本：0.1  
 创建日期：2026-08-05  
-最后更新：2026-08-05  
+最后更新：2026-08-06
 负责人：项目团队  
 所属阶段：P04 核心业务场景  
 
@@ -11,7 +11,7 @@
 
 ## 状态说明（2026-08-06）
 
-本文中关于 P04“有条件通过”、P0 尚待确认和不得进入 P05 的表述，均为历史阶段记录或历史审查结论，不代表当前项目状态。P04 的 40 项有效 P0 已全部确认或由既有决策覆盖，P04 已正式关闭，P05-001 已启动。
+组织病理和术中冰冻的既有 59 个场景、编号、场景正文和历史追溯继续有效。本次 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 追加 14 个正式场景，当前目录总数为 73 个；P04 原阶段关闭事实不被撤销，新增场景属于受控范围扩展同步。
 
 ---
 
@@ -57,6 +57,7 @@
 | P04-004C1 | 医院入站业务信息 | 已完成 |
 | P04-004C2 | 状态、报告回传与接口对账 | 已完成 |
 | P04-004D | 配置、权限、审计与运维 | 已完成 |
+| P04-MODALITY-EXT | 细胞病理、分子病理与外送检测 | 已完成 |
 
 ---
 
@@ -519,9 +520,9 @@
 
 ## 14. 场景目录检查结果
 
-当前目录共定义 59 个核心场景。
+历史基线目录共定义 59 个核心场景；受控范围扩展后当前目录共定义 73 个核心场景。
 
-场景分布：
+历史基线场景分布：
 
 | 场景范围 | 数量 |
 |---|---:|
@@ -537,6 +538,15 @@
 | 医院接口 | 6 |
 | 配置、权限和审计 | 5 |
 | 合计 | 59 |
+
+当前受控扩展场景分布：
+
+| 场景范围 | 新增数量 |
+|---|---:|
+| 细胞病理 | 8 |
+| 分子病理与外送检测 | 6 |
+| 新增合计 | 14 |
+| 当前总计（历史 59 + 新增 14） | 73 |
 
 设计批次分布：
 
@@ -579,13 +589,41 @@ P04-004 计划拆分为以下六个子批次：
 - P04-004C2 状态、报告回传与接口对账，已完成；
 - P04-004D 配置、权限、审计与运维，已完成。
 
+---
+
+## 15. P05-MODALITY-COVERAGE-CORRECTION-FINAL 场景扩展
+
+本节是本次正式归档的当前场景补充。原 59 个场景不删除、不重编号、不覆盖；新增场景使用现有三位顺序编号规则继续分配 `SCN-PIS-110`～`SCN-PIS-123`。详细场景正文见：
+
+- `cytology-scenarios.md`：SCN-PIS-110～SCN-PIS-117，共 8 个细胞病理场景；
+- `molecular-and-referral-scenarios.md`：SCN-PIS-118～SCN-PIS-123，共 6 个分子病理及外送检测场景。
+
+| 场景编号 | 场景名称 | 主要分类 | 详细文档 | 新增问题数 |
+|---|---|---|---|---:|
+| SCN-PIS-110 | 建立细胞病理病例与业务类型 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-111 | 接收并核对细胞学标本 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-112 | 形成细胞学制备记录与制备物 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-113 | 形成实际细胞学玻片与受控接收外院玻片 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-114 | 形成细胞蜡块并进入后续处理 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-115 | 完成细胞学充分性评价、筛查和复核 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-116 | 关联 HPV 等检测并形成联合筛查依据 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-117 | 形成细胞学最终诊断与报告版本 | SC-CAT-14 | cytology-scenarios.md | 8 |
+| SCN-PIS-118 | 建立独立或附属分子检测业务 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+| SCN-PIS-119 | 选择、分装和派生分子检测材料 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+| SCN-PIS-120 | 执行分子检测运行并完成质控评价 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+| SCN-PIS-121 | 形成有效分子结果、医学判读与独立或综合报告 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+| SCN-PIS-122 | 处理无效、失败、复测、补测和迟到结果 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+| SCN-PIS-123 | 执行外送检测并核验外部材料与结果 | SC-CAT-15 | molecular-and-referral-scenarios.md | 8 |
+
+当前场景统计：历史基线 59 个 + 新增 14 个 = 73 个；新增待确认问题 112 个，稳定 Q 编号由 `p04-question-traceability.md` 追加生成。既有 `Q-SCN-PIS-033-14` 和 `Q-SCN-PIS-060-27` 保留原编号，并作为本次新模型与场景扩展的交叉追溯输入。
+
 P04-004A 已完成。
 
 P04-004B 已完成。
 
 P04-004C 已完成。
 
-P04-004D 已完成，59 个核心场景均已完成详细定义。
+P04-004D 已完成，原范围 59 个核心场景均已完成详细定义；当前扩展后的 14 个场景见第 15 节及对应详细文档。
 
 历史阶段状态（已关闭）：P04-CLOSE-001 已完成全场景一致性审查和待确认问题归并。审查结论为“有条件通过”，详见 `docs/reviews/p04-consistency-review.md`、`docs/reviews/p04-question-traceability.md` 和 `docs/project/p04-business-decision-backlog.md`。
 
@@ -597,11 +635,11 @@ P04-FIX-002E 已完成：已修正 SCN-PIS-032 的组织盒标签与蜡块号关
 
 - P04-DECISION-REBASE-001：基于轻量技术流程重建技术物料决策。
 
-当前任务：P05-001/WP-01 已完成，下一步为 P05-001/WP-02 核心对象识别深化。
+当前任务：`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 已完成，P05 已重新关闭；P06 仍未启动。
 
 ---
 
-## 15. 当前未展开内容
+## 16. 当前未展开内容
 
 本目录只保存核心场景索引，不展开以下详细内容：
 
@@ -616,4 +654,4 @@ P04-FIX-002E 已完成：已修正 SCN-PIS-032 的组织盒标签与蜡块号关
 - 状态转换；
 - 验收测试数据。
 
-上述内容已分别记录在 P04-002A、P04-002B1、P04-002B2、P04-003A、P04-003B、P04-003C、P04-004A1、P04-004A2、P04-004B、P04-004C 和 P04-004D 的详细场景文档中。
+上述内容已分别记录在 P04-002A、P04-002B1、P04-002B2、P04-003A、P04-003B、P04-003C、P04-004A1、P04-004A2、P04-004B、P04-004C 和 P04-004D 的历史详细场景文档中；新增场景的详细问题见 `cytology-scenarios.md` 和 `molecular-and-referral-scenarios.md`。

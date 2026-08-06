@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景及收尾一致性审查，并完成 P03 轻量技术流程术语修订、P04-FIX-002A 至 P04-FIX-002C 三批场景修订、P04-FIX-002E 一致性收尾修正、P04-DECISION-REBASE-001 技术物料决策重建、P04-DECISION-BATCH-CONFIRM-001 至 P04-DECISION-BATCH-CONFIRM-005 五批业务决策确认以及 P04-P0-FINAL-CONFIRM 最终确认；P04 已完成，当前有效 P0 40 项全部已确认，P05 阻塞已解除。
+当前项目已完成 P04 核心业务场景及收尾一致性审查，并完成 P05 病理类型覆盖受控修正同步；P02 范围、P03 术语、P04 场景/问题治理和 P05 领域模型已完成本批次同步。原有效 P0 40 项继续作为历史基线，新增 12 项范围扩展决策已正式归档。
 
-当前任务：P05-001-FINAL 已完成：P05 核心领域模型、关系、聚合、不变量、追溯矩阵和一致性关闭审查已通过。
+当前任务：`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 已完成：P05 对象、关系、18 个聚合、70 条不变量、73 个场景、1,220 个 Q 和重新关闭审查已通过。
 
-当前状态：P05 已完成，下一正式阶段为 P06 业务流程设计；P06 尚未启动。
+当前状态：P05 已重新关闭；P06 仍未启动。不得提前创建 P06 业务流程、状态机、数据库、API、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -127,12 +127,22 @@ P03 术语文档入口：
 P05 核心领域模型入口：
 
 - `domain/p05-design-rules.md`：P05 统一设计规则与完成门禁；
-- `domain/core-object-catalog.md`：43 项核心领域对象最终处理目录；
+- `domain/core-object-catalog.md`：43 项历史基线及 OBJ-044 至 OBJ-063 病理类型覆盖修正对象；
 - `domain/domain-relationships.md`：核心领域关系和来源链；
-- `domain/aggregate-boundaries.md`：聚合及跨聚合一致性边界；
-- `domain/domain-invariants.md`：48 条正式业务不变量；
+- `domain/aggregate-boundaries.md`：18 个聚合及跨聚合一致性边界；
+- `domain/domain-invariants.md`：70 条正式业务不变量；
 - `domain/p05-traceability.md`：场景、决策、Q 编号与模型追溯矩阵；
 - `reviews/p05-consistency-review.md`：P05 核心领域模型一致性与关闭审查。
+
+病理类型覆盖场景入口：
+
+- `workflows/cytology-scenarios.md`：8 个细胞病理场景；
+- `workflows/molecular-and-referral-scenarios.md`：6 个分子病理与外送检测场景；
+- `workflows/core-scenario-catalog.md`：59 个历史场景与 14 个追加场景的统一目录。
+
+本次正式决策归档：
+
+- `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
 
 P04 决策收敛文档入口：
 
@@ -148,4 +158,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 已通过关闭审查。P05 已完成；本阶段未进入数据库、API、页面、代码或完整状态机设计。
+P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审均已完成。P05 当前已重新关闭；本任务未进入数据库、API、页面、代码或完整状态机设计。
