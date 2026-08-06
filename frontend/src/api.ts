@@ -155,6 +155,45 @@ export type ActualBlockFormationResult = {
   duplicate: boolean;
 };
 
+export type TechnicalPlannedOutput = {
+  outputId: string;
+  sequenceNo: number;
+  outputKindCode: string;
+  slidePurposeCode: string;
+  plannedQuantity: number;
+  plannedStainProjectCode: string | null;
+  plannedUsageCode: string;
+  plannedLabelQuantity: number;
+};
+
+export type TechnicalProjectResult = {
+  projectId: string;
+  orderId: string;
+  projectNo: string;
+  projectTypeCode: string;
+  taskStateCode: string;
+  reviewStateCode: string;
+  receivingStateCode: string;
+  executionHandoffStateCode: string;
+  resultStateCode: string;
+  assignedActorRef: string | null;
+  actualBlockFormationId: string | null;
+  plannedOutputs: TechnicalPlannedOutput[];
+  concurrencyVersion: number;
+  duplicate: boolean;
+};
+
+export type TechnicalOrderResult = {
+  orderId: string;
+  orderNo: string;
+  caseId: string;
+  stateCode: string;
+  priorityCode: string;
+  concurrencyVersion: number;
+  duplicate: boolean;
+  projects: TechnicalProjectResult[];
+};
+
 const apiPrefix = '/api/p15';
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -192,6 +231,19 @@ async function p17Request<T>(path: string, init: RequestInit): Promise<T> {
   if (!response.ok) {
     const error = body as { error_code?: string; message?: string };
     throw new Error(`${error.error_code ?? 'P17-REQUEST-FAILED'}: ${error.message ?? '请求失败'}`);
+  }
+  return body as T;
+}
+
+async function p18Request<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`/api/p18${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const error = body as { error_code?: string; message?: string };
+    throw new Error(`${error.error_code ?? 'P18-REQUEST-FAILED'}: ${error.message ?? '请求失败'}`);
   }
   return body as T;
 }
@@ -550,5 +602,51 @@ export function completeEmbeddingTask(input: {
   return p17Request(`/embedding-tasks/${taskId}/complete`, {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+}
+
+export function getTechnicalOrders(): Promise<Record<string, unknown>[]> {
+  return p18Request('/orders', { method: 'GET' });
+}
+
+export function createTechnicalOrder(input: {
+  caseId: string;
+  orderKindCode: string;
+  priorityCode: string;
+  reasonText: string;
+  representedActorRef?: string;
+  projects: Array<{
+    projectCode: string;
+    versionLabel: string;
+    projectTypeCode: string;
+    actualBlockFormationId: string;
+    usageCode: string;
+    priorityCode?: string;
+    reasonText: string;
+    plannedOutputs: Array<{
+      sequenceNo: number;
+      outputKindCode: string;
+      slidePurposeCode: string;
+      plannedLayerReference?: string;
+      plannedQuantity: number;
+      plannedStainProjectCode?: string;
+      plannedUsageCode: string;
+      plannedLabelQuantity: number;
+      executionNote?: string;
+    }>;
+  }>;
+  idempotencyKey: string;
+}): Promise<TechnicalOrderResult> {
+  return p18Request('/orders', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function submitTechnicalOrder(
+  orderId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<TechnicalOrderResult> {
+  return p18Request(`/orders/${orderId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
   });
 }

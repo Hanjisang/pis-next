@@ -35,7 +35,7 @@ class ProcessingPostgresIntegrationTest {
         JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
                 POSTGRES.getPassword()));
         assertThat(jdbc.queryForObject("SELECT foundation_version FROM pis.foundation_schema_metadata WHERE schema_code = 'PIS_NEXT'",
-                String.class)).isEqualTo("P17");
+                String.class)).isEqualTo("P18");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis' AND table_name LIKE 'p17_%'",
                 Integer.class)).isEqualTo(20);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis.p17_processing_program WHERE program_code = 'P17-SYNTHETIC-REFERENCE'",

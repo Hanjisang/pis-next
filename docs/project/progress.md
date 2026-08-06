@@ -28,7 +28,7 @@
 
 ## 2. 当前项目摘要
 
-当前阶段：P13 工程基础初始化已完成，下一阶段为P14 用户权限与审计
+当前阶段：P18 技术医嘱已完成，关闭审查通过
 P04 状态：已完成，原场景和问题历史继续有效；本批次已完成范围扩展同步
 P05 状态：已完成，`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 重新关闭审查通过
 P06 状态：已完成，`P06-ALL-MODALITY-FINAL` 关闭审查通过
@@ -38,6 +38,11 @@ P09 状态：已完成，`P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL` 关闭审
 P10 状态：已完成，`P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL` 关闭审查通过
 P11 状态：已完成，`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 关闭审查通过
 P12 状态：已完成，`P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL` 关闭审查通过
+P14 状态：已完成，`P14-ALL-MODALITY-AUTHORIZATION-SECURITY-FINAL` 关闭审查通过
+P15 状态：已完成，登记与标本接收纵向切片已完成
+P16 状态：已完成，取材与蜡块纵向切片已完成
+P17 状态：已完成，组织处理与包埋纵向切片已完成
+P18 状态：已完成，技术医嘱纵向切片关闭审查通过
 当前分支：main  
 远程仓库：origin  
 生产数据：未使用  
@@ -2137,6 +2142,18 @@ P17 已完成组织处理任务/批次、程序和版本快照、人工与产品
 验证证据包括 Wrapper 编译、P17 H2 应用服务/领域/Web 测试、PostgreSQL 18.4 Testcontainers Flyway V1–V6 迁移、前端格式/Lint/类型/单元测试/构建。最终关闭前仍必须实际完成完整后端验证、Docker 全栈启动、正常与异常恢复 smoke、最终差异审查和一次提交/推送。
 
 下一阶段：只读取 MASTER_PLAN 后等待正式启动，不开始下一阶段。
+
+## P18 技术医嘱（2026-08-06）
+
+P18-TECHNICAL-ORDER-FINAL 已完成：建立深切、重切、白片、IHC、特殊染色技术项目的技术医嘱、项目目标、配置快照、计划产物、审核/受理/责任交接、结果引用、完成/取消、目标更正、追加和历史追溯。目标复用 P17 当前有效实际蜡块形成事实；P18 不创建实际玻片、染色执行、诊断或报告对象。
+
+交付包括 Flyway V7 的 13 张 P18 表、JDBC/应用服务/Controller、P18 Vue 工作台、脚本、前端和后端测试，以及 8 份实现/追溯文档和关闭审查。所有写命令均在后端执行权限、范围、责任、幂等、乐观锁、审计和 outbox 事务边界。
+
+验证证据：Wrapper `clean verify` 通过 28 个后端测试；前端 npm.cmd 全套门禁通过，4 个测试文件/4 个测试通过；PostgreSQL 18.4 Testcontainers Flyway V1～V7、Docker/Compose、全栈健康检查、P17 回归 smoke 和 P18 正常/异常 smoke 均通过；额外版本与 Compose 配置门禁通过；P18 124 项关闭审查通过。
+
+提交与推送：本任务最后按指定提交信息执行一次提交和一次推送，最终哈希以 Git 返回为准。未使用真实患者数据、生产凭据、正式医院接口或正式设备协议；当前系统不可用于临床生产。
+
+下一阶段：P19 诊断与报告（初诊、复诊、签发、报告版本），本次不启动。
 ## P17 关闭复核补充（2026-08-06）
 
 P17 最终验证已完成：Wrapper 后端 `clean verify` 通过 21 个测试，前端 npm.cmd 全套门禁通过，Docker/Compose 全栈启动、健康检查、正常处理与异常恢复 smoke 均通过；最终额外版本门禁、静态检查、范围审查和 123 项关闭审查已完成。P17 已具备一次提交和推送条件。

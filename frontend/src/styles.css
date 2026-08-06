@@ -431,6 +431,122 @@ footer {
   margin: 0;
 }
 
+.p18-workbench {
+  margin-top: 2rem;
+  border: 1px solid #e7d8c3;
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: #fffaf4;
+}
+
+.p18-toolbar {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.p18-toolbar label,
+.p18-card label {
+  display: grid;
+  gap: 0.35rem;
+  color: #785f47;
+  font-size: 0.78rem;
+}
+
+.p18-toolbar input,
+.p18-card input,
+.p18-card textarea,
+.p18-card select {
+  width: 100%;
+  border: 1px solid #dbcbb8;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+}
+
+.p18-card textarea {
+  min-height: 4rem;
+  resize: vertical;
+}
+
+.p18-toolbar button,
+.p18-card button {
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  background: #936234;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.p18-toolbar button:disabled,
+.p18-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.p18-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem;
+}
+
+.p18-card {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 1.1rem;
+  border: 1px solid #e7d8c3;
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.p18-card h3,
+.p18-card p {
+  margin: 0;
+}
+
+.p18-card p,
+.p18-card li {
+  color: #785f47;
+  font-size: 0.84rem;
+}
+
+.p18-card output {
+  min-height: 1.2rem;
+  color: #7a4d20;
+  font-size: 0.78rem;
+}
+
+.p18-queue {
+  margin-top: 1rem;
+  overflow-x: auto;
+  padding: 1rem;
+  border: 1px solid #e7d8c3;
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.p18-queue h3 {
+  margin-top: 0;
+}
+
+.p18-queue table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.p18-queue th,
+.p18-queue td {
+  padding: 0.55rem;
+  border-bottom: 1px solid #eee2d5;
+  text-align: left;
+}
+
 .p17-card p {
   color: #60736a;
   font-size: 0.84rem;

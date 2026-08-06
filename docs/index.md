@@ -112,7 +112,7 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计、P11 全病理数据库设计、P12 全病理API与接口契约设计和 P13 工程基础初始化。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计、P11 全病理数据库设计、P12 全病理API与接口契约设计、P13 工程基础初始化、P14 授权安全、P15 登记与标本接收、P16 取材与蜡块、P17 组织处理与包埋和 P18 技术医嘱。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
 历史任务：`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 已完成：89个逻辑实体和正式表、96个正式关系、1,164个逻辑列、878项逻辑数据库约束、160个索引，以及全量对象、聚合、不变量、需求、状态机、事件和Q追溯均已通过关闭审查。
 
@@ -120,7 +120,7 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 当前任务：`P13-ENGINEERING-FOUNDATION-FINAL` 已完成：Java 21、Maven Wrapper 3.9.16、Spring Boot 4.1.0、Spring Modulith 2.1.0、Vue 3.5.40、Vite 8.1.0、PostgreSQL 18.4参考运行时、Docker、Compose、CI 和 Dependabot 均已建立并通过关闭审查。
 
-当前状态：P13 已完成，下一阶段为 P14 用户权限与审计。P13 未提前实现后续业务功能。
+当前状态：P18 技术医嘱已完成。P18 只覆盖技术医嘱管理边界，未提前实现实际切片、染色、诊断或报告；下一阶段 P19 尚未启动。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -318,6 +318,18 @@ P17 组织处理与包埋实现入口：
 - `implementation/p17-test-evidence.md`：P17 自动化和运行验证证据；
 - `implementation/p17-traceability.md`：需求、场景、流程、异常、状态机、权限、数据和事件追溯；
 - `reviews/p17-consistency-review.md`：P17 一致性与关闭审查。
+
+P18 技术医嘱实现入口：
+
+- `implementation/p18-implementation-scope.md`：P18 正式范围、依赖、排除边界与交付清单；
+- `implementation/p18-domain-data-design.md`：医嘱、项目、目标、计划产物和历史数据设计；
+- `implementation/p18-order-target-planned-output-design.md`：目标链、计划/实际分离和项目类型映射；
+- `implementation/p18-lifecycle-and-correction-design.md`：状态维度、责任交接、更正、取消和事务证据；
+- `implementation/p18-api-security-mapping.md`：P12 API、P14 权限、数据范围、责任和错误映射；
+- `implementation/p18-frontend-workflow.md`：P18 技术医嘱工作台和后端权威状态边界；
+- `implementation/p18-test-evidence.md`：P18 自动化和运行验证证据；
+- `implementation/p18-traceability.md`：P18 规则、全局基线、实现和验证追溯；
+- `reviews/p18-consistency-review.md`：P18 一致性与关闭审查。
 
 P16 取材与蜡块实现入口：
 

@@ -2,6 +2,7 @@
 import P15RegistrationWorkbench from './components/P15RegistrationWorkbench.vue';
 import P16GrossingWorkbench from './components/P16GrossingWorkbench.vue';
 import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessingWorkbench.vue';
+import P18TechnicalOrderWorkbench from './components/P18TechnicalOrderWorkbench.vue';
 </script>
 
 <template>
@@ -12,7 +13,7 @@ import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessing
         <h1>PIS Next</h1>
         <p class="lede">P15 登记与标本接收纵向工作台。</p>
       </div>
-      <div class="phase-badge" aria-label="当前阶段">P15 · ACCESSION</div>
+      <div class="phase-badge" aria-label="当前阶段">P18 · TECHNICAL ORDER</div>
     </section>
 
     <section class="summary-grid" aria-label="P15 摘要">
@@ -36,10 +37,11 @@ import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessing
     <P15RegistrationWorkbench />
     <P16GrossingWorkbench />
     <P17TechnicalProcessingWorkbench />
+    <P18TechnicalOrderWorkbench />
 
     <footer>
       <span>PIS Next · Clean-room design</span>
-      <span>P15 已实现 · 下游取材、技术和报告尚未实现</span>
+      <span>P18 已实现 · 实际切片、染色、诊断和报告尚未实现</span>
     </footer>
   </main>
 </template>
