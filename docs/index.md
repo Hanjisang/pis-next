@@ -297,3 +297,12 @@ P04 收尾文档入口：
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
 P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL、P11-ALL-MODALITY-DATABASE-DESIGN-FINAL、P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL、P13-ENGINEERING-FOUNDATION-FINAL 和 P14-ALL-MODALITY-AUTHORIZATION-SECURITY-FINAL 的关闭审查均已通过。P14 仅完成身份与授权安全设计；未进入 P15 业务实现。
+P15 登记与标本接收实现入口：
+
+- `implementation/p15-implementation-scope.md`：P15 范围、正式依据与禁止越界清单；
+- `implementation/p15-backend-data-design.md`：后端领域、事务、JDBC 与 PostgreSQL 参考实现；
+- `implementation/p15-api-security-mapping.md`：P12 API、P14 权限、范围和审计映射；
+- `implementation/p15-frontend-workflow.md`：登记、建案、预计标本和扫码接收工作台；
+- `implementation/p15-test-evidence.md`：P15 测试与运行验证证据；
+- `implementation/p15-traceability.md`：需求、场景、状态机、API、权限、数据和事件追溯；
+- `reviews/p15-consistency-review.md`：P15 一致性与关闭审查。

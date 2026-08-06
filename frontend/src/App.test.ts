@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import App from './App.vue';
 
-describe('PIS Next foundation screen', () => {
-  it('renders the P13 module catalog', () => {
+describe('PIS Next P15 workbench', () => {
+  it('renders the registration and receiving workflow', () => {
     const wrapper = mount(App);
 
     expect(wrapper.text()).toContain('PIS Next');
-    expect(wrapper.text()).toContain('15 个责任模块');
-    expect(wrapper.findAll('.module-card')).toHaveLength(15);
+    expect(wrapper.text()).toContain('登记与标本接收');
+    expect(wrapper.findAll('.business-card')).toHaveLength(4);
   });
 });

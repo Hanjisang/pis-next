@@ -1,25 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-
-const modules = [
-  ['申请与病例', 'MOD-001'],
-  ['标本与来源材料', 'MOD-002'],
-  ['组织技术与蜡块玻片', 'MOD-003'],
-  ['术中冰冻', 'MOD-004'],
-  ['细胞病理', 'MOD-005'],
-  ['分子病理', 'MOD-006'],
-  ['外送检测与外部结果', 'MOD-007'],
-  ['诊断与报告', 'MOD-008'],
-  ['多模态诊断关联', 'MOD-009'],
-  ['数字材料', 'MOD-010'],
-  ['出站集成与对账', 'MOD-011'],
-  ['质量、异常与受控纠错', 'MOD-012'],
-  ['授权、代理与审计', 'MOD-013'],
-  ['归档、销毁与恢复', 'MOD-014'],
-  ['报告呈现与医院配置', 'MOD-015'],
-] as const;
-
-const moduleCount = computed(() => modules.length);
+import P15RegistrationWorkbench from './components/P15RegistrationWorkbench.vue';
 </script>
 
 <template>
@@ -28,51 +8,34 @@ const moduleCount = computed(() => modules.length);
       <div>
         <p class="eyebrow">PATHOLOGY INFORMATION SYSTEM</p>
         <h1>PIS Next</h1>
-        <p class="lede">生产级病理信息系统的工程基础已经就绪。</p>
+        <p class="lede">P15 登记与标本接收纵向工作台。</p>
       </div>
-      <div class="phase-badge" aria-label="当前阶段">P13 · FOUNDATION</div>
+      <div class="phase-badge" aria-label="当前阶段">P15 · ACCESSION</div>
     </section>
 
-    <section class="summary-grid" aria-label="工程基础摘要">
+    <section class="summary-grid" aria-label="P15 摘要">
       <article class="summary-card accent">
-        <span>模块边界</span>
-        <strong>{{ moduleCount }}</strong>
-        <small>Spring Modulith 逻辑模块</small>
+        <span>当前切片</span>
+        <strong>登记 → 接收</strong>
+        <small>申请、病例、预计标本和扫码核对</small>
       </article>
       <article class="summary-card">
-        <span>追溯原则</span>
-        <strong>不可覆盖</strong>
-        <small>事实、版本与审计分离</small>
+        <span>追溯</span>
+        <strong>追加事实</strong>
+        <small>状态历史、交接、审计和发件箱同事务</small>
       </article>
       <article class="summary-card">
-        <span>运行方式</span>
-        <strong>模块化单体</strong>
-        <small>为受控协作保留边界</small>
+        <span>数据</span>
+        <strong>合成数据</strong>
+        <small>不显示真实患者正文或诊断报告</small>
       </article>
     </section>
 
-    <section class="module-panel">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">P10 ARCHITECTURE</p>
-          <h2>15 个责任模块</h2>
-        </div>
-        <span class="status-dot">边界已验证</span>
-      </div>
-      <div class="module-grid">
-        <article v-for="([name, code], index) in modules" :key="code" class="module-card">
-          <span class="module-index">{{ String(index + 1).padStart(2, '0') }}</span>
-          <div>
-            <h3>{{ name }}</h3>
-            <p>{{ code }}</p>
-          </div>
-        </article>
-      </div>
-    </section>
+    <P15RegistrationWorkbench />
 
     <footer>
       <span>PIS Next · Clean-room design</span>
-      <span>仅使用合成数据 · 当前未实现业务流程</span>
+      <span>P15 已实现 · 下游取材、技术和报告尚未实现</span>
     </footer>
   </main>
 </template>

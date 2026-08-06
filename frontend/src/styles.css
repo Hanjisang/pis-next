@@ -108,6 +108,89 @@ a {
   box-shadow: 0 14px 32px rgb(20 35 31 / 5%);
 }
 
+.workbench {
+  background: #fff;
+  border: 1px solid #dfe7e0;
+  border-radius: 18px;
+  box-shadow: 0 14px 32px rgb(20 35 31 / 5%);
+  margin-top: 18px;
+  padding: 30px;
+}
+
+.workflow-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.business-card {
+  background: #f8faf8;
+  border: 1px solid #e0eae2;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.business-card h3 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.step-label {
+  color: #2b734f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.business-card label {
+  color: #71817a;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.78rem;
+  gap: 5px;
+}
+
+.business-card input {
+  background: #fff;
+  border: 1px solid #cbd9cf;
+  border-radius: 8px;
+  color: #14231f;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.business-card button {
+  background: #1e5d50;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
+.business-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.business-card output {
+  color: #2b734f;
+  font-size: 0.76rem;
+  min-height: 18px;
+}
+
+.error-banner {
+  background: #fff2ef;
+  border: 1px solid #f1c7bf;
+  border-radius: 10px;
+  color: #a33d31;
+  padding: 12px 14px;
+}
+
 .summary-card {
   display: flex;
   flex-direction: column;
@@ -215,7 +298,8 @@ footer {
   }
 
   .summary-grid,
-  .module-grid {
+  .module-grid,
+  .workflow-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -232,7 +316,8 @@ footer {
   }
 
   .summary-grid,
-  .module-grid {
+  .module-grid,
+  .workflow-grid {
     grid-template-columns: 1fr;
   }
 
