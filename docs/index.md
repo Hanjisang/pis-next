@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵和 P08 全病理对象状态机。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机和 P09 全病理产品需求基线。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
-当前任务：`P07-ALL-MODALITY-FINAL` 已完成：108项正式异常、26项患者安全关键异常、36个流程、73个场景和P06入口追溯均已通过关闭审查。
+当前任务：`P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL` 已完成：107项正式需求、182项验收准则、73个场景、52项确认决策、63个对象、18个聚合、70条不变量和1,220个Q均已通过关闭审查。
 
-当前状态：P08 已完成，等待启动 P09。不得在本批次提前创建 P09 需求基线、数据库、接口、页面或代码。
+当前状态：P09 已完成，等待启动 P10。不得在本批次提前创建 P10 架构、数据库、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -175,6 +175,19 @@ P08 全病理对象状态机入口：
 - `state-machines/p08-cross-object-transition-rules.md`：跨对象转换守卫、聚合衔接和20个Mermaid状态图；
 - `state-machines/p08-state-machine-traceability.md`：对象、聚合、流程、异常、SEV-1、场景、决策、不变量和Q追溯；
 - `reviews/p08-consistency-review.md`：P08一致性与关闭审查。
+
+P09 全病理产品需求基线入口：
+
+- `requirements/p09-requirement-baseline-rules.md`：P09需求基线设计规则；
+- `requirements/p09-requirement-catalog.md`：107项正式需求目录；
+- `requirements/p09-common-functional-requirements.md`：共性功能需求；
+- `requirements/p09-modality-functional-requirements.md`：各病理类型功能需求；
+- `requirements/p09-cross-cutting-functional-requirements.md`：跨流程、报告、接口和治理需求；
+- `requirements/p09-data-security-governance-requirements.md`：数据、安全、审计、归档和恢复需求；
+- `requirements/p09-quality-attribute-requirements.md`：质量属性需求和参数登记；
+- `requirements/p09-acceptance-baseline.md`：需求验收基线；
+- `requirements/p09-requirement-traceability.md`：需求双向追溯矩阵；
+- `reviews/p09-consistency-review.md`：P09全病理需求基线一致性与关闭审查。
 
 本次正式决策归档：
 
