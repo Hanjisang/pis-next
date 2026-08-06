@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线和 P10 全病理系统架构设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计和 P11 全病理数据库设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
-当前任务：`P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL` 已完成：15个逻辑模块、7个运行时逻辑组件、14个外部适配器、15个事务场景、21个架构事件、11项ADR，以及全量需求、领域、流程、异常和状态机追溯均已通过关闭审查。
+当前任务：`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 已完成：89个逻辑实体和正式表、96个正式关系、1,164个逻辑列、878项逻辑数据库约束、160个索引，以及全量对象、聚合、不变量、需求、状态机、事件和Q追溯均已通过关闭审查。
 
-当前状态：P10 已完成，等待启动 P11。不得在本批次提前创建 P11 数据库、接口、页面或代码。
+当前状态：P11 已完成，等待启动 P12。不得在本批次提前创建 P12 API、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -215,6 +215,23 @@ P10 全病理系统架构入口：
 - `architecture/adr/ADR-011.md`：可观测性、连续性和恢复；
 - `reviews/p10-consistency-review.md`：P10全病理系统架构一致性与关闭审查。
 
+P11 全病理数据库设计入口：
+
+- `data/p11-database-design-rules.md`：数据库设计规则、逻辑类型和平台适配边界；
+- `data/p11-persistence-classification.md`：63个领域对象持久化分类；
+- `data/p11-logical-er-model.md`：89个逻辑实体和96个关系的ER模型；
+- `data/p11-relational-schema.md`：89张产品中立关系表和数据归属；
+- `data/p11-data-dictionary-core.md`：核心业务数据字典；
+- `data/p11-data-dictionary-material-technical.md`：材料与技术数据字典；
+- `data/p11-data-dictionary-diagnosis-report.md`：诊断、报告和文件数据字典；
+- `data/p11-data-dictionary-integration-governance.md`：集成、治理、安全、归档和恢复数据字典；
+- `data/p11-state-history-versioning.md`：31个状态机、状态历史、版本和不可变事实设计；
+- `data/p11-constraints-invariants.md`：70条不变量和逻辑数据库约束矩阵；
+- `data/p11-index-query-strategy.md`：索引和查询支撑策略；
+- `data/p11-data-security-retention.md`：数据安全、敏感性、归档与保留设计；
+- `data/p11-database-traceability.md`：数据库双向追溯矩阵和19项数据风险；
+- `reviews/p11-consistency-review.md`：P11全病理数据库设计一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -233,4 +250,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL 和 P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL 的关闭审查均已通过。P10 已完成；本任务未进入 P11 数据库、接口、页面、代码、测试或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL、P08-ALL-MODALITY-FINAL、P09-ALL-MODALITY-REQUIREMENT-BASELINE-FINAL、P10-ALL-MODALITY-SYSTEM-ARCHITECTURE-FINAL 和 P11-ALL-MODALITY-DATABASE-DESIGN-FINAL 的关闭审查均已通过。P11 已完成；本任务未进入 P12 API、接口、页面、代码、测试或部署设计。
