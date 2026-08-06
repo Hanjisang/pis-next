@@ -306,3 +306,14 @@ P15 登记与标本接收实现入口：
 - `implementation/p15-test-evidence.md`：P15 测试与运行验证证据；
 - `implementation/p15-traceability.md`：需求、场景、状态机、API、权限、数据和事件追溯；
 - `reviews/p15-consistency-review.md`：P15 一致性与关闭审查。
+
+P16 取材与蜡块实现入口：
+
+- `implementation/p16-implementation-scope.md`：P16 范围、正式依据、实现清单与排除项；
+- `implementation/p16-domain-data-design.md`：取材批次、取材记录、组织取样、计划蜡块、标签与数据约束；
+- `implementation/p16-api-security-mapping.md`：P12 API、P14 权限、数据范围、任务责任和审计映射；
+- `implementation/p16-label-printing-design.md`：标签快照、参考条码、打印请求、重打和作废边界；
+- `implementation/p16-frontend-workflow.md`：P16 取材与标签工作台；
+- `implementation/p16-test-evidence.md`：P16 自动化、并发、Docker 和全栈烟测证据；
+- `implementation/p16-traceability.md`：P16 需求、场景、状态、契约、事件和 P15 回归追溯；
+- `reviews/p16-consistency-review.md`：P16 一致性与关闭审查。

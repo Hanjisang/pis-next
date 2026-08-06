@@ -16,14 +16,15 @@ public class P15AuthorizationService {
     public P15AuthorizationService(
             @Value("${pis.runtime-environment:local}") String runtimeEnvironment,
             @Value("${pis.actor-id:p15-local-registration-actor}") String actorId,
-            @Value("${pis.actor-permissions:}") String permissions) {
+            @Value("${pis.actor-permissions:}") String permissions,
+            @Value("${pis.actor-task-scope:P15-REGISTRATION-RECEIVING}") String taskScope) {
         this.runtimeEnvironment = runtimeEnvironment;
         Set<String> permissionSet = Arrays.stream(permissions.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())
                 .collect(Collectors.toUnmodifiableSet());
         this.actor = new ActorContext(actorId, "HUMAN_USER", runtimeEnvironment, permissionSet,
-                "LOCAL_HOSPITAL", "PATHOLOGY", "P15-REGISTRATION-RECEIVING");
+                "LOCAL_HOSPITAL", "PATHOLOGY", taskScope);
     }
 
     public AuthorizationDecision decide(String permissionCode) {
@@ -45,5 +46,16 @@ public class P15AuthorizationService {
             throw new P15BusinessException("P12-ERR-075", "授权拒绝：" + decision.reason(), 403);
         }
         return decision.actor();
+    }
+
+    public ActorContext requireTask(String permissionCode, String taskCode) {
+        ActorContext authorized = require(permissionCode);
+        boolean taskAllowed = Arrays.stream(authorized.taskScope().split(","))
+                .map(String::trim)
+                .anyMatch(taskCode::equals);
+        if (!taskAllowed) {
+            throw new P15BusinessException("P12-ERR-077", "当前主体不承担该取材任务", 403);
+        }
+        return authorized;
     }
 }

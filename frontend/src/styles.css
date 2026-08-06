@@ -290,6 +290,77 @@ footer {
   padding: 24px 4px 0;
 }
 
+.p16-workbench {
+  margin-top: 2rem;
+  border: 1px solid #d7e0eb;
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  background: #f8fbff;
+}
+
+.p16-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.p16-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.p16-card {
+  display: grid;
+  gap: 0.65rem;
+  align-content: start;
+  padding: 1.1rem;
+  border: 1px solid #d7e0eb;
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.p16-card h3,
+.p16-card p {
+  margin: 0;
+}
+
+.p16-card textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.notice-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.6rem;
+  color: #164b39;
+  background: #e3f5ed;
+}
+
+.label-preview {
+  padding: 0.8rem;
+  border: 1px dashed #8aa2bc;
+  background: #fbfdff;
+}
+
+.label-preview pre {
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+}
+
+.label-preview code {
+  word-break: break-all;
+}
+
+@media (max-width: 700px) {
+  .p16-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 850px) {
   .hero {
     align-items: start;
