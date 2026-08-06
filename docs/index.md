@@ -111,11 +111,11 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正和 P06 全病理业务流程设计。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵和 P08 全病理对象状态机。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
 当前任务：`P07-ALL-MODALITY-FINAL` 已完成：108项正式异常、26项患者安全关键异常、36个流程、73个场景和P06入口追溯均已通过关闭审查。
 
-当前状态：P07 已完成，等待启动 P08。不得在本批次提前创建 P08 对象状态设计、数据库、接口、页面或代码。
+当前状态：P08 已完成，等待启动 P09。不得在本批次提前创建 P09 需求基线、数据库、接口、页面或代码。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -163,6 +163,19 @@ P07 全病理异常场景矩阵入口：
 - `workflows/p07-exception-traceability.md`：P06入口、流程、场景、决策、对象、聚合、不变量和Q追溯；
 - `reviews/p07-consistency-review.md`：P07一致性与关闭审查。
 
+P08 全病理对象状态机入口：
+
+- `state-machines/p08-state-machine-design-rules.md`：P08对象状态、任务、事实、版本和维度设计规则；
+- `state-machines/p08-object-state-classification.md`：63个正式对象逐项分类；
+- `state-machines/p08-state-machine-catalog.md`：31个正式状态机目录；
+- `state-machines/p08-clinical-case-state-machines.md`：申请、病例、标本、责任、冰冻和细胞责任状态机；
+- `state-machines/p08-material-technical-state-machines.md`：蜡块、玻片、数字材料、技术、细胞制备物和分子状态机；
+- `state-machines/p08-diagnosis-report-state-machines.md`：诊断记录、报告生命周期和报告版本状态机；
+- `state-machines/p08-integration-governance-state-machines.md`：出站、质量、纠错和恢复校验状态机；
+- `state-machines/p08-cross-object-transition-rules.md`：跨对象转换守卫、聚合衔接和20个Mermaid状态图；
+- `state-machines/p08-state-machine-traceability.md`：对象、聚合、流程、异常、SEV-1、场景、决策、不变量和Q追溯；
+- `reviews/p08-consistency-review.md`：P08一致性与关闭审查。
+
 本次正式决策归档：
 
 - `decisions/p05-modality-coverage-correction-final.md`：BD-P04-080 至 BD-P04-091 共 12 项范围扩展决策。
@@ -181,4 +194,4 @@ P04 收尾文档入口：
 - `reviews/p04-question-traceability.md`：原始待确认问题与决策项追溯；
 - `project/p04-business-decision-backlog.md`：业务决策待确认台账。
 
-P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL 和 P07-ALL-MODALITY-FINAL 的关闭审查均已通过。P07 已完成；本任务未进入 P08 对象状态、数据库、接口、页面、代码或部署设计。
+P05-001-FINAL 的原范围关闭审查、`P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审、P06-ALL-MODALITY-FINAL、P07-ALL-MODALITY-FINAL 和 P08-ALL-MODALITY-FINAL 的关闭审查均已通过。P08 已完成；本任务未进入 P09 需求、数据库、接口、页面、代码、测试或部署设计。
