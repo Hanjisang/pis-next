@@ -55,7 +55,7 @@ public class P15AuthorizationService {
                 .map(String::trim)
                 .anyMatch(taskCode::equals);
         if (!taskAllowed) {
-            throw new P15BusinessException("P12-ERR-077", "当前主体不承担该取材任务", 403);
+            throw new P15BusinessException("P12-ERR-077", "当前主体不承担该业务任务", 403);
         }
         return authorized;
     }

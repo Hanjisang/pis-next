@@ -439,6 +439,70 @@ footer {
   background: #fffaf4;
 }
 
+.p19-workbench {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 1rem;
+  background: #f8fafc;
+}
+
+.p19-toolbar,
+.p19-grid {
+  display: grid;
+  gap: 1rem;
+}
+.p19-toolbar {
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+}
+.p19-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+.p19-card {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid #d8dee9;
+  border-radius: 0.75rem;
+  background: white;
+}
+.p19-card textarea {
+  min-height: 4rem;
+}
+.p19-card output {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #334155;
+}
+.p19-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.p19-queue {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+.p19-queue table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+.p19-queue th,
+.p19-queue td {
+  padding: 0.65rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+@media (max-width: 900px) {
+  .p19-toolbar,
+  .p19-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .p18-toolbar {
   display: flex;
   align-items: end;

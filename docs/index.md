@@ -112,15 +112,15 @@ PIS Next 不以任何旧 PIS 系统作为设计基线。
 
 ## 7. 当前阶段
 
-当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计、P11 全病理数据库设计、P12 全病理API与接口契约设计、P13 工程基础初始化、P14 授权安全、P15 登记与标本接收、P16 取材与蜡块、P17 组织处理与包埋和 P18 技术医嘱。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
+当前项目已完成 P04 核心业务场景、P05 病理类型覆盖受控修正、P06 全病理业务流程设计、P07 全病理异常场景矩阵、P08 全病理对象状态机、P09 全病理产品需求基线、P10 全病理系统架构设计、P11 全病理数据库设计、P12 全病理API与接口契约设计、P13 工程基础初始化、P14 授权安全、P15 登记与标本接收、P16 取材与蜡块、P17 组织处理与包埋、P18 技术医嘱和 P19 诊断与报告。原有效 P0 40 项继续作为历史基线，新增12项范围扩展决策已正式归档。
 
 历史任务：`P11-ALL-MODALITY-DATABASE-DESIGN-FINAL` 已完成：89个逻辑实体和正式表、96个正式关系、1,164个逻辑列、878项逻辑数据库约束、160个索引，以及全量对象、聚合、不变量、需求、状态机、事件和Q追溯均已通过关闭审查。
 
 历史任务：`P12-ALL-MODALITY-API-INTERFACE-CONTRACT-FINAL` 已完成：53个规范化Schema、70项内部应用能力、12项医院及外部业务接口、21个事件契约、6项文件能力、54项幂等写操作、27项预期版本操作和82个稳定错误代码，协议未确认时未生成OpenAPI/AsyncAPI。
 
-当前任务：`P13-ENGINEERING-FOUNDATION-FINAL` 已完成：Java 21、Maven Wrapper 3.9.16、Spring Boot 4.1.0、Spring Modulith 2.1.0、Vue 3.5.40、Vite 8.1.0、PostgreSQL 18.4参考运行时、Docker、Compose、CI 和 Dependabot 均已建立并通过关闭审查。
+当前任务：`P19-DIAGNOSIS-REPORT-FINAL` 已完成：诊断任务、初诊、复诊/复核、报告业务版本、独立审核、签发事实、补充、更正、撤回和重新签发边界均已建立并通过关闭审查。
 
-当前状态：P18 技术医嘱已完成。P18 只覆盖技术医嘱管理边界，未提前实现实际切片、染色、诊断或报告；下一阶段 P19 尚未启动。
+当前状态：P19 诊断与报告已完成。P19 只覆盖诊断、审核、签发和报告业务版本边界，未提前实现数字切片、AI、冰冻执行、医院接口或生产部署；当前等待启动下一正式阶段。
 
 P0 统计：原始标记 46；当前有效 40；已确认有效 40；待确认有效 0；非 P0 原则/配置项 1；合并并由既有决策覆盖 5；DB-P0-01 当前有效 P0 7、已确认 7、待确认 0，DB-P0-02 当前有效 P0 7、已确认 7、待确认 0，DB-P0-03 当前有效 P0 6、已确认 6、待确认 0，DB-P0-04 当前有效 P0 6、已确认 6、待确认 0，DB-P0-05 当前有效 P0 8、已确认 8、待确认 0，DB-P0-06 当前有效 P0 4、已确认 4、待确认 0，DB-P0-07 当前有效 P0 2、已确认 2、待确认 0。
 
@@ -341,3 +341,16 @@ P16 取材与蜡块实现入口：
 - `implementation/p16-test-evidence.md`：P16 自动化、并发、Docker 和全栈烟测证据；
 - `implementation/p16-traceability.md`：P16 需求、场景、状态、契约、事件和 P15 回归追溯；
 - `reviews/p16-consistency-review.md`：P16 一致性与关闭审查。
+
+P19 诊断与报告实现入口：
+
+- `implementation/p19-implementation-scope.md`：P19 正式范围、责任链、版本与阶段边界；
+- `implementation/p19-domain-data-design.md`：诊断任务、报告聚合、版本快照、修订关系与 V8/V9 迁移；
+- `implementation/p19-diagnosis-review-design.md`：初诊、复诊、独立复核和退回边界；
+- `implementation/p19-report-version-signing-design.md`：报告业务版本、增强认证边界和不可变签发事实；
+- `implementation/p19-amendment-withdrawal-design.md`：补充、更正、撤回和重新签发关系；
+- `implementation/p19-api-security-mapping.md`：P12 API、P14 权限、范围、责任、审计和错误映射；
+- `implementation/p19-frontend-workflow.md`：诊断与报告工作台；
+- `implementation/p19-test-evidence.md`：P19 实际测试、Docker/Compose 和烟测证据；
+- `implementation/p19-traceability.md`：规则、对象、状态、API、权限和验证追溯；
+- `reviews/p19-consistency-review.md`：155 项一致性与关闭审查。

@@ -650,3 +650,214 @@ export function submitTechnicalOrder(
     body: JSON.stringify({ expectedVersion, idempotencyKey }),
   });
 }
+
+export type P19CommandResult = {
+  objectId: string;
+  businessNo: string | null;
+  objectKindCode: string;
+  stateCode: string;
+  concurrencyVersion: number;
+  businessVersion: number;
+  relatedObjectId: string | null;
+  duplicate: boolean;
+  operationIdentity: string;
+  processingStateCode: string;
+  safeRetryCode: string;
+};
+
+export type P19Task = {
+  id: string;
+  taskNo: string;
+  caseId: string;
+  modalityCode: string;
+  categoryCode: string;
+  priorityCode: string;
+  stateCode: string;
+  assignedActor: string | null;
+  responsibleActor: string | null;
+  organizationReference: string;
+  dataScopeCode: string;
+  version: number;
+};
+
+export type P19Report = {
+  id: string;
+  reportNo: string;
+  caseId: string;
+  reportType: string;
+  stateCode: string;
+  currentVersionId: string | null;
+  nextVersionNo: number;
+  version: number;
+};
+
+async function p19Request<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`/api/p19${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const error = body as { error_code?: string; message?: string };
+    throw new Error(`${error.error_code ?? 'P19-REQUEST-FAILED'}: ${error.message ?? '请求失败'}`);
+  }
+  return body as T;
+}
+
+export function getP19DiagnosisQueue(): Promise<P19Task[]> {
+  return p19Request('/diagnosis-queue', { method: 'GET' });
+}
+
+export function createP19DiagnosisTask(input: {
+  caseId: string;
+  modalityCode: string;
+  categoryCode: string;
+  priorityCode: string;
+  dataScopeCode: string;
+  idempotencyKey: string;
+}): Promise<P19CommandResult> {
+  return p19Request('/diagnosis-tasks', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function takeoverP19DiagnosisTask(
+  taskId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/diagnosis-tasks/${taskId}/takeover`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey, reasonText: '诊断责任接管' }),
+  });
+}
+
+export function saveP19DiagnosisDraft(
+  taskId: string,
+  input: {
+    microscopicDescription: string;
+    diagnosisConclusion: string;
+    expectedVersion: number;
+    idempotencyKey: string;
+  },
+): Promise<P19CommandResult> {
+  return p19Request(`/diagnosis-tasks/${taskId}/draft`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitP19Initial(
+  taskId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/diagnosis-tasks/${taskId}/submit-initial`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedVersion, idempotencyKey }),
+  });
+}
+
+export function getP19ReportQueue(): Promise<P19Report[]> {
+  return p19Request('/report-queue', { method: 'GET' });
+}
+
+export function createP19Report(
+  taskId: string,
+  diagnosisVersionId: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/diagnosis-tasks/${taskId}/reports`, {
+    method: 'POST',
+    body: JSON.stringify({ diagnosisVersionId, reportTypeCode: 'HISTOPATHOLOGY', idempotencyKey }),
+  });
+}
+
+export function generateP19ReportContent(
+  reportId: string,
+  input: {
+    diagnosisVersionId: string;
+    patientSnapshot: string;
+    encounterSnapshot: string;
+    caseNoSnapshot: string;
+    specimenMaterialSummary: string;
+    diagnosisConclusion: string;
+    idempotencyKey: string;
+  },
+): Promise<P19CommandResult> {
+  return p19Request(`/reports/${reportId}/content-versions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitP19ReportReview(
+  contentId: string,
+  reviewerActorRef: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/report-content-versions/${contentId}/submit-review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerActorRef, reasonText: '独立复核报告版本', idempotencyKey }),
+  });
+}
+
+export function approveP19Report(
+  contentId: string,
+  reviewerActorRef: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/report-content-versions/${contentId}/review`, {
+    method: 'POST',
+    body: JSON.stringify({
+      reviewerActorRef,
+      decisionCode: 'APPROVED',
+      reasonText: '报告版本审核通过',
+      idempotencyKey,
+    }),
+  });
+}
+
+export function signP19Report(
+  contentId: string,
+  reviewerActorRef: string,
+  expectedReportVersion: number,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/report-content-versions/${contentId}/sign`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerActorRef, expectedReportVersion, idempotencyKey }),
+  });
+}
+
+export function requestP19Supplement(
+  reportId: string,
+  reasonText: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/reports/${reportId}/supplements`, {
+    method: 'POST',
+    body: JSON.stringify({ reasonText, idempotencyKey }),
+  });
+}
+
+export function requestP19Correction(
+  reportId: string,
+  errorTypeCode: string,
+  reasonText: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/reports/${reportId}/corrections`, {
+    method: 'POST',
+    body: JSON.stringify({ errorTypeCode, reasonText, idempotencyKey }),
+  });
+}
+
+export function requestP19Withdrawal(
+  reportId: string,
+  reasonText: string,
+  idempotencyKey: string,
+): Promise<P19CommandResult> {
+  return p19Request(`/reports/${reportId}/withdrawals`, {
+    method: 'POST',
+    body: JSON.stringify({ reasonText, idempotencyKey }),
+  });
+}
