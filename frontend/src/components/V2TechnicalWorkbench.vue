@@ -8,9 +8,11 @@ import {
   executeV2TechnicalOrder,
   getV2TechnicalProjects,
   getV2TechnicalWorkbench,
+  type V2TechnicalItem,
   type V2TechnicalOrder,
   type V2TechnicalProject,
 } from '../v2DiagnosisApi';
+import { completeV2Slides } from '../v2MaterialApi';
 
 const projects = ref<V2TechnicalProject[]>([]);
 const orders = ref<V2TechnicalOrder[]>([]);
@@ -93,6 +95,21 @@ async function enterResult(itemId: string) {
     });
     await refresh();
     notice.value = '结构化结果已保存为可追溯版本。';
+  });
+}
+
+async function completeProducedSlides(order: V2TechnicalOrder, item: V2TechnicalItem) {
+  const slides = item.outputs
+    .filter((output) => output.outputKind === 'SLIDE')
+    .map((output) => ({ slideId: output.outputId, expectedVersion: 0 }));
+  if (!slides.length) return;
+  await submit(async () => {
+    await completeV2Slides({
+      slides,
+      idempotencyKey: key(`v2-technical-slides-complete-${order.orderId}-${item.itemId}`),
+    });
+    await refresh();
+    notice.value = `${order.orderNo} 的技术切片已完成，可返回诊断工作区。`;
   });
 }
 
@@ -229,6 +246,17 @@ async function submit(operation: () => Promise<void>) {
                   Enter result
                 </button>
               </div>
+              <button
+                v-if="
+                  item.outputs.some((output) => output.outputKind === 'SLIDE') &&
+                  item.status !== 'COMPLETED'
+                "
+                type="button"
+                :disabled="submitting"
+                @click="completeProducedSlides(order, item)"
+              >
+                Complete produced slides
+              </button>
             </li>
           </ul>
           <div class="order-actions">

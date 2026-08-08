@@ -20,9 +20,11 @@ export default tseslint.config(
     },
     rules: {
       'vue/multi-word-component-names': 'off',
-      'vue/max-attributes-per-line': ['error', { singleline: 4 }],
+      // Prettier owns Vue attribute wrapping and multiline element content.
+      'vue/max-attributes-per-line': 'off',
       'vue/html-self-closing': 'off',
       'vue/singleline-html-element-content-newline': 'off',
+      'vue/multiline-html-element-content-newline': 'off',
       // Prettier owns Vue template wrapping and indentation.
       'vue/html-closing-bracket-newline': 'off',
       'vue/html-indent': 'off',

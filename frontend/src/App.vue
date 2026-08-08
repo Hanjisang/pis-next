@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import V2Home from './components/V2Home.vue';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
 import V2MaterialProductionWorkbench from './components/V2MaterialProductionWorkbench.vue';
+import V2OperationsWorkbench from './components/V2OperationsWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 
@@ -14,6 +15,9 @@ const showRegistration = workspace === 'v2-registration';
 const showMaterial = workspace === 'v2';
 const showDiagnosis = workspace === 'v2-diagnosis';
 const showTechnical = workspace === 'v2-technical';
+const operationsMode = ['frozen', 'digital', 'custody', 'quality'].includes(workspace)
+  ? (workspace as 'frozen' | 'digital' | 'custody' | 'quality')
+  : null;
 const v2CaseId = ref(workspaceQuery.get('caseId') ?? '');
 
 const title = showRegistration
@@ -43,6 +47,7 @@ const title = showRegistration
     <V2MaterialProductionWorkbench v-if="showMaterial" v-model:case-id="v2CaseId" />
     <V2DiagnosisWorkspace v-if="showDiagnosis" v-model:case-id="v2CaseId" />
     <V2TechnicalWorkbench v-if="showTechnical" />
+    <V2OperationsWorkbench v-if="operationsMode" :mode="operationsMode" :case-id="v2CaseId" />
 
     <footer>
       <span>PIS V2 · 病例、材料、诊断、报告全程追溯</span

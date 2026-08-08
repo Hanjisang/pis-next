@@ -11,6 +11,6 @@ describe('PIS Next V2 workbench', () => {
     expect(wrapper.text()).toContain('今天，从待办开始');
     expect(wrapper.text()).toContain('诊断');
     expect(wrapper.text()).toContain('归档借阅');
-    expect(wrapper.findAll('.v2-nav-item')).toHaveLength(12);
+    expect(wrapper.findAll('.v2-nav-item')).toHaveLength(13);
   });
 });
