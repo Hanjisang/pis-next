@@ -13,6 +13,6 @@ class ModuleBoundariesTest {
 
         modules.verify();
 
-        assertThat(modules.stream()).hasSize(15);
+        assertThat(modules.stream()).hasSize(17);
     }
 }
