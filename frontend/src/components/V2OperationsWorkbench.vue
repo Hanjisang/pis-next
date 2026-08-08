@@ -51,6 +51,11 @@ const title = computed(() => {
   return '质控与统计';
 });
 
+function openFrozenMaterials() {
+  if (!caseId.value.trim() || !selectedRoundId.value) return;
+  window.location.href = `?workspace=v2&caseId=${encodeURIComponent(caseId.value.trim())}&roundId=${encodeURIComponent(selectedRoundId.value)}`;
+}
+
 function idempotencyKey(prefix: string) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
@@ -410,6 +415,13 @@ type StatisticsSummary = {
             @click="createFrozenDiagnosis"
           >
             建立快速诊断
+          </button>
+          <button
+            type="button"
+            :disabled="submitting || !selectedRoundId"
+            @click="openFrozenMaterials"
+          >
+            打开本轮材料生产
           </button>
           <button type="button" :disabled="submitting || !caseId" @click="finishFrozen">
             结束冰冻并转常规

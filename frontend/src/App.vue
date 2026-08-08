@@ -19,6 +19,7 @@ const operationsMode = ['frozen', 'digital', 'custody', 'quality'].includes(work
   ? (workspace as 'frozen' | 'digital' | 'custody' | 'quality')
   : null;
 const v2CaseId = ref(workspaceQuery.get('caseId') ?? '');
+const v2RoundId = workspaceQuery.get('roundId') ?? '';
 
 const title = showRegistration
   ? '登记与标本'
@@ -44,7 +45,12 @@ const title = showRegistration
 
     <V2Home v-if="showHome" />
     <V2RegistrationWorkbench v-if="showRegistration" />
-    <V2MaterialProductionWorkbench v-if="showMaterial" v-model:case-id="v2CaseId" />
+    <V2MaterialProductionWorkbench
+      v-if="showMaterial"
+      v-model:case-id="v2CaseId"
+      :source-type="v2RoundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
+      :source-reference-id="v2RoundId || undefined"
+    />
     <V2DiagnosisWorkspace v-if="showDiagnosis" v-model:case-id="v2CaseId" />
     <V2TechnicalWorkbench v-if="showTechnical" />
     <V2OperationsWorkbench v-if="operationsMode" :mode="operationsMode" :case-id="v2CaseId" />

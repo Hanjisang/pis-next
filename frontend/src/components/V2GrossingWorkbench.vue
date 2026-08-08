@@ -11,6 +11,10 @@ import {
   type V2GrossingResult,
 } from '../v2MaterialApi';
 
+const props = withDefaults(defineProps<{ sourceType?: string; sourceReferenceId?: string }>(), {
+  sourceType: 'INITIAL',
+  sourceReferenceId: undefined,
+});
 const caseId = defineModel<string>('caseId', { default: '' });
 const grossDescription = ref('synthetic gross description');
 const grossingInstruction = ref('synthetic instruction');
@@ -53,12 +57,13 @@ function submitGrossing() {
   void run(async () => {
     grossing.value = await createV2Grossing({
       caseId: caseId.value,
-      sourceType: 'INITIAL',
+      sourceType: props.sourceType,
+      sourceReferenceId: props.sourceReferenceId,
       grossDescription: grossDescription.value,
       grossingInstruction: grossingInstruction.value,
       grossingDoctorId: grossingDoctorId.value,
       recorderId: recorderId.value,
-      idempotencyKey: `v2-grossing-${caseId.value}`,
+      idempotencyKey: `v2-grossing-${caseId.value}-${props.sourceType}-${props.sourceReferenceId ?? 'initial'}`,
     });
     notice.value = `Grossing ${grossing.value.grossingNo} 已建立；多标本关联通过独立命令完成。`;
   });

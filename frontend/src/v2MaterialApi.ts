@@ -85,6 +85,7 @@ async function materialRequest<T>(path: string, init: RequestInit = {}): Promise
 export function createV2Grossing(input: {
   caseId: string;
   sourceType: string;
+  sourceReferenceId?: string;
   grossDescription: string;
   grossingInstruction?: string;
   grossingDoctorId: string;
