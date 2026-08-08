@@ -360,12 +360,18 @@ P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINA
 
 ## 8. V2 Domain Reset 独立设计线
 
-V2 领域重构在 `docs/v2/` 中独立维护，不把现有 P05 文档直接冻结为实现，也不读取外部旧 PIS 材料。第一阶段已完成 P00-P03，并建立 P04-P09 后续计划入口：
+V2 领域重构在 `docs/v2/` 中独立维护，不把现有 P05 文档直接冻结为实现，也不读取外部旧 PIS 材料。P00-P09 前期设计已完成封版：
 
 - `v2/P00-current-system-audit.md`：当前仓库和旧语义审计；
 - `v2/P01-domain-model.md`：V2 核心领域模型；
 - `v2/P02-domain-invariants.md`：V2 领域不变量；
 - `v2/P03-module-boundaries.md`：V2 模块边界；
-- `v2/phase-1-change-summary.md`：第一阶段变更摘要。
+- `v2/P04-data-model.md`：V2 五层数据模型；
+- `v2/P05-migration-plan.md`：基于当前实现的迁移映射和对账；
+- `v2/P06-api-plan.md`：Query/Command API 设计；
+- `v2/P07-frontend-plan.md`：角色工作台和诊断工作区；
+- `v2/P08-test-plan.md`：不变量、架构和场景测试；
+- `v2/P09-cutover-plan.md`：渐进切换和封版门禁；
+- `v2/design-freeze-report.md`：设计封版报告。
 
-V2 当前仍未进入新的业务代码、数据库、API、页面实现或数据迁移；现有 P15-P19 工程实现已在 P00 中审计，但尚未通过 V2 领域准入。原有项目阶段记录继续保留并与 V2 设计线隔离。
+V2 当前仍未进入新的业务代码、数据库、API、页面实现或数据迁移；现有 P15-P19 工程实现已在 P00 中审计，但尚未作为 V2 领域正确性证明。Design Gate 已通过前期设计封版，Runtime/Cutover Gate 仍未就绪。下一任务为 V2-I01：Case / BusinessType / ApplicationItemMapping / PathologyNumberRule / Specimen 基础领域实现。原有项目阶段记录继续保留并与 V2 设计线隔离。

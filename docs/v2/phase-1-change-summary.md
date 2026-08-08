@@ -11,7 +11,7 @@
 - `P01-domain-model.md`：Case、Specimen、Grossing、Block、Slide、Diagnosis、Report、TechnicalOrder 等 V2 模型；
 - `P02-domain-invariants.md`：54 条 V2 身份、来源、责任、报告、接口和治理不变量；
 - `P03-module-boundaries.md`：模块所有权、依赖、聚合和模块化单体边界；
-- `P04` 至 `P09`：数据、迁移、API、前端、测试和切换计划入口；
+- `P04` 至 `P09`：第一阶段建立的数据、迁移、API、前端、测试和切换设计入口；本轮已由设计封版阶段完成为正式基线；
 - `apps/backend-v2`、`apps/frontend-v2`、`tests/v2`：仅为空目录占位的 V2 隔离边界；现有运行代码仍在 `backend/` 和 `frontend/`。
 
 ## 重构定义
@@ -43,6 +43,6 @@
 ## 剩余风险
 
 - V2 仍处于设计阶段；现有 P15-P19 代码和测试可运行性不能证明 V2 领域正确；
-- P04-P09 是计划，不是已完成的数据库、迁移、API、前端、测试或切换实现；
+- 第一阶段结束时 P04-P09 仅为计划入口；本轮封版后仍不是已完成的数据库、迁移、API、前端、测试或切换实现，正式设计基线见 P04-P09 和 design-freeze-report.md；
 - 具体编号、模板、签发组合、技术医嘱阻断条件、保留期限和医院数据范围仍为“待业务确认”；
 - 旧 PIS 数据映射必须在获得明确授权后，于隔离迁移工作区完成。
