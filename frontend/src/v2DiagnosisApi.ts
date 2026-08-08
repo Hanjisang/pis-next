@@ -193,6 +193,10 @@ export function getV2DiagnosisWorkspace(caseId: string): Promise<V2DiagnosisWork
   return diagnosisRequest(`/diagnosis-workspaces/${caseId}`);
 }
 
+export function getV2FrozenRoundDiagnosisWorkspace(roundId: string): Promise<V2DiagnosisWorkspace> {
+  return diagnosisRequest(`/diagnosis-workspaces/frozen-rounds/${roundId}`);
+}
+
 export function getV2ReportPreview(diagnosisId: string, templateVersionId?: string) {
   const query = templateVersionId
     ? `?templateVersionId=${encodeURIComponent(templateVersionId)}`

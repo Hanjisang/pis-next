@@ -56,6 +56,14 @@ function openFrozenMaterials() {
   window.location.href = `?workspace=v2&caseId=${encodeURIComponent(caseId.value.trim())}&roundId=${encodeURIComponent(selectedRoundId.value)}`;
 }
 
+function openFrozenDiagnosis() {
+  const round = frozenWorkspace.value?.rounds.find(
+    (item) => item.roundId === selectedRoundId.value,
+  );
+  if (!caseId.value.trim() || !round?.diagnosisId) return;
+  window.location.href = `?workspace=v2-diagnosis&caseId=${encodeURIComponent(caseId.value.trim())}&roundId=${encodeURIComponent(round.roundId)}`;
+}
+
 function idempotencyKey(prefix: string) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
@@ -415,6 +423,18 @@ type StatisticsSummary = {
             @click="createFrozenDiagnosis"
           >
             建立快速诊断
+          </button>
+          <button
+            type="button"
+            :disabled="
+              submitting ||
+              !selectedRoundId ||
+              !frozenWorkspace?.rounds.find((round) => round.roundId === selectedRoundId)
+                ?.diagnosisId
+            "
+            @click="openFrozenDiagnosis"
+          >
+            进入快速诊断与签发
           </button>
           <button
             type="button"

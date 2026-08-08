@@ -51,7 +51,11 @@ const title = showRegistration
       :source-type="v2RoundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
       :source-reference-id="v2RoundId || undefined"
     />
-    <V2DiagnosisWorkspace v-if="showDiagnosis" v-model:case-id="v2CaseId" />
+    <V2DiagnosisWorkspace
+      v-if="showDiagnosis"
+      v-model:case-id="v2CaseId"
+      :frozen-round-id="v2RoundId || undefined"
+    />
     <V2TechnicalWorkbench v-if="showTechnical" />
     <V2OperationsWorkbench v-if="operationsMode" :mode="operationsMode" :case-id="v2CaseId" />
 

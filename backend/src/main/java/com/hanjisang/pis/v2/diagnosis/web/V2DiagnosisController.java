@@ -102,6 +102,11 @@ public class V2DiagnosisController {
         return service.workspace(caseId);
     }
 
+    @GetMapping("/diagnosis-workspaces/frozen-rounds/{roundId}")
+    public V2DiagnosisApplicationService.DiagnosisWorkspaceResult frozenRoundWorkspace(@PathVariable UUID roundId) {
+        return service.frozenRoundWorkspace(roundId);
+    }
+
     @GetMapping("/diagnosis-workspaces/public-pool")
     public List<V2DiagnosisApplicationService.PublicPoolEntry> publicPool() {
         return service.publicPool();

@@ -304,19 +304,36 @@ public class V2DiagnosisApplicationService {
         ActorContext actor = authorization.require(DIAGNOSIS_VIEW);
         Case pathologyCase = registrationRepository.findCase(caseId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
+        Diagnosis diagnosis = repository.findDiagnosisByCase(caseId, actor.hospitalScope()).orElse(null);
+        return workspaceForDiagnosis(pathologyCase, diagnosis, actor);
+    }
+
+    @Transactional(readOnly = true)
+    public DiagnosisWorkspaceResult frozenRoundWorkspace(UUID roundId) {
+        ActorContext actor = authorization.require(DIAGNOSIS_VIEW);
+        Diagnosis diagnosis = repository.findDiagnosisByContext(DiagnosisContextType.FROZEN_ROUND, roundId,
+                actor.hospitalScope()).orElseThrow(() -> reject("V2-FROZEN-DIAGNOSIS-NOT-FOUND", "冰冻轮次诊断不存在"));
+        Case pathologyCase = registrationRepository.findCase(diagnosis.caseId(), actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
+        return workspaceForDiagnosis(pathologyCase, diagnosis, actor);
+    }
+
+    private DiagnosisWorkspaceResult workspaceForDiagnosis(Case pathologyCase, Diagnosis diagnosis,
+            ActorContext actor) {
+        UUID caseId = pathologyCase.id();
         List<MaterialTreeRow> rows = materialRepository.findMaterialTree(caseId, actor.hospitalScope());
         MaterialTreeResult materialTree = materialTree(pathologyCase, rows);
         List<DigitalSlideView> digitalSlides = digitalSlideRepository.findByCase(caseId, actor.hospitalScope()).stream()
                 .map(item -> new DigitalSlideView(item.id(), item.blockId(), item.slideId(), item.statusCode(),
                         item.viewerReference(), item.sourcePlatform())).toList();
-        Diagnosis diagnosis = repository.findDiagnosisByCase(caseId, actor.hospitalScope()).orElse(null);
         DiagnosisTemplateVersion templateVersion = diagnosis == null ? null
                 : repository.findTemplateVersion(diagnosis.templateVersionId(), actor.hospitalScope()).orElse(null);
         List<ResponsibilityUnit> responsibilities = diagnosis == null ? List.of()
                 : repository.findResponsibilities(diagnosis.id(), actor.hospitalScope());
         ResponsibilityUnit current = responsibilities.stream().filter(ResponsibilityUnit::isCurrent)
                 .max(java.util.Comparator.comparingInt(ResponsibilityUnit::sequence)).orElse(null);
-        boolean materialReady = materialTree.initialProductionComplete();
+        boolean materialReady = diagnosis != null && diagnosis.contextType() == DiagnosisContextType.FROZEN_ROUND
+                || materialTree.initialProductionComplete();
         boolean active = Case.ACTIVE.equals(pathologyCase.lifecycleStateCode());
         boolean hasInitialHistory = responsibilities.stream().anyMatch(item -> item.role() == ResponsibilityRole.INITIAL);
         boolean actorCurrent = current != null && actor.actorId().equals(current.doctorId());

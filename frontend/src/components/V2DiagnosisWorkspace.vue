@@ -6,6 +6,7 @@ import {
   claimV2Diagnosis,
   completeV2Responsibility,
   getV2DiagnosisWorkspace,
+  getV2FrozenRoundDiagnosisWorkspace,
   getV2TechnicalProjects,
   createV2TechnicalOrder,
   getV2ReportPreview,
@@ -44,6 +45,7 @@ type TechnicalDraft = {
 const caseId = defineModel<string>('caseId', {
   default: new URLSearchParams(window.location.search).get('caseId') ?? '',
 });
+const props = defineProps<{ frozenRoundId?: string }>();
 
 const workspace = ref<DiagnosisWorkspace | null>(null);
 const loading = ref(false);
@@ -95,7 +97,9 @@ async function loadWorkspace() {
   loading.value = true;
   error.value = '';
   try {
-    workspace.value = await getV2DiagnosisWorkspace(caseId.value);
+    workspace.value = props.frozenRoundId
+      ? await getV2FrozenRoundDiagnosisWorkspace(props.frozenRoundId)
+      : await getV2DiagnosisWorkspace(caseId.value);
     const diagnosis = workspace.value.diagnosis;
     structuredData.value = diagnosis?.structuredData ?? '{}';
     structuredValues.value = parseStructuredValues(structuredData.value);

@@ -103,6 +103,9 @@ class V2FrozenWebTest {
                         {"structuredData":"{}","diagnosisText":"synthetic frozen diagnosis",
                          "expectedVersion":0,"idempotencyKey":"frozen-diagnosis-save-1"}"""))
                 .andExpect(status().isOk());
+        JsonNode diagnosisWorkspace = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/frozen-rounds/%s".formatted(roundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(diagnosisWorkspace.get("diagnosis").get("diagnosisId").asText()).isEqualTo(diagnosisId);
         JsonNode initial = complete(diagnosisId, "/complete-initial", "AUDIT", "frozen-complete-initial-1");
         complete(diagnosisId, "/complete-audit", null, "frozen-complete-audit-1");
         JsonNode report = json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))
