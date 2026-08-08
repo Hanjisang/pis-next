@@ -354,3 +354,18 @@ P19 诊断与报告实现入口：
 - `implementation/p19-test-evidence.md`：P19 实际测试、Docker/Compose 和烟测证据；
 - `implementation/p19-traceability.md`：规则、对象、状态、API、权限和验证追溯；
 - `reviews/p19-consistency-review.md`：155 项一致性与关闭审查。
+P05-001-FINAL 的原范围关闭审查和 `P05-MODALITY-COVERAGE-CORRECTION-FINAL` 的范围扩展复审均已完成。P05 当前已重新关闭；本任务未进入数据库、API、页面、代码或完整状态机设计。
+
+---
+
+## 8. V2 Domain Reset 独立设计线
+
+V2 领域重构在 `docs/v2/` 中独立维护，不把现有 P05 文档直接冻结为实现，也不读取外部旧 PIS 材料。第一阶段已完成 P00-P03，并建立 P04-P09 后续计划入口：
+
+- `v2/P00-current-system-audit.md`：当前仓库和旧语义审计；
+- `v2/P01-domain-model.md`：V2 核心领域模型；
+- `v2/P02-domain-invariants.md`：V2 领域不变量；
+- `v2/P03-module-boundaries.md`：V2 模块边界；
+- `v2/phase-1-change-summary.md`：第一阶段变更摘要。
+
+V2 当前仍未进入业务代码、数据库、API、页面实现或数据迁移；原有项目阶段记录继续保留并与 V2 设计线隔离。
