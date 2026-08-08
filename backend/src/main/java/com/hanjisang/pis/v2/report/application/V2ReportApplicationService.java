@@ -27,6 +27,7 @@ import com.hanjisang.pis.v2.diagnosis.domain.Diagnosis;
 import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityRole;
 import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityUnit;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
+import com.hanjisang.pis.v2.frozen.application.V2FrozenApplicationService;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
@@ -57,6 +58,7 @@ public class V2ReportApplicationService {
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
     private final V2ReportPdfRenderer pdfRenderer;
+    private final V2FrozenApplicationService frozenService;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules()
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
@@ -65,7 +67,7 @@ public class V2ReportApplicationService {
             JdbcV2MaterialRepository materialRepository, JdbcV2TechnicalOrderRepository technicalRepository,
             V2TechnicalOrderApplicationService technicalOrderService, P15AuthorizationService authorization,
             JdbcAuditEventRepository audit, OutboxPort outbox,
-            V2ReportPdfRenderer pdfRenderer) {
+            V2ReportPdfRenderer pdfRenderer, V2FrozenApplicationService frozenService) {
         this.repository = repository;
         this.diagnosisRepository = diagnosisRepository;
         this.registrationRepository = registrationRepository;
@@ -76,6 +78,7 @@ public class V2ReportApplicationService {
         this.audit = audit;
         this.outbox = outbox;
         this.pdfRenderer = pdfRenderer;
+        this.frozenService = frozenService;
     }
 
     @Transactional(readOnly = true)
@@ -327,6 +330,9 @@ public class V2ReportApplicationService {
                 fileReference, rendered.pdfContentHash(), actor.actorId(), now, null, null, null, 0, now, actor.actorId());
         repository.insertReport(report);
         repository.insertPdf(reportId, fileReference, rendered.pdf(), rendered.pdfContentHash(), now, actor.actorId());
+        if (nature == ReportNature.ORIGINAL && diagnosis.contextType() == com.hanjisang.pis.v2.diagnosis.domain.DiagnosisContextType.FROZEN_ROUND) {
+            frozenService.markReportSigned(diagnosis.id(), actor.hospitalScope());
+        }
         repository.insertIdempotency(operation, idempotencyKey, digest, reportId, now, actor.actorId());
         audit.append(nature == ReportNature.ORIGINAL ? "PIS-V2-I05-REPORT-SIGN-OUT" : "PIS-V2-I05-REPORT-SUPPLEMENT",
                 REPORT_SIGN_OUT, actor, "ALLOWED", "COMPLETED", reportId, "V2-REPORT", UUID.randomUUID().toString(),

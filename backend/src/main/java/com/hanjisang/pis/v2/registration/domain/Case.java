@@ -18,13 +18,15 @@ public final class Case {
     private final String businessTypeCode;
     private final String patientReference;
     private final String visitReference;
+    private final UUID frozenSourceCaseId;
     private String lifecycleStateCode;
     private boolean numberBindingActive;
     private long concurrencyVersion;
 
     private Case(UUID id, String caseNo, String sourceSystemCode, String externalApplicationId,
             String applicationItemCode, UUID businessTypeId, String businessTypeCode, String patientReference,
-            String visitReference, String lifecycleStateCode, boolean numberBindingActive, long concurrencyVersion) {
+            String visitReference, UUID frozenSourceCaseId, String lifecycleStateCode, boolean numberBindingActive,
+            long concurrencyVersion) {
         this.id = Objects.requireNonNull(id, "病例内部ID不能为空");
         this.caseNo = required(caseNo, "病例病理号不能为空");
         this.sourceSystemCode = required(sourceSystemCode, "申请来源系统不能为空");
@@ -34,6 +36,7 @@ public final class Case {
         this.businessTypeCode = required(businessTypeCode, "业务类型编码不能为空");
         this.patientReference = required(patientReference, "患者上下文引用不能为空");
         this.visitReference = visitReference == null || visitReference.isBlank() ? null : visitReference.trim();
+        this.frozenSourceCaseId = frozenSourceCaseId;
         if (!ACTIVE.equals(lifecycleStateCode) && !CANCELLED.equals(lifecycleStateCode)) {
             throw new IllegalArgumentException("病例生命周期只能是ACTIVE或CANCELLED");
         }
@@ -52,15 +55,34 @@ public final class Case {
             String applicationItemCode, UUID businessTypeId, String businessTypeCode, String patientReference,
             String visitReference) {
         return new Case(id, caseNo, sourceSystemCode, externalApplicationId, applicationItemCode, businessTypeId,
-                businessTypeCode, patientReference, visitReference, ACTIVE, true, 0);
+                businessTypeCode, patientReference, visitReference, null, ACTIVE, true, 0);
+    }
+
+    public static Case routineFromFrozen(UUID id, String caseNo, String sourceSystemCode,
+            String externalApplicationId, String applicationItemCode, UUID businessTypeId, String businessTypeCode,
+            String patientReference, String visitReference, UUID frozenSourceCaseId) {
+        if (frozenSourceCaseId == null) {
+            throw new IllegalArgumentException("冰冻转常规病例必须保留来源病例");
+        }
+        return new Case(id, caseNo, sourceSystemCode, externalApplicationId, applicationItemCode, businessTypeId,
+                businessTypeCode, patientReference, visitReference, frozenSourceCaseId, ACTIVE, true, 0);
     }
 
     public static Case persisted(UUID id, String caseNo, String sourceSystemCode, String externalApplicationId,
             String applicationItemCode, UUID businessTypeId, String businessTypeCode, String patientReference,
             String visitReference, String lifecycleStateCode, boolean numberBindingActive, long concurrencyVersion) {
         return new Case(id, caseNo, sourceSystemCode, externalApplicationId, applicationItemCode, businessTypeId,
-                businessTypeCode, patientReference, visitReference, lifecycleStateCode, numberBindingActive,
+                businessTypeCode, patientReference, visitReference, null, lifecycleStateCode, numberBindingActive,
                 concurrencyVersion);
+    }
+
+    public static Case persistedWithFrozenSource(UUID id, String caseNo, String sourceSystemCode,
+            String externalApplicationId, String applicationItemCode, UUID businessTypeId, String businessTypeCode,
+            String patientReference, String visitReference, UUID frozenSourceCaseId, String lifecycleStateCode,
+            boolean numberBindingActive, long concurrencyVersion) {
+        return new Case(id, caseNo, sourceSystemCode, externalApplicationId, applicationItemCode, businessTypeId,
+                businessTypeCode, patientReference, visitReference, frozenSourceCaseId, lifecycleStateCode,
+                numberBindingActive, concurrencyVersion);
     }
 
     public void cancel(String reason, Instant cancelledAt) {
@@ -83,6 +105,7 @@ public final class Case {
     public String businessTypeCode() { return businessTypeCode; }
     public String patientReference() { return patientReference; }
     public String visitReference() { return visitReference; }
+    public UUID frozenSourceCaseId() { return frozenSourceCaseId; }
     public String lifecycleStateCode() { return lifecycleStateCode; }
     public boolean numberBindingActive() { return numberBindingActive; }
     public long concurrencyVersion() { return concurrencyVersion; }

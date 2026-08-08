@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS pis_v2.pathology_case (
     external_application_id VARCHAR(256) NOT NULL, application_item_code VARCHAR(128) NOT NULL,
     business_type_id UUID NOT NULL, lifecycle_state_code VARCHAR(32) NOT NULL,
     number_binding_active BOOLEAN NOT NULL, concurrency_version BIGINT NOT NULL,
+    frozen_source_case_id UUID,
     organization_reference VARCHAR(128) NOT NULL, cancelled_at TIMESTAMP WITH TIME ZONE,
     cancelled_by_ref VARCHAR(128), cancellation_reason VARCHAR(2000), created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, case_no)
@@ -415,3 +416,23 @@ INSERT INTO pis_v2.report_template_version
 VALUES ('00000000-0000-0000-0000-00000000b502', '00000000-0000-0000-0000-00000000b501', 1,
         '{"sections":["CASE","PATIENT","MATERIAL","DIAGNOSIS","RESPONSIBILITY","TECHNICAL_RESULTS","SIGN_OUT"]}',
         'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
+
+CREATE TABLE IF NOT EXISTS pis_v2.frozen_round (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, round_no INTEGER NOT NULL,
+    status_code VARCHAR(32) NOT NULL, arrival_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    registered_at TIMESTAMP WITH TIME ZONE NOT NULL, grossing_start_time TIMESTAMP WITH TIME ZONE,
+    slide_completed_time TIMESTAMP WITH TIME ZONE, diagnosis_signed_time TIMESTAMP WITH TIME ZONE,
+    ended_at TIMESTAMP WITH TIME ZONE, ended_by_ref VARCHAR(128), concurrency_version BIGINT NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, UNIQUE (case_id, round_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.frozen_round_specimen (
+    frozen_round_id UUID NOT NULL, specimen_id UUID NOT NULL, sequence_no INTEGER NOT NULL,
+    linked_at TIMESTAMP WITH TIME ZONE NOT NULL, linked_by_ref VARCHAR(128) NOT NULL,
+    PRIMARY KEY (frozen_round_id, specimen_id), UNIQUE (frozen_round_id, sequence_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.frozen_end (
+    id UUID PRIMARY KEY, frozen_case_id UUID NOT NULL UNIQUE, routine_case_id UUID NOT NULL UNIQUE,
+    idempotency_key VARCHAR(256) NOT NULL UNIQUE, ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ended_by_ref VARCHAR(128) NOT NULL
+);

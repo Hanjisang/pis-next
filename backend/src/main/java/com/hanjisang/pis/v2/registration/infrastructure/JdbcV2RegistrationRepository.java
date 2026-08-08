@@ -44,6 +44,15 @@ public class JdbcV2RegistrationRepository {
                                 rs.getBoolean("mapping_active")))) : Optional.empty(), applicationItemCode);
     }
 
+    public Optional<BusinessType> findBusinessType(String businessTypeCode) {
+        return jdbcTemplate.query("""
+                SELECT id, business_type_code, display_name, modality_code, active, configuration_version
+                FROM pis_v2.business_type WHERE business_type_code = ?
+                """, rs -> rs.next() ? Optional.of(BusinessType.define(rs.getObject("id", UUID.class),
+                rs.getString("business_type_code"), rs.getString("display_name"), rs.getString("modality_code"),
+                rs.getBoolean("active"), rs.getInt("configuration_version"))) : Optional.empty(), businessTypeCode);
+    }
+
     public String allocateNumber(String organizationReference, String businessTypeCode, String numberKindCode,
             Instant now) {
         NumberRuleRow row = jdbcTemplate.query("""
@@ -112,12 +121,13 @@ public class JdbcV2RegistrationRepository {
                 INSERT INTO pis_v2.pathology_case
                     (id, case_no, source_system_code, external_application_id, application_item_code,
                      business_type_id, lifecycle_state_code, number_binding_active, concurrency_version,
-                     organization_reference, created_at, created_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     frozen_source_case_id, organization_reference, created_at, created_by_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.sourceSystemCode(),
                 pathologyCase.externalApplicationId(), pathologyCase.applicationItemCode(), pathologyCase.businessTypeId(),
                 pathologyCase.lifecycleStateCode(), pathologyCase.numberBindingActive(),
-                pathologyCase.concurrencyVersion(), organizationReference, Timestamp.from(now), actorRef);
+                pathologyCase.concurrencyVersion(), pathologyCase.frozenSourceCaseId(), organizationReference,
+                Timestamp.from(now), actorRef);
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.case_context_snapshot
                     (id, case_id, patient_reference, visit_reference, snapshot_version_no, captured_at, captured_by_ref)
@@ -130,17 +140,18 @@ public class JdbcV2RegistrationRepository {
         return jdbcTemplate.query("""
                 SELECT c.id, c.case_no, c.source_system_code, c.external_application_id, c.application_item_code,
                        c.business_type_id, bt.business_type_code, s.patient_reference, s.visit_reference,
-                       c.lifecycle_state_code, c.number_binding_active, c.concurrency_version
+                       c.frozen_source_case_id, c.lifecycle_state_code, c.number_binding_active, c.concurrency_version
                 FROM pis_v2.pathology_case c
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                 JOIN pis_v2.case_context_snapshot s ON s.case_id = c.id AND s.snapshot_version_no = 1
                 WHERE c.id = ? AND c.organization_reference = ?
-                """, rs -> rs.next() ? Optional.of(Case.persisted(rs.getObject("id", UUID.class),
+                """, rs -> rs.next() ? Optional.of(Case.persistedWithFrozenSource(rs.getObject("id", UUID.class),
                         rs.getString("case_no"), rs.getString("source_system_code"),
                         rs.getString("external_application_id"), rs.getString("application_item_code"),
                         rs.getObject("business_type_id", UUID.class), rs.getString("business_type_code"),
                         rs.getString("patient_reference"), rs.getString("visit_reference"),
-                        rs.getString("lifecycle_state_code"), rs.getBoolean("number_binding_active"),
+                        rs.getObject("frozen_source_case_id", UUID.class), rs.getString("lifecycle_state_code"),
+                        rs.getBoolean("number_binding_active"),
                         rs.getLong("concurrency_version"))) : Optional.empty(), caseId, organizationReference);
     }
 

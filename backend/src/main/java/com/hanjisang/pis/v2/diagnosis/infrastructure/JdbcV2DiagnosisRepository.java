@@ -82,6 +82,18 @@ public class JdbcV2DiagnosisRepository {
                 organizationReference);
     }
 
+    public Optional<Diagnosis> findDiagnosisByContext(DiagnosisContextType contextType, UUID contextId,
+            String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT d.id, d.case_id, d.context_type, d.context_id, d.template_version_id,
+                       d.structured_data, d.microscopic_description, d.diagnosis_text, d.comment_text,
+                       d.concurrency_version, d.created_at, d.created_by_ref, d.updated_at, d.updated_by_ref
+                FROM pis_v2.diagnosis d
+                WHERE d.context_type = ? AND d.context_id = ? AND d.organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(toDiagnosis(rs)) : Optional.empty(), contextType.name(), contextId,
+                organizationReference);
+    }
+
     public void insertDiagnosis(Diagnosis diagnosis, String organizationReference, Instant now, String actorRef) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.diagnosis

@@ -52,6 +52,13 @@ public final class Diagnosis {
                 microscopicDescription, diagnosisText, comment, 0, now, actorRef, now, actorRef);
     }
 
+    public static Diagnosis createForContext(UUID id, UUID caseId, DiagnosisContextType contextType, UUID contextId,
+            UUID templateVersionId, String structuredData, String microscopicDescription, String diagnosisText,
+            String comment, Instant now, String actorRef) {
+        return new Diagnosis(id, caseId, contextType, contextId, templateVersionId, structuredData,
+                microscopicDescription, diagnosisText, comment, 0, now, actorRef, now, actorRef);
+    }
+
     public static Diagnosis persisted(UUID id, UUID caseId, DiagnosisContextType contextType, UUID contextId,
             UUID templateVersionId, String structuredData, String microscopicDescription, String diagnosisText,
             String comment, long version, Instant createdAt, String createdBy, Instant updatedAt, String updatedBy) {

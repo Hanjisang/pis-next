@@ -294,7 +294,8 @@ public class V2MaterialProductionApplicationService {
         }
         UUID businessTypeId = repository.findCaseBusinessTypeId(grossing.caseId(), actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "病例业务类型不存在"));
-        List<SlideRule> rules = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.INITIAL,
+        String slideContext = Grossing.FROZEN_CONTEXT.equals(grossing.sourceType()) ? Slide.FROZEN_ROUND : Slide.INITIAL;
+        List<SlideRule> rules = repository.findSlideRules(actor.hospitalScope(), businessTypeId, slideContext,
                 "ON_GROSSING_COMPLETE");
         if (rules.isEmpty()) {
             throw reject("V2-SLIDE-RULE-MISSING", "当前业务类型没有生效的初始切片规则");
@@ -307,8 +308,9 @@ public class V2MaterialProductionApplicationService {
                     if (repository.slideOutputExists(block.id(), rule.sourceContextType(), rule.ruleCode(), occurrence)) {
                         continue;
                     }
-                    Slide slide = Slide.initialFromBlock(UUID.randomUUID(), block.caseId(), block.id(),
-                            rule.slideCode(block.blockCode(), occurrence), rule.slideType(), grossing.id(),
+                    Slide slide = Slide.fromBlockContext(UUID.randomUUID(), block.caseId(), block.id(),
+                            rule.slideCode(block.blockCode(), occurrence), rule.slideType(), slideContext,
+                            Slide.INITIAL.equals(slideContext) ? grossing.id() : grossing.sourceReferenceId(),
                             rule.ruleCode(), occurrence, true);
                     repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
                     createdSlides.add(slide);
