@@ -1,156 +1,322 @@
 # PIS-Next V2 P00 当前系统审计
 
 文档状态：已完成
-文档版本：V2-0.1
+文档版本：V2-0.2
 审计日期：2026-08-08
+审计基线：远程 `origin/main` 的 `e8abc9b` 加本轮文档提交
 审计范围：`D:\Projects\pis-next` 当前 Git 工作区
 审计原则：净室设计；未读取、未分析任何外部旧 PIS 材料
 
 ## 1. 审计结论
 
-当前仓库不是可运行的 PIS 系统，而是处于业务设计阶段的文档仓库：
+当前仓库已经不是空的文档骨架，而是一个阶段性可运行工程：
 
-- Git 分支为 `main`，审计开始时工作区干净，HEAD 为 `e304972`；
-- `apps/backend`、`apps/frontend`、`infra`、`scripts`、`tests` 只有 `.gitkeep` 占位；
-- 没有 Java、TypeScript、JavaScript、SQL、Docker Compose、CI 工作流或可执行配置；
-- 没有实际数据库、迁移脚本、Service、Controller、API 实现、定时任务或自动化测试；
-- 现有业务资产全部是项目、领域、场景、架构和决策文档；
-- 现有 P05 文档登记了 63 个对象、18 个聚合和 70 条不变量，但这些是设计文本，不是运行时结构；
-- 因此不存在需要立即删除的旧运行代码，也不存在可直接迁移的当前数据库；
-- 现有 P05 文档仍承载一套与 V2 不完全一致的候选领域语义，应作为“待重构设计资产”隔离处理，不能直接转成 V2 代码。
+- 后端使用 Java 21、Spring Boot 4.1、Spring Modulith、JDBC、Flyway 和 PostgreSQL；
+- 前端使用 Vue 3.5、Vite 8、TypeScript、Vitest 和 Node 24；
+- 已有 P15 登记/标本接收、P16 取材/蜡块标签、P17 组织处理/包埋、P18 技术医嘱、P19 诊断/报告实现；
+- 数据库已有 `pis` schema 和 Flyway V1–V9 迁移；
+- 已有后端单元/集成/Web 测试、前端组件测试、Docker Compose、CI 和烟测脚本；
+- 现有实现仍包含 V2 明确禁止或需要重构的核心语义：`ProcessingTask`、`EmbeddingTask`、`ActualBlockFormation`、计划输出模型、诊断 Task 作为工作主体，以及 Report 内容版本嵌套；
+- 当前代码没有 `Slide`、`DigitalSlide`、FrozenRound、Assignment/ResponsibilityChain、BusinessType/ApplicationItemMapping 等完整 V2 核心实现；
+- 因此 V2 不是在空仓库上开始，而是要在保留工程资产的前提下，对 P15–P19 领域实现做显式隔离、重构和迁移治理。
 
-这意味着本轮的主要风险不是代码回归，而是把旧设计语义未经审查地冻结成新数据库或新 API。
+本审计不把既有测试通过、P15–P19 文档关闭或当前接口可调用视为 V2 业务正确性的证明。
 
-## 2. 当前仓库模块和工程资产
+## 2. 工程技术栈和运行资产
 
-| 类别 | 当前发现 | 当前状态 | V2 处理 |
-|---|---|---|---|
-| 后端 | `apps/backend/.gitkeep` | 无代码、无模块 | KEEP 目录意图；V2 后端另设隔离入口 |
-| 前端 | `apps/frontend/.gitkeep` | 无代码、无页面 | KEEP 目录意图；V2 前端另设隔离入口 |
-| 数据库 | `docs/database/.gitkeep` | 无数据库、无迁移 | 暂不创建；由 P04 设计 |
-| Service | 未发现 | 无应用服务实现 | P03 只定义所有权，P06 后实现 |
-| Controller/API | `docs/api/.gitkeep` | 无 Controller、路由或 API 契约 | P06 规划 |
-| 领域文档 | `docs/domain/*` | P03/P05 设计资产 | REFACTOR；V2 不直接继承冲突语义 |
-| 工作流文档 | `docs/workflows/*` | 场景和问题依据 | REFACTOR；逐项映射 V2，不当作实现证明 |
-| 架构文档 | `docs/architecture/*` | 高层系统边界 | KEEP/REFACTOR；保留净室、模块化单体和外部边界原则 |
-| 决策文档 | `docs/decisions/*` | 已确认历史决策记录 | KEEP 作为历史约束；冲突项由 V2 基线重新审查 |
-| 项目文档 | `docs/project/*` | P00-P05 进度和治理记录 | KEEP；增加 V2 独立状态，不覆盖历史记录 |
-| API | `docs/api/.gitkeep` | 无契约 | P06 规划 |
-| 领域事件/Outbox | 仅在文档中描述 | 无事件发布器、Outbox 或消费者 | KEEP 设计意图，P04/P06 后实现 |
-| 定时任务 | 未发现 | 无 scheduler、job 或 worker | P06/P08 后按实际需求建立 |
-| 测试 | `tests/.gitkeep`、`docs/testing/.gitkeep` | 无测试实现 | P08 规划 |
-| 部署/运维 | `infra/.gitkeep`、对应文档占位 | 无部署实现 | KEEP 边界，后续补充 |
-| 打印/报表 | 仅在业务文档中描述 | 无实现 | REFACTOR 为 PrintService、Report 和报表投影 |
-| 权限/审计 | 仅在业务文档中描述 | 无实现 | KEEP 设计意图，按 V2 责任和敏感操作规则重建 |
-| 集成 | 仅在系统上下文和场景中描述 | 无适配器 | REFACTOR 为外部集成与内部领域调用两条边界 |
+| 类别 | 当前发现 | V2 处置 |
+|---|---|---|
+| 后端 | `backend/`，Spring Boot、Spring Modulith、JDBC、Flyway | KEEP 技术栈和模块化单体；REFACTOR 领域包 |
+| 前端 | `frontend/`，Vue/Vite/TypeScript | KEEP Shell、组件和构建链；REFACTOR 工作台语义 |
+| 数据库 | PostgreSQL，Flyway V1–V9，schema `pis` | KEEP 迁移机制；V2 领域对象新表/新迁移，不随机 ALTER 合并 |
+| 容器/部署 | `docker-compose.yml`、backend/frontend Dockerfile | KEEP；P09 重新验证切换和回滚 |
+| CI | `.github/workflows/ci.yml`，后端、前端、容器检查 | KEEP；增加 V2 偏离扫描和领域回归门禁 |
+| 脚本 | `scripts/build.*`、`verify.ps1`、P17/P18/P19 smoke | KEEP 工具边界；REFACTOR 场景和命名 |
+| 测试 | 后端 19 个 Java 测试文件，前端 5 个测试文件 | KEEP 测试基础设施；按 P08 重建 V2 正确性测试 |
 
-## 3. 当前文档领域对象关系
+## 3. 当前后端模块
 
-现有 P05 文档形成的主要关系可以概括为：
+### 3.1 已有实现模块
+
+| 模块 | 当前类/能力 | 当前判断 |
+|---|---|---|
+| `accession` | `RegistrationApplicationService`、`RegistrationController`、`PathologyRequest`、`PathologyCase`、JDBC repository | REFACTOR 为 Application → Case，并补 BusinessType/映射；保留登记基础设施 |
+| `specimen` | `SpecimenReceivingApplicationService`、`Specimen`、接收 Controller/repository | REFACTOR 为 Case 下多 Specimen；保留接收、权限、审计和并发基础 |
+| `technical` | Grossing、Processing、TechnicalOrder 应用服务、Controller、JDBC repository | REFACTOR；拆出 Grossing/Block/Slide、TechnicalOrder、TechnicalRecord |
+| `diagnosis` | `DiagnosisReportApplicationService`、报告/诊断 Controller、JDBC repository | REFACTOR 为 Diagnosis + ResponsibilityChain + Report；当前 P19 语义不直接等于 V2 |
+| `security` | ActorContext、AuthorizationDecision、P15AuthorizationService、Audit repository、异常处理 | KEEP/REFACTOR；补 V2 功能权限、数据范围、敏感操作三层 |
+| `integration` | `OutboxPort`、`JdbcOutboxRepository`、入站表模型 | KEEP/REFACTOR；补 Inbox、重试、死信、人工重放和对账闭环 |
+| `presentation` | FoundationController | KEEP 通用入口 |
+
+### 3.2 只有占位标记的模块
+
+`archive`、`cytology`、`digital`、`frozen`、`molecular`、`multimodal`、`quality`、`referral` 当前主要是 `ModuleMarker` 和 `package-info.java`，没有对应业务 Service、Controller 或领域对象实现。它们是可保留的模块边界资产，不代表业务已完成。
+
+## 4. 当前前端模块
+
+当前前端包含：
+
+- `App.vue` 和通用样式/API 客户端；
+- `P15RegistrationWorkbench.vue`：登记、建案、预计标本和接收；
+- `P16GrossingWorkbench.vue`：取材批次、组织样本、计划蜡块和标签；
+- `P17TechnicalProcessingWorkbench.vue`：处理 Task、批次、包埋 Task 和实际蜡块形成；
+- `P18TechnicalOrderWorkbench.vue`：技术医嘱、项目、目标、计划输出和执行结果；
+- `P19DiagnosisReportWorkbench.vue`：诊断 Task、草稿、报告内容版本、复核、签发、撤回和修订；
+- `api.ts`：P15–P19 命令和查询调用；组件测试 5 个文件。
+
+当前没有独立的 Diagnosis Workspace、全局 Search Drawer、Slide/数字切片工作台、FrozenRound 工作台、材料级 Archive/Loan 工作台或 V2 配置中心。
+
+## 5. 当前数据库结构
+
+### 5.1 P15 基础、登记和接收
+
+Flyway `V1`–`V3` 建立基础 schema 和以下主要表：
+
+```text
+foundation_schema_metadata
+patient_context_reference
+visit_context_reference
+patient_visit_snapshot
+pathology_request
+external_request_reference
+inbound_raw_message
+inbox_consumption
+pathology_case
+specimen
+specimen_container
+clinical_state_current
+state_transition_history
+operation_responsibility
+handoff_record
+business_exception
+audit_event
+outbox_event
+```
+
+### 5.2 P16 取材和标签
+
+`V4__p16_grossing_block_labeling.sql` 建立：
+
+```text
+grossing_batch
+grossing_batch_specimen
+grossing_record
+tissue_block
+tissue_sample
+tissue_block_sample
+tissue_box_identity
+label_identity
+label_print_request
+label_print_attempt
+p16_idempotency_key
+```
+
+### 5.3 P17 技术处理和包埋
+
+`V5`、`V6` 建立：
+
+```text
+p17_processing_task
+p17_processing_task_assignment
+p17_processing_program
+p17_processing_program_version
+p17_processing_program_step
+p17_processing_batch
+p17_processing_batch_member
+p17_processing_run
+p17_processing_run_step
+p17_processing_raw_result
+p17_processing_result
+p17_processing_exception
+p17_processing_member_impact
+p17_processing_recovery
+p17_processing_reprocess
+p17_embedding_task
+p17_embedding_task_assignment
+p17_embedding_fact
+p17_actual_block_formation
+p17_actual_block_replacement
+```
+
+这些表证明技术节点已经被实现为 Task/Batch/Run/Result/Formation 多层模型，正是 V2 需要重新审查的核心区域。
+
+### 5.4 P18 技术医嘱
+
+`V7__p18_technical_orders.sql` 建立：
+
+```text
+p18_technical_order
+p18_technical_order_project
+p18_order_target
+p18_order_target_history
+p18_planned_output
+p18_project_review
+p18_project_responsibility_history
+p18_project_change
+p18_project_cancellation
+p18_project_result_reference
+p18_order_state_history
+p18_project_state_history
+```
+
+当前已有多 Item/Target 的方向，但 `p18_planned_output` 和项目/订单状态仍需按 V2 TechnicalOrder 的实际输出语义重构。
+
+### 5.5 P19 诊断和报告
+
+`V8`、`V9` 建立：
+
+```text
+p19_diagnosis_task
+p19_diagnosis_work_draft
+p19_diagnosis_opinion
+p19_diagnosis_opinion_version
+p19_diagnosis_follow_up
+p19_diagnosis_review
+p19_report
+p19_report_content_version
+p19_report_section_version
+p19_signing_fact
+p19_report_revision_relation
+p19_report_supplement
+p19_report_correction
+p19_report_withdrawal_request
+p19_report_withdrawal_fact
+p19_report_resign_relation
+p19_report_result_reference
+p19_state_history
+p19_command_idempotency
+p19_report_draft
+```
+
+当前使用 `p19_report.current_version_id` 指向 `p19_report_content_version`，语义上仍是“Report 持有内容版本/当前版本”的嵌套模型，不能直接作为 V2 “一次签发一个不可变 Report”使用。当前还没有持久化 PDF/打印输出、ReportTemplate 独立配置和 V2 报告快照模型的完整实现证据。
+
+## 6. Service、Controller、事件和状态机
+
+当前公开写入入口主要为：
+
+- `RegistrationController`：外部/人工登记、Case 操作；
+- `SpecimenReceivingController`：标本接收和状态操作；
+- `GrossingController`：Grossing 批次、样本、蜡块和标签；
+- `ProcessingController`：处理 Task、批次、执行、包埋和 ActualBlockFormation；
+- `TechnicalOrderController`：TechnicalOrder、项目、目标、取消、完成和结果引用；
+- `DiagnosisReportController`：诊断 Task、Draft、Opinion、Review、Report Content Version、Sign、Withdraw、Supplement、Correction、Resign。
+
+当前存在以下状态/事件机制：
+
+- Case/Specimen 的 `clinical_state_current` 与 `state_transition_history`；
+- GrossingBatch、ProcessingTask、ProcessingBatch、EmbeddingTask、ActualBlockFormation、TechnicalOrder/Project、DiagnosisTask、Report/ContentVersion 的独立状态字段和历史表；
+- `operation_responsibility`、`handoff_record`、P19 diagnosis responsibility history 和 review/signing facts；
+- `outbox_event` 与 P19 服务中的事件发布调用；
+- `audit_event`、命令幂等表、乐观并发版本。
+
+当前未发现 `@Scheduled` 定时任务、出站投递 worker、死信消费 worker 或自动对账 job；Outbox 存在不等于外部集成闭环已完成。
+
+## 7. 打印、报告、权限、审计和集成
+
+### 打印
+
+当前 P16 已有 `label_identity`、`label_print_request`、`label_print_attempt` 和标签工作台，支持标签版本、幂等和打印尝试。未发现独立 `PrintRule → PrintService → PrinterAdapter` 完整边界，也没有 Slide 打印/补打实现。
+
+### 报告
+
+P19 已有诊断草稿、意见版本、Report、内容版本、复核、签发、撤回、补充、更正和重新签发关系；P19 文档同时明确不包含 PDF 生产、CA/电子签章供应商和医院回传。V2 仍需把一次 Sign-out 的不可变 Report 快照、模板、责任、PDF 和打印输出落为一致模型。
+
+### 权限和审计
+
+当前有 ActorContext、P15AuthorizationService、功能权限常量、医院/组织范围、增强认证接口、`audit_event` 和 JDBC 审计仓库。需要继续核对同一账号多责任角色、责任链累积、敏感修改 old/new value、数据范围和审计完整性。
+
+### 集成
+
+当前有外部申请原始报文、Inbox、外部标识、Outbox 和报告事件发布意图；没有证据表明所有外部投递、失败重试、死信、人工重放、每日对账和报告回传适配器已经完成。外部收费也不应成为 PIS 内部主流程门槛。
+
+## 8. 当前领域关系
 
 ```mermaid
 flowchart LR
-    Application[病理申请] --> Case[病理病例]
-    Case --> Specimen[标本]
-    Specimen --> BlockRecord[蜡块业务记录]
-    BlockRecord --> PlannedSlide[计划玻片]
-    PlannedSlide --> ActualSlide[实际玻片]
-    ActualSlide --> DigitalVersion[数字切片版本]
-    Case --> DiagnosisTask[诊断任务/责任对象]
-    DiagnosisTask --> Diagnosis[诊断记录]
-    Diagnosis --> ReportLifecycle[报告生命周期]
-    ReportLifecycle --> ReportVersion[报告版本]
-    TechnicalOrder[技术医嘱] --> TechnicalRecord[技术执行记录]
-    TechnicalRecord --> TechnicalResult[技术结果语义]
-    Frozen[Frozen 冰冻业务] --> FrozenRound[冰冻轮次]
-    FrozenRound --> Case
+    Request[pathology_request] --> Case[pathology_case]
+    Case --> Specimen[specimen]
+    Specimen --> Grossing[grossing_batch / grossing_record]
+    Grossing --> TissueSample[tissue_sample]
+    TissueSample --> TissueBlock[tissue_block]
+    TissueBlock --> ProcessingTask[p17_processing_task]
+    ProcessingTask --> EmbeddingTask[p17_embedding_task]
+    EmbeddingTask --> ActualFormation[p17_actual_block_formation]
+    TechnicalOrder[p18_technical_order] --> Project[p18_order_project]
+    Project --> Target[p18_order_target]
+    Target --> PlannedOutput[p18_planned_output]
+    Case --> DiagnosisTask[p19_diagnosis_task]
+    DiagnosisTask --> Draft[p19_diagnosis_work_draft]
+    Draft --> Opinion[p19_diagnosis_opinion_version]
+    Opinion --> Report[p19_report]
+    Report --> Content[p19_report_content_version]
+    Content --> Signing[p19_signing_fact]
 ```
 
-说明：上图是对现有文档术语的审计归纳，不是 V2 目标设计。现有文档没有可运行代码来证明这些关系已经实现。
+当前关系中没有正式 Slide 节点，ActualBlockFormation 也没有形成 V2 `Block` → `Slide` 主链。
 
-## 4. 旧领域语义识别
+## 9. 旧领域对象和语义识别
 
-### 4.1 明确发现或可确认的冲突语义
-
-| 现有语义 | 证据 | V2 处理 |
+| 现有概念/实现 | 证据 | V2 分类 |
 |---|---|---|
-| `计划玻片` 与 `实际玻片` 并列 | `docs/domain/core-object-catalog.md` 中的 OBJ-017、OBJ-005 | DELETE 计划业务对象；V2 只保留 `Slide`，打印前即存在 |
-| `报告生命周期` 包含 `报告版本` | OBJ-008、OBJ-009，且文档多处出现 `ReportVersion` | DELETE 嵌套版本模型；一次签发直接创建不可变 `Report`，重新签发创建新的 `Report` |
-| `蜡块业务记录` | OBJ-004 及相关聚合描述 | REFACTOR 为稳定的 `Block` 业务对象；取材/形成/返工作为事实记录 |
-| `诊断任务或诊断责任对象` | OBJ-006、AGG-009 | REFACTOR 为 `Assignment`、`ResponsibilityChain` 和持续编辑的 `Diagnosis` |
-| 以技术执行记录和技术结果表达技术闭环 | OBJ-016 及技术流程文档 | REFACTOR 为 `TechnicalOrder`、`TechnicalRecord` 和具体输出；禁止万能 `TechnicalResult` |
-| 通用“业务记录”分类承载核心语义 | P05 对象目录多处使用“业务记录” | REFACTOR；核心对象、事实记录、审计、质量和集成记录分别建模 |
-| 标本容器/组织盒可能被提升为父层 | OBJ-038、OBJ-039 | REFACTOR；`Specimen` 是核心父层，容器只是承载/扩展信息 |
+| `ProcessingTask` | `technical/domain/ProcessingTask.java`、`p17_processing_task`、P17 前端 | DELETE/REFACTOR；物理节点改为 TechnicalRecord，不能做 Case 主流程 |
+| `EmbeddingTask` | `technical/domain/EmbeddingTask.java`、`p17_embedding_task`、P17 前端 | DELETE/REFACTOR；包埋是记录/形成事实，不是强制主 Task |
+| `ActualBlockFormation` | `technical/domain/ActualBlockFormation.java`、`p17_actual_block_formation` | REFACTOR 为 Block 形成事实；不恢复 ActualBlock 模型 |
+| `TissueBlock` | `technical/domain/TissueBlock.java`、`tissue_block` | REFACTOR/RENAME 语义为 V2 `Block`，补 Case、Specimen、Grossing 来源 |
+| `createPlannedBlock` | `frontend/src/api.ts`、P16 工作台和测试 | DELETE/REFACTOR；计划编号不是 V2 Block 身份 |
+| `p18_planned_output` | V7 迁移、TechnicalOrder API | REFACTOR 为医嘱项目/目标期望，不得生成 PlannedBlock/PlannedSlide |
+| `p19_diagnosis_task` | V8 迁移、P19 service/controller/frontend | REFACTOR 为 Assignment + ResponsibilityChain + Diagnosis 工作上下文 |
+| `p19_report_content_version`、`current_version_id` | V8/V9 迁移和 P19 service | DELETE/REFACTOR；改为一次签发一个不可变 Report，重新签发新 Report |
+| `ReportVersion` | 当前代码没有同名实体，但 API 使用 `expectedReportVersion`，文档有同名模型 | V2 禁止嵌套版本语义；并发版本号可保留为技术控制，不得成为 Report 子业务对象 |
+| `TechnicalResult` | 当前没有精确类名/表名；存在 processing result、project result reference、报告技术结果摘要 | REFACTOR 为具体 Block/Slide/MolecularResult/ExternalResult |
+| `CaseStatus` | 当前没有精确类名；存在 clinical state current、state history、队列状态 | REFACTOR；工作台状态改为 Projection，不建立统一 Case 生命周期 |
+| `PlannedSlide`/`ActualSlide` | 当前未发现精确实现或表 | KEEP “未实现”状态；V2 只建立 Slide |
+| `BusinessRecord`/`BlockBusinessRecord` | 当前实现未使用；旧术语文档出现 | DELETE/RENAME；不得用万能记录替代核心对象 |
 
-### 4.2 未发现的旧对象
-
-在当前仓库文档中没有发现以下精确名称，也没有运行时代码可以证明其存在：
-
-```text
-PlannedBlock
-ActualBlock
-EmbeddingTask
-ProcessingTask
-SectioningTask
-StainingTask
-CoverslipTask
-CaseStatus
-```
-
-但“处理批次”“设备任务”“技术任务”等相近概念在文档中出现。它们不能因为名称不同就自动成为 V2 允许的核心任务，须按 P01/P02 规则重新分类。
-
-## 5. 资产分类
+## 10. 资产分类
 
 ### KEEP
 
-- 根目录 `AGENTS.md` 的患者安全、净室、模块化单体、数据完整性和测试门禁；
-- `docs/index.md` 的文档治理、编号、状态和净室原则；
-- `docs/architecture/system-context.md` 的外部边界和 PIS 不负责事项；
-- 权限、审计、幂等、Outbox、锁、文件、日志、异常处理等设计意图；
-- 现有业务场景、问题编号和决策台账作为待映射证据，不作为 V2 实现；
-- Git、目录骨架和部署/CI 的预留位置。
+- Java 21/Spring Modulith/JDBC/Flyway/PostgreSQL/Vue/Vite 技术栈和模块化单体架构；
+- Spring Modulith 模块边界测试、CI、Docker Compose、构建脚本和测试容器基础；
+- User/Actor/Permission/Organization scope、Audit、Outbox、Idempotency、Optimistic locking、Exception handling；
+- 现有登记、标本接收、取材、标签、技术医嘱、诊断和报告的基础设施代码，作为重构素材；
+- 前端通用 Shell、API 错误处理、可复用表单和工作台组件；
+- 已有业务场景、决策、P15–P19 文档和测试作为审计/迁移输入，不作为 V2 正确性证明。
 
 ### REFACTOR
 
-- `docs/domain/core-object-catalog.md`：对象身份和层次按 P01 重建；
-- `docs/domain/domain-relationships.md`、`aggregate-boundaries.md`：按 V2 聚合和来源链重写；
-- `docs/domain/domain-invariants.md`：按 P02 重建并移除旧模型前提；
-- 登记、取材、技术医嘱、诊断、报告、冰冻、数字切片、接口和工作台场景：逐项映射到 V2；
-- `apps/backend`、`apps/frontend`：P03 后建立 V2 模块包，不把空目录误认为实现；
-- `docs/project/MASTER_PLAN.md` 和 `progress.md`：后续可增加 V2 进度，不抹去历史阶段记录。
+- `accession`、`specimen`：Case、BusinessType、ApplicationItemMapping、PathologyNumberRule 和多 Specimen；
+- `technical`：Grossing、Block、Slide、TechnicalOrder、TechnicalRecord、PrintRule；
+- `diagnosis`：Diagnosis、TemplateVersion、ResponsibilityChain、Assignment、ReportTemplate、Report；
+- P17/P18/P19 数据库迁移和 repository：按 V2 新语义建立新表/迁移，保留显式映射；
+- 前端 P15–P19 工作台：围绕 Case context 和 Diagnosis Workspace 重组；
+- `integration`、`security`、`audit`、`file`、`projection` 设计：补齐 V2 可靠性和读模型边界。
 
 ### DELETE / RETIRE FROM V2
 
-以下概念不得进入 V2 核心代码、数据库或 API：
+在 V2 核心实现中淘汰：
 
-- `PlannedBlock`、`ActualBlock`、`PlannedSlide`、`ActualSlide`；
-- `BlockBusinessRecord` 或用“业务记录”代替 Block 的核心命名；
-- `Report -> ReportVersion` 的嵌套模型；
-- 以脱水、包埋、切片、染色、封片为强制主流程的 Task 模型；
-- `CaseStatus` 作为统一病例生命周期或工作台状态机；
-- `TechnicalResult` 作为所有技术输出的万能容器；
-- 用 Container 取代 Specimen 的核心父层模型。
+- `ProcessingTask`、`EmbeddingTask` 作为主业务流程 Task；
+- `ActualBlockFormation` 作为 ActualBlock 语义；
+- PlannedBlock/ActualBlock、PlannedSlide/ActualSlide 双模型；
+- `Report → report_content_version/current_version_id` 作为 V2 报告业务版本嵌套；
+- `CaseStatus` 统一状态机；
+- Generic TechnicalResult；
+- 由 Container/组织盒承担核心父层；
+- 外部收费或数字切片扫描作为 PIS 主业务硬阻断。
 
-现有历史文档暂不删除，避免破坏项目决策追溯；它们在 V2 中只作 REFACTOR 输入，待新领域稳定后按 P09/P10 的清理门禁处理。
+历史代码和迁移文件本轮不物理删除，避免破坏当前可追溯性；删除或清理必须在 V2 稳定、迁移完成并通过 P09/P10 门禁后执行。
 
-## 6. V2 隔离和边界
+## 11. V2 隔离结论和剩余风险
 
-本轮新增以下空目录作为隔离标记，不包含业务代码：
+本轮保留 `apps/backend-v2/`、`apps/frontend-v2/`、`tests/v2/` 作为文档阶段隔离占位；当前运行代码仍在 `backend/` 和 `frontend/`，不应被误称为 V2 已完成实现。
 
-- `apps/backend-v2/`：后端 V2 包边界；
-- `apps/frontend-v2/`：前端 V2 壳和工作区边界；
-- `tests/v2/`：V2 测试隔离边界。
+主要风险：
 
-旧空目录不删除，避免扩大本轮范围。
+1. 现有 P17/P18/P19 测试可能继续强化旧模型，不能直接作为 V2 回归测试；
+2. V8/V9 已形成实际数据库语义，不能通过随机改名迁移为 V2 Report；
+3. 当前没有 Slide/DigitalSlide，不能从现有处理结果推断切片已实现；
+4. 远程提交与本地工作可能并行推进，后续每次工作必须重新检查 Git 状态和远程差异；
+5. 旧代码清理前必须建立 MigrationWarning、ManualReview 和可回退的迁移证据。
 
-## 7. 审计风险与结论
-
-| 风险 | 严重性 | 处理 |
-|---|---|---|
-| 现有文档完成状态容易被误解为已有系统完成 | 高 | 明确“业务代码尚未开始”；V2 以事实审计为准 |
-| 旧 P05 语义直接进入数据库 | 高 | P00-P03 通过前禁止建表和迁移 |
-| 把场景中的技术动作做成 Task | 高 | P01/P02 固定 TechnicalRecord 为记录，默认不做诊断门槛 |
-| 报告版本嵌套被保留 | 高 | P01 明确一次签发一个 Report |
-| 迁移决策污染新领域 | 高 | P05 迁移计划与领域设计隔离，当前不读取旧数据 |
-
-P00 结论：审计完成，仓库适合从文档层建立 V2 领域隔离；尚不具备任何业务代码、数据库或 API 开发准入。
+P00 结论：当前系统已完成工程基础和若干阶段性实现，但核心病理领域仍未达到 V2 基线；P00 审计完成，P01–P03 设计基线继续作为后续重构准入，暂不直接删除现有业务实现。

@@ -12,7 +12,7 @@
 - `P02-domain-invariants.md`：54 条 V2 身份、来源、责任、报告、接口和治理不变量；
 - `P03-module-boundaries.md`：模块所有权、依赖、聚合和模块化单体边界；
 - `P04` 至 `P09`：数据、迁移、API、前端、测试和切换计划入口；
-- `apps/backend-v2`、`apps/frontend-v2`、`tests/v2`：仅为空目录占位的隔离边界。
+- `apps/backend-v2`、`apps/frontend-v2`、`tests/v2`：仅为空目录占位的 V2 隔离边界；现有运行代码仍在 `backend/` 和 `frontend/`。
 
 ## 重构定义
 
@@ -35,11 +35,14 @@
 - V2 禁用概念扫描通过：仅存在于禁止、审计、迁移和测试门禁语境；
 - `git diff --check` 通过；
 - 未发现 `sk-` 密钥、密码赋值或患者姓名；
-- 当前仓库仍无业务代码、数据库、API、依赖安装或生产变更。
+- 当前没有修改现有 P15-P19 业务代码、数据库迁移、API、前端或生产配置；现有工程实现已在 P00 中完成审计。
+- 后端非 Docker 测试 `28/28` 通过；完整 `verify` 的另外 2 个 PostgreSQL/Testcontainers 测试因当前 Docker Server 不可用而失败；
+- 前端 `format:check`、`lint`、`typecheck`、`test:unit`（5/5）和 `build` 全部通过；
+- Docker CLI 客户端可用，但 `dockerDesktopLinuxEngine` Server 管道不可用，未宣称容器集成验证通过。
 
 ## 剩余风险
 
-- 当前仍处于设计阶段，没有可运行代码或自动化测试可执行；
+- V2 仍处于设计阶段；现有 P15-P19 代码和测试可运行性不能证明 V2 领域正确；
 - P04-P09 是计划，不是已完成的数据库、迁移、API、前端、测试或切换实现；
 - 具体编号、模板、签发组合、技术医嘱阻断条件、保留期限和医院数据范围仍为“待业务确认”；
 - 旧 PIS 数据映射必须在获得明确授权后，于隔离迁移工作区完成。
