@@ -32,6 +32,7 @@ import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.I
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.PublicPoolCase;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
+import com.hanjisang.pis.v2.molecular.infrastructure.JdbcV2MolecularResultRepository;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService;
@@ -60,11 +61,13 @@ public class V2DiagnosisApplicationService {
     private final OutboxPort outbox;
     private final JdbcV2TechnicalOrderRepository technicalRepository;
     private final V2ReportApplicationService reportService;
+    private final JdbcV2MolecularResultRepository molecularResultRepository;
 
     public V2DiagnosisApplicationService(JdbcV2DiagnosisRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2MaterialRepository materialRepository,
             P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
-            JdbcV2TechnicalOrderRepository technicalRepository, V2ReportApplicationService reportService) {
+            JdbcV2TechnicalOrderRepository technicalRepository, V2ReportApplicationService reportService,
+            JdbcV2MolecularResultRepository molecularResultRepository) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
@@ -73,6 +76,7 @@ public class V2DiagnosisApplicationService {
         this.outbox = outbox;
         this.technicalRepository = technicalRepository;
         this.reportService = reportService;
+        this.molecularResultRepository = molecularResultRepository;
     }
 
     @Transactional
@@ -499,11 +503,23 @@ public class V2DiagnosisApplicationService {
     }
 
     private void requireInitialMaterialComplete(UUID caseId, ActorContext actor) {
+        Case pathologyCase = activeCase(caseId, actor);
+        if ("MOLECULAR".equals(pathologyCase.businessTypeCode())) {
+            if (!molecularResultRepository.hasCompletedResult(caseId, actor.hospitalScope())) {
+                throw reject("V2-DIAGNOSIS-MATERIAL-NOT-READY", "独立分子病例尚未录入已完成结果");
+            }
+            return;
+        }
         List<MaterialTreeRow> rows = materialRepository.findMaterialTree(caseId, actor.hospitalScope());
         int required = 0;
         int completed = 0;
         for (MaterialTreeRow row : rows) {
-            if (!"INITIAL".equals(row.sourceContextType()) || !Boolean.TRUE.equals(row.required())) { continue; }
+            boolean initialProduction = "INITIAL".equals(row.sourceContextType())
+                    || (pathologyCase.businessTypeCode().startsWith("CYTOLOGY_")
+                            && "CYTOLOGY".equals(row.sourceContextType()))
+                    || ("REFERRAL".equals(pathologyCase.businessTypeCode())
+                            && "EXTERNAL".equals(row.sourceContextType()));
+            if (!initialProduction || !Boolean.TRUE.equals(row.required())) { continue; }
             required++;
             if (row.completedAt() != null) { completed++; }
         }

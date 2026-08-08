@@ -399,6 +399,34 @@ CREATE TABLE IF NOT EXISTS pis_v2.report_command_idempotency (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
     UNIQUE (operation_code, idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_result (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, specimen_id UUID, result_code VARCHAR(128) NOT NULL,
+    result_data VARCHAR(50000) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE NOT NULL, completed_by_ref VARCHAR(128) NOT NULL,
+    concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_result_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(128) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.send_out (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, external_reference VARCHAR(256) NOT NULL,
+    destination_name VARCHAR(256) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, requested_by_ref VARCHAR(128) NOT NULL,
+    result_data VARCHAR(50000), result_received_at TIMESTAMP WITH TIME ZONE,
+    result_received_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, external_reference)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.send_out_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(128) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, send_out_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
 
 DELETE FROM pis_v2.report_command_idempotency;
 DELETE FROM pis_v2.report_pdf_output;

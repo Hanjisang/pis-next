@@ -72,6 +72,12 @@ public final class Slide {
                 ruleCode, occurrenceNo, required, null, null, null, null, 0);
     }
 
+    public static Slide fromSpecimenContext(UUID id, UUID caseId, UUID specimenId, String slideCode, String slideType,
+            String sourceContextType, UUID sourceContextId, String ruleCode, int occurrenceNo, boolean required) {
+        return new Slide(id, caseId, null, specimenId, slideCode, slideType, sourceContextType, sourceContextId,
+                ruleCode, occurrenceNo, required, null, null, null, null, 0);
+    }
+
     public static Slide technicalFromTarget(UUID id, UUID caseId, UUID blockId, UUID specimenId, String slideCode,
             String slideType, UUID orderItemId, String projectCode, int occurrenceNo, boolean required) {
         return new Slide(id, caseId, blockId, specimenId, slideCode, slideType, TECHNICAL_ORDER, orderItemId,

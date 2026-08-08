@@ -187,8 +187,11 @@ public class V2MaterialProductionApplicationService {
             throw reject("V2-BLOCK-CODE-CONFLICT", "同一病例下蜡块编号已存在");
         }
         UUID blockId = existingReservedId(operation, command.idempotencyKey());
-        Block block = Block.create(blockId, grossing.caseId(), grossing.id(), specimen.id(), command.blockCode(),
-                command.blockType());
+        Block block = command.externalSource()
+                ? Block.createExternal(blockId, grossing.caseId(), grossing.id(), specimen.id(), command.blockCode(),
+                        command.blockType(), command.externalSourceReference())
+                : Block.create(blockId, grossing.caseId(), grossing.id(), specimen.id(), command.blockCode(),
+                        command.blockType());
         Instant now = Instant.now();
         repository.insertBlock(block, actor.hospitalScope(), actor.actorId(), now);
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
@@ -197,6 +200,80 @@ public class V2MaterialProductionApplicationService {
         outbox.append("PIS-V2-I02-BLOCK-CREATED", block.id(), "V2-BLOCK", block.concurrencyVersion(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
         return BlockResult.of(block, false);
+    }
+
+    @Transactional
+    public SlideResult createDirectCytologySlide(UUID caseId, UUID specimenId, CreateDirectSlideCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(caseId, "病例内部ID不能为空");
+        validate(specimenId, "标本内部ID不能为空");
+        validate(command.slideCode(), "切片编号不能为空");
+        validate(command.slideType(), "切片类型不能为空");
+        validate(command.idempotencyKey(), "幂等键不能为空");
+        Case pathologyCase = activeCase(caseId, actor);
+        if (!pathologyCase.businessTypeCode().startsWith("CYTOLOGY_")) {
+            throw reject("V2-CYTOLOGY-CASE-REQUIRED", "直接细胞切片只能进入细胞病例");
+        }
+        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "标本不属于当前病例"));
+        if (repository.findActiveSlideIdByCode(caseId, command.slideCode(), actor.hospitalScope()).isPresent()) {
+            throw reject("V2-SLIDE-CODE-CONFLICT", "同一病例下切片编号已存在");
+        }
+        String operation = "PIS-V2-I06-CYTOLOGY-SLIDE-CREATE";
+        String digest = digest(caseId, specimenId, command.slideCode(), command.slideType());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) {
+            return SlideResult.of(findSlide(existing, actor), true);
+        }
+        UUID slideId = UUID.randomUUID();
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
+        Slide slide = Slide.fromSpecimenContext(slideId, caseId, specimenId, command.slideCode(),
+                command.slideType(), Slide.CYTOLOGY, specimenId, "CYTOLOGY-DIRECT", 1, true);
+        Instant now = Instant.now();
+        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), "细胞直接切片已创建");
+        outbox.append("V2-I06-CYTOLOGY-SLIDE-CREATED", slide.id(), "V2-SLIDE", slide.concurrencyVersion(),
+                UUID.randomUUID().toString(), digest, actor.actorId());
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
+    public SlideResult createDirectExternalSlide(UUID caseId, UUID blockId, CreateDirectSlideCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(caseId, "病例内部ID不能为空");
+        validate(blockId, "蜡块内部ID不能为空");
+        validate(command.slideCode(), "切片编号不能为空");
+        validate(command.slideType(), "切片类型不能为空");
+        validate(command.idempotencyKey(), "幂等键不能为空");
+        activeCase(caseId, actor);
+        Block block = findBlock(blockId, actor);
+        if (!caseId.equals(block.caseId()) || !block.externalSource() || block.isDeleted()) {
+            throw reject("V2-EXTERNAL-BLOCK-REQUIRED", "本院切片必须来源于当前病例的外部蜡块");
+        }
+        if (repository.findActiveSlideIdByCode(caseId, command.slideCode(), actor.hospitalScope()).isPresent()) {
+            throw reject("V2-SLIDE-CODE-CONFLICT", "同一病例下切片编号已存在");
+        }
+        String operation = "PIS-V2-I06-EXTERNAL-SLIDE-CREATE";
+        String digest = digest(caseId, blockId, command.slideCode(), command.slideType());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) {
+            return SlideResult.replayed(findSlide(existing, actor));
+        }
+        UUID slideId = UUID.randomUUID();
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
+        Slide slide = Slide.fromBlockContext(slideId, caseId, blockId, command.slideCode(), command.slideType(),
+                Slide.EXTERNAL, blockId, "EXTERNAL-LOCAL", 1, true);
+        Instant now = Instant.now();
+        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), "外部蜡块的本院切片已创建");
+        outbox.append("V2-I06-EXTERNAL-SLIDE-CREATED", slide.id(), "V2-SLIDE", slide.concurrencyVersion(),
+                UUID.randomUUID().toString(), digest, actor.actorId());
+        return SlideResult.of(slide, false);
     }
 
     @Transactional
@@ -702,7 +779,14 @@ public class V2MaterialProductionApplicationService {
 
     public record AssociateSpecimenCommand(UUID specimenId, String materialDescription, String idempotencyKey) { }
 
-    public record CreateBlockCommand(UUID specimenId, String blockCode, String blockType, String idempotencyKey) { }
+    public record CreateBlockCommand(UUID specimenId, String blockCode, String blockType, String idempotencyKey,
+            boolean externalSource, String externalSourceReference) {
+        public CreateBlockCommand(UUID specimenId, String blockCode, String blockType, String idempotencyKey) {
+            this(specimenId, blockCode, blockType, idempotencyKey, false, null);
+        }
+    }
+
+    public record CreateDirectSlideCommand(String slideCode, String slideType, String idempotencyKey) { }
 
     public record UpdateBlockCommand(String blockCode, String blockType, long expectedVersion,
             String idempotencyKey) { }
@@ -747,6 +831,8 @@ public class V2MaterialProductionApplicationService {
             return new SlideResult(slide.id(), slide.caseId(), slide.blockId(), slide.slideCode(), slide.slideType(),
                     slide.sourceContextType(), slide.completedAt(), slide.concurrencyVersion(), duplicate);
         }
+
+        static SlideResult replayed(Slide slide) { return of(slide, true); }
     }
 
     public record GrossingCompletionResult(UUID grossingId, String grossingNo, Instant completedAt,

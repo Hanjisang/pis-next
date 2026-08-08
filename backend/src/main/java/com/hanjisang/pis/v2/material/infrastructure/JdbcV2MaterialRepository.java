@@ -300,6 +300,14 @@ public class JdbcV2MaterialRepository {
                 """, (rs, rowNum) -> toSlide(rs), caseId, organizationReference);
     }
 
+    public Optional<UUID> findActiveSlideIdByCode(UUID caseId, String slideCode, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id FROM pis_v2.slide
+                WHERE case_id = ? AND slide_code = ? AND organization_reference = ? AND deleted_at IS NULL
+                """, rs -> rs.next() ? Optional.of(rs.getObject(1, UUID.class)) : Optional.empty(), caseId, slideCode,
+                organizationReference);
+    }
+
     public boolean saveSlide(Slide slide, String organizationReference, long expectedVersion,
             String actorRef, Instant now) {
         return jdbcTemplate.update("""

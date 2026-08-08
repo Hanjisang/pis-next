@@ -18,6 +18,7 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CompleteSlidesCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlockCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateGrossingCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateDirectSlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.ReopenGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.SlideCompletion;
@@ -64,7 +65,8 @@ public class V2MaterialProductionController {
             @RequestBody CreateBlockRequest request) {
         return service.createBlock(grossingId,
                 new CreateBlockCommand(request.specimenId(), request.blockCode(), request.blockType(),
-                        request.idempotencyKey()));
+                        request.idempotencyKey(), Boolean.TRUE.equals(request.externalSource()),
+                        request.externalSourceReference()));
     }
 
     @PutMapping("/blocks/{blockId}")
@@ -72,6 +74,20 @@ public class V2MaterialProductionController {
             @RequestBody UpdateBlockRequest request) {
         return service.updateBlock(blockId, new UpdateBlockCommand(request.blockCode(), request.blockType(),
                 request.expectedVersion(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/cases/{caseId}/specimens/{specimenId}/slides")
+    public V2MaterialProductionApplicationService.SlideResult createDirectCytologySlide(
+            @PathVariable UUID caseId, @PathVariable UUID specimenId, @RequestBody CreateDirectSlideRequest request) {
+        return service.createDirectCytologySlide(caseId, specimenId,
+                new CreateDirectSlideCommand(request.slideCode(), request.slideType(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/cases/{caseId}/external-blocks/{blockId}/slides")
+    public V2MaterialProductionApplicationService.SlideResult createDirectExternalSlide(
+            @PathVariable UUID caseId, @PathVariable UUID blockId, @RequestBody CreateDirectSlideRequest request) {
+        return service.createDirectExternalSlide(caseId, blockId,
+                new CreateDirectSlideCommand(request.slideCode(), request.slideType(), request.idempotencyKey()));
     }
 
     @PostMapping("/blocks/{blockId}/soft-delete")
@@ -136,7 +152,10 @@ public class V2MaterialProductionController {
 
     public record AssociateSpecimenRequest(UUID specimenId, String materialDescription, String idempotencyKey) { }
 
-    public record CreateBlockRequest(UUID specimenId, String blockCode, String blockType, String idempotencyKey) { }
+    public record CreateBlockRequest(UUID specimenId, String blockCode, String blockType, String idempotencyKey,
+            Boolean externalSource, String externalSourceReference) { }
+
+    public record CreateDirectSlideRequest(String slideCode, String slideType, String idempotencyKey) { }
 
     public record UpdateBlockRequest(String blockCode, String blockType, long expectedVersion, String idempotencyKey) { }
 

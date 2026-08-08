@@ -47,6 +47,12 @@ public final class Block {
         return new Block(id, caseId, grossingId, specimenId, blockCode, blockType, false, null, null, null, 0);
     }
 
+    public static Block createExternal(UUID id, UUID caseId, UUID grossingId, UUID specimenId, String blockCode,
+            String blockType, String externalSourceReference) {
+        return new Block(id, caseId, grossingId, specimenId, blockCode, blockType, true,
+                externalSourceReference, null, null, 0);
+    }
+
     public static Block persisted(UUID id, UUID caseId, UUID grossingId, UUID specimenId, String blockCode,
             String blockType, boolean externalSource, String externalSourceReference, Instant deletedAt,
             String deletionReason, long concurrencyVersion) {
