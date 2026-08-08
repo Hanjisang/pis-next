@@ -2,11 +2,11 @@
 
 Next-generation Pathology Information System.
 
-当前阶段：P19 诊断与报告已完成并通过关闭审查。
+当前阶段：PIS V2 已成为主要业务入口，常规病理、技术医嘱循环、报告签发、数字切片材料绑定、归档借阅、全局查询、基础质控和统计已完成本地合成数据验证。
 
-P19 已实现诊断任务、责任链、初诊草稿与诊断版本、复诊/复核、报告草稿、结构化报告业务版本、独立审核、增强认证参考边界、签发事实、补充、更正、撤回和重新签发关系。实现入口见 [`docs/implementation/p19-implementation-scope.md`](docs/implementation/p19-implementation-scope.md) 与 [`docs/reviews/p19-consistency-review.md`](docs/reviews/p19-consistency-review.md)。
+本轮收官结果和未完成项见 [`docs/implementation/v2-final-implementation-report.md`](docs/implementation/v2-final-implementation-report.md)、[`docs/implementation/v2-final-e2e-report.md`](docs/implementation/v2-final-e2e-report.md)、[`docs/implementation/legacy-retirement-report.md`](docs/implementation/legacy-retirement-report.md) 与 [`docs/implementation/v2-runtime-readiness-report.md`](docs/implementation/v2-runtime-readiness-report.md)。Legacy 业务入口和已被 V2 替代的生产实现已退役；V1–V9 Flyway 迁移及可能承载历史医疗数据的表保留为历史迁移来源，未被物理删除。
 
-P15-P18 的登记接收、取材蜡块、组织处理包埋和技术医嘱保持回归兼容。P19 不实现实际切片/染色、数字切片、AI、冰冻执行、医院接口、PDF 生产、CA/电子签章供应商或生产部署，因此当前系统仍不可用于临床生产。
+当前仍不可宣称核心业务完成或临床生产就绪：Frozen 多轮浏览器 E2E、Cytology/Molecular/Consultation/Supplemental 的完整浏览器 E2E，以及真实认证用户到 Doctor Identity 的映射仍属于 P1。真实医院接口、设备、电子签章、生产部署和医院验收均未验证。
 
 Windows 本地验证：
 

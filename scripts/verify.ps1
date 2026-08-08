@@ -66,10 +66,6 @@ if ((Invoke-WebRequest 'http://localhost:5173' -UseBasicParsing).StatusCode -ne 
     throw 'Frontend HTTP check did not return 200.'
 }
 
-Invoke-CheckedCommand { & (Join-Path $repositoryRoot 'scripts\p17-smoke.ps1') } 'P17 normal and failure-recovery smoke'
-Invoke-CheckedCommand { & (Join-Path $repositoryRoot 'scripts\p18-smoke.ps1') } 'P18 normal and exception smoke'
-Invoke-CheckedCommand { & (Join-Path $repositoryRoot 'scripts\p19-smoke.ps1') } 'P19 diagnosis and report smoke'
-
 Push-Location $repositoryRoot
 try {
     Invoke-CheckedCommand { & .\backend\mvnw.cmd --version } 'Maven Wrapper version check'

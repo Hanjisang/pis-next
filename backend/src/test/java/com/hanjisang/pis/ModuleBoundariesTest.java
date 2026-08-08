@@ -8,11 +8,11 @@ import org.springframework.modulith.core.ApplicationModules;
 class ModuleBoundariesTest {
 
     @Test
-    void allP13ModulesAreDiscoveredAndVerified() {
+    void allActiveModulesAreDiscoveredAndVerified() {
         ApplicationModules modules = ApplicationModules.of(PisApplication.class);
 
         modules.verify();
 
-        assertThat(modules.stream()).hasSize(16);
+        assertThat(modules.stream()).hasSize(12);
     }
 }
