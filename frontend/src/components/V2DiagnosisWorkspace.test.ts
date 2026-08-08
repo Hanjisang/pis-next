@@ -100,11 +100,17 @@ const workspace = {
     canReassign: false,
     readyForSignOut: false,
     canCreateTechnicalOrder: false,
+    canPreview: true,
+    canSignOut: false,
+    canWithdraw: false,
+    canSupplement: false,
   },
   technicalOrders: [],
   blockingTechnicalOrderCount: 0,
   technicalOrder: { kind: 'TECHNICAL_ORDER', status: 'V2-I04已实现' },
   report: { kind: 'REPORT', status: 'V2-I05待实现' },
+  reports: [],
+  blockingReasons: [],
   refreshedAt: '2026-08-08T00:00:00Z',
 };
 
@@ -153,5 +159,35 @@ describe('V2DiagnosisWorkspace', () => {
       expectedVersion: 0,
     });
     expect(wrapper.text()).toContain('V2-VERSION-CONFLICT');
+  });
+
+  it('requests regenerable report preview from the backend action', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(workspace), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            valid: true,
+            blockingReasons: [],
+            templateVersionId: 'RTV-1',
+            templateVersionNo: 1,
+            renderedContent: '{"diagnosis":"preview"}',
+            renderedContentHash: 'hash-content',
+            pdfContentHash: 'hash-pdf',
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
+    await flushPromises();
+    const previewButton = wrapper.findAll('button').find((button) => button.text() === '预览报告');
+    await previewButton?.trigger('click');
+    await flushPromises();
+
+    expect(fetchMock.mock.calls[1][0]).toContain('/diagnoses/D-1/report-preview');
+    expect(wrapper.text()).toContain('preview');
   });
 });

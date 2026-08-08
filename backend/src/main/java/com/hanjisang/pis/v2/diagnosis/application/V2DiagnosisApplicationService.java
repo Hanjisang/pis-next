@@ -34,6 +34,8 @@ import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
+import com.hanjisang.pis.v2.report.application.V2ReportApplicationService;
+import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.WorkspaceReport;
 import com.hanjisang.pis.v2.technical.domain.TechnicalOrderStatus;
 import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository;
 import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository.ItemSnapshot;
@@ -57,11 +59,12 @@ public class V2DiagnosisApplicationService {
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
     private final JdbcV2TechnicalOrderRepository technicalRepository;
+    private final V2ReportApplicationService reportService;
 
     public V2DiagnosisApplicationService(JdbcV2DiagnosisRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2MaterialRepository materialRepository,
             P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
-            JdbcV2TechnicalOrderRepository technicalRepository) {
+            JdbcV2TechnicalOrderRepository technicalRepository, V2ReportApplicationService reportService) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
@@ -69,6 +72,7 @@ public class V2DiagnosisApplicationService {
         this.audit = audit;
         this.outbox = outbox;
         this.technicalRepository = technicalRepository;
+        this.reportService = reportService;
     }
 
     @Transactional
@@ -184,6 +188,9 @@ public class V2DiagnosisApplicationService {
         replay = replayDiagnosis(operation, command.idempotencyKey(), digest, actor);
         if (replay != null) { return replay; }
         Diagnosis diagnosis = requireDiagnosis(diagnosisId, actor);
+        if (reportService.hasEffectiveOriginal(diagnosisId, actor.hospitalScope())) {
+            throw reject("V2-DIAGNOSIS-REPORT-EFFECTIVE", "报告生效后不能直接修改诊断，请撤回后重新处理或创建补充报告");
+        }
         ResponsibilityUnit current = currentResponsibility(diagnosis, null, actor);
         requireCurrentDoctor(current, actor);
         authorizeRole(current.role(), actor);
@@ -311,11 +318,18 @@ public class V2DiagnosisApplicationService {
                 active && actorCurrent && current.role() == ResponsibilityRole.REVIEW,
                 active && actorCurrent && current.role() == ResponsibilityRole.AUDIT,
                 active && current != null && current.role() == ResponsibilityRole.INITIAL, readyForSignOut,
-                active && actorCurrent && diagnosis != null);
-        List<TechnicalOrderView> technicalOrders = diagnosis == null ? List.of()
-                : technicalRepository.findOrderSnapshotsByDiagnosis(diagnosis.id(), actor.hospitalScope()).stream()
-                        .map(this::technicalOrderView).toList();
+                active && actorCurrent && diagnosis != null, false, false, false, false);
+        List<OrderSnapshot> technicalOrderSnapshots = diagnosis == null ? List.of()
+                : technicalRepository.findOrderSnapshotsByDiagnosis(diagnosis.id(), actor.hospitalScope());
+        List<TechnicalOrderView> technicalOrders = technicalOrderSnapshots.stream().map(this::technicalOrderView).toList();
         int blockingTechnicalOrderCount = (int) technicalOrders.stream().filter(TechnicalOrderView::blocking).count();
+        WorkspaceReport reportWorkspace = reportService.workspace(caseId, diagnosis, responsibilities,
+                technicalOrderSnapshots, actor.hospitalScope(), actor.actorId());
+        actions = new Actions(actions.canClaim(), actions.canAssign(), actions.canCompleteInitial(),
+                actions.canCompleteReview(), actions.canCompleteAudit(), actions.canReassign(), actions.readyForSignOut(),
+                actions.canCreateTechnicalOrder(), reportWorkspace.actions().canPreview(),
+                reportWorkspace.actions().canSignOut(), reportWorkspace.actions().canWithdraw(),
+                reportWorkspace.actions().canSupplement());
         return new DiagnosisWorkspaceResult(new CaseSummary(pathologyCase.id(), pathologyCase.caseNo(),
                 pathologyCase.businessTypeCode(), pathologyCase.lifecycleStateCode()),
                 new ApplicationSummary(pathologyCase.applicationItemCode(), pathologyCase.sourceSystemCode(),
@@ -326,6 +340,7 @@ public class V2DiagnosisApplicationService {
                 current == null ? null : responsibilityView(current), actions, technicalOrders,
                 blockingTechnicalOrderCount,
                 new Placeholder("TECHNICAL_ORDER", "V2-I04已实现"), new Placeholder("REPORT", "V2-I05待实现"),
+                reportWorkspace.reports(), reportWorkspace.blockingReasons(),
                 Instant.now());
     }
 
@@ -715,7 +730,8 @@ public class V2DiagnosisApplicationService {
             TemplateVersionView templateVersion, List<ResponsibilityView> responsibilityChain,
             ResponsibilityView currentResponsibility, Actions actions, List<TechnicalOrderView> technicalOrders,
             int blockingTechnicalOrderCount, Placeholder technicalOrder,
-            Placeholder report, Instant refreshedAt) { }
+            Placeholder report, List<V2ReportApplicationService.ReportView> reports,
+            List<String> blockingReasons, Instant refreshedAt) { }
     public record CaseSummary(UUID caseId, String pathologyNo, String businessTypeCode, String lifecycle) { }
     public record ApplicationSummary(String applicationItemCode, String sourceSystemCode, String externalApplicationId) { }
     public record PatientSnapshot(String patientReference, String visitReference) { }
@@ -728,7 +744,8 @@ public class V2DiagnosisApplicationService {
             Instant endedAt, String endReason, long version, boolean current) { }
     public record Actions(boolean canClaim, boolean canAssign, boolean canCompleteInitial, boolean canCompleteReview,
             boolean canCompleteAudit, boolean canReassign, boolean readyForSignOut,
-            boolean canCreateTechnicalOrder) { }
+            boolean canCreateTechnicalOrder, boolean canPreview, boolean canSignOut,
+            boolean canWithdraw, boolean canSupplement) { }
     public record TechnicalOrderView(UUID orderId, String orderNo, TechnicalOrderStatus status,
             boolean requiredBeforeSignOut, boolean blocking, long version, List<TechnicalOrderItemView> items) { }
     public record TechnicalOrderItemView(UUID itemId, String projectCode, String projectName, int quantity,

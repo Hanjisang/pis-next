@@ -78,12 +78,34 @@ export type V2DiagnosisWorkspace = {
     canReassign: boolean;
     readyForSignOut: boolean;
     canCreateTechnicalOrder: boolean;
+    canPreview: boolean;
+    canSignOut: boolean;
+    canWithdraw: boolean;
+    canSupplement: boolean;
   };
   technicalOrders: V2TechnicalOrder[];
   blockingTechnicalOrderCount: number;
   technicalOrder: { kind: string; status: string };
   report: { kind: string; status: string };
+  reports: V2Report[];
+  blockingReasons: string[];
   refreshedAt: string;
+};
+
+export type V2Report = {
+  reportId: string;
+  reportNo: string;
+  nature: 'ORIGINAL' | 'SUPPLEMENTAL';
+  supplemental: boolean;
+  status: 'EFFECTIVE' | 'WITHDRAWN';
+  priorReportId?: string;
+  templateVersionId: string;
+  pdfFileReference: string;
+  pdfContentHash: string;
+  signedBy: string;
+  signedAt: string;
+  withdrawnAt?: string;
+  withdrawalReason?: string;
 };
 
 export type V2TechnicalProject = {
@@ -169,6 +191,63 @@ async function diagnosisRequest<T>(path: string, init: RequestInit = {}): Promis
 
 export function getV2DiagnosisWorkspace(caseId: string): Promise<V2DiagnosisWorkspace> {
   return diagnosisRequest(`/diagnosis-workspaces/${caseId}`);
+}
+
+export function getV2ReportPreview(diagnosisId: string, templateVersionId?: string) {
+  const query = templateVersionId
+    ? `?templateVersionId=${encodeURIComponent(templateVersionId)}`
+    : '';
+  return diagnosisRequest<{
+    valid: boolean;
+    blockingReasons: string[];
+    templateVersionId: string;
+    templateVersionNo: number;
+    renderedContent: string;
+    renderedContentHash: string;
+    pdfContentHash: string;
+  }>(`/diagnoses/${diagnosisId}/report-preview${query}`);
+}
+
+export function signOutV2Report(input: {
+  diagnosisId: string;
+  templateVersionId?: string;
+  idempotencyKey: string;
+}) {
+  const { diagnosisId, ...body } = input;
+  return diagnosisRequest<{ reportId: string; reportNo: string; status: string }>(
+    `/diagnoses/${diagnosisId}/sign-out`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export function withdrawV2Report(input: {
+  reportId: string;
+  reason: string;
+  idempotencyKey: string;
+}) {
+  const { reportId, ...body } = input;
+  return diagnosisRequest<{ reportId: string; status: string }>(`/reports/${reportId}/withdraw`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function supplementV2Report(input: {
+  diagnosisId: string;
+  priorReportId?: string;
+  templateVersionId?: string;
+  content: string;
+  idempotencyKey: string;
+}) {
+  const { diagnosisId, ...body } = input;
+  return diagnosisRequest<{ reportId: string; reportNo: string; status: string }>(
+    `/diagnoses/${diagnosisId}/supplemental`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export function getV2ReportPdfUrl(reportId: string) {
+  return `/api/v2/reports/${reportId}/pdf`;
 }
 
 export function getV2TechnicalProjects(caseId?: string): Promise<V2TechnicalProject[]> {

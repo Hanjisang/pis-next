@@ -27,7 +27,7 @@ class V2RegistrationPostgresIntegrationTest {
             .withPassword(UUID.randomUUID().toString());
 
     @Test
-    void postgresMigrationCreatesV2I04SchemaAndSeedConfiguration() {
+    void postgresMigrationCreatesV2I05SchemaAndSeedConfiguration() {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("pis")
@@ -40,9 +40,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("V2-I04");
+                String.class)).isEqualTo("V2-I05");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("15");
+                String.class)).isEqualTo("16");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(4);
@@ -56,6 +56,8 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.technical_project", Integer.class)).isEqualTo(24);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.technical_project WHERE produces_slide", Integer.class))
                 .isEqualTo(16);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template", Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_version", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
@@ -71,6 +73,12 @@ class V2RegistrationPostgresIntegrationTest {
                   AND table_name IN ('grossing', 'grossing_specimen', 'block', 'slide',
                                      'slide_rule', 'print_rule', 'print_log', 'material_command_idempotency')
                 """, Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('report_template', 'report_template_version', 'report', 'report_pdf_output')
+                """, Integer.class)).isEqualTo(4);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.tables

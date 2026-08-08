@@ -1,0 +1,175 @@
+package com.hanjisang.pis.v2.report;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Sql("classpath:v2-i01-test-schema.sql")
+class V2ReportWebTest {
+
+    @Autowired
+    private WebApplicationContext webApplicationContext;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private MockMvc mockMvc;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+    }
+
+    @Test
+    void previewDoesNotPersistAndSignOutWithdrawResignAndSupplementPreserveHistory() throws Exception {
+        String caseId = createReadyCase("I05-LOOP");
+        JsonNode claimed = json(mockMvc.perform(post("/api/v2/diagnoses/claim")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"idempotencyKey\":\"claim-i05\"}".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String diagnosisId = claimed.get("diagnosisId").asText();
+        String auditId = complete(diagnosisId, "/complete-initial", claimed.get("responsibilityId").asText(), 0, 0,
+                "AUDIT", 1, "complete-i05-initial").get("nextResponsibilityId").asText();
+        complete(diagnosisId, "/complete-audit", auditId, 0, 1, null, 2, "complete-i05-audit");
+
+        JsonNode preview = json(mockMvc.perform(get("/api/v2/diagnoses/%s/report-preview".formatted(diagnosisId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(preview.get("valid").asBoolean()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report", Integer.class)).isZero();
+
+        JsonNode first = json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"sign-i05-r001\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(first.get("reportNo").asText()).isEqualTo("R001");
+        assertThat(first.get("status").asText()).isEqualTo("EFFECTIVE");
+        String reportId = first.get("reportId").asText();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report_pdf_output", Integer.class)).isEqualTo(1);
+        assertThat(mockMvc.perform(get("/api/v2/reports/%s/pdf".formatted(reportId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).startsWith("%PDF-1.4");
+
+        JsonNode withdrawn = json(mockMvc.perform(post("/api/v2/reports/%s/withdraw".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"synthetic correction\",\"idempotencyKey\":\"withdraw-i05\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(withdrawn.get("status").asText()).isEqualTo("WITHDRAWN");
+        JsonNode reopened = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(reopened.get("currentResponsibility").get("role").asText()).isEqualTo("AUDIT");
+        assertThat(reopened.get("responsibilityChain")).hasSize(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT pdf_content_hash FROM pis_v2.report WHERE id = ?", String.class,
+                UUID.fromString(reportId))).isNotBlank();
+
+        JsonNode current = reopened.get("currentResponsibility");
+        JsonNode auditCompleted = complete(diagnosisId, "/complete-audit", current.get("responsibilityId").asText(),
+                current.get("version").asLong(), reopened.get("diagnosis").get("version").asLong(), null,
+                3, "complete-i05-resign-audit");
+        assertThat(auditCompleted.get("readyForSignOut").asBoolean()).isTrue();
+        JsonNode second = json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"sign-i05-r002\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(second.get("reportNo").asText()).isEqualTo("R002");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report", Integer.class)).isEqualTo(2);
+
+        JsonNode supplemental = json(mockMvc.perform(post("/api/v2/diagnoses/%s/supplemental".formatted(diagnosisId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"synthetic supplemental result\",\"idempotencyKey\":\"supplement-i05\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(supplemental.get("reportNo").asText()).isEqualTo("S001");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report WHERE status_code = 'EFFECTIVE'",
+                Integer.class)).isEqualTo(2);
+        JsonNode history = json(mockMvc.perform(get("/api/v2/cases/%s/reports".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(history).hasSize(3);
+        assertThat(history.get(0).get("reportNo").asText()).isEqualTo("S001");
+    }
+
+    private JsonNode complete(String diagnosisId, String path, String responsibilityId, long responsibilityVersion,
+            long diagnosisVersion, String nextRole, long ignoredVersion, String key) throws Exception {
+        String nextRoleJson = nextRole == null ? "null" : "\"%s\"".formatted(nextRole);
+        String nextDoctorJson = nextRole == null ? "null" : "\"p15-local-registration-actor\"";
+        return json(mockMvc.perform(post("/api/v2/diagnoses/%s%s".formatted(diagnosisId, path))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"responsibilityId":"%s","responsibilityExpectedVersion":%d,
+                         "structuredData":"{}","microscopicDescription":"synthetic microscopic",
+                         "diagnosisText":"synthetic diagnosis","comment":"synthetic",
+                         "diagnosisExpectedVersion":%d,"nextRole":%s,"nextDoctorId":%s,
+                         "nextReason":"synthetic next responsibility","idempotencyKey":"%s"}
+                        """.formatted(responsibilityId, responsibilityVersion, diagnosisVersion, nextRoleJson,
+                        nextDoctorJson, key)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    }
+
+    private String createReadyCase(String suffix) throws Exception {
+        JsonNode caseBody = json(mockMvc.perform(post("/api/v2/registration/cases")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"sourceSystemCode":"SYNTH-HIS","externalApplicationId":"%s",
+                         "applicationItemCode":"SYNTH-HISTOLOGY","patientReference":"SYNTH-%s",
+                         "visitReference":"SYNTH-VISIT","idempotencyKey":"case-%s"}
+                        """.formatted(suffix, suffix, suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String caseId = caseBody.get("caseId").asText();
+        JsonNode specimen = json(mockMvc.perform(post("/api/v2/registration/specimens")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"caseId":"%s","specimenCode":"A","specimenKindCode":"TISSUE","sourceKindCode":"LOCAL",
+                         "sourceReference":"SYNTH-%s","collectionSite":"synthetic site","collectionMethodCode":"SURGICAL",
+                         "labelCode":"LABEL-%s","idempotencyKey":"specimen-%s"}
+                        """.formatted(caseId, suffix, suffix, suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        JsonNode grossing = json(mockMvc.perform(post("/api/v2/cases/%s/grossings".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"sourceType":"INITIAL","grossDescription":"synthetic grossing","grossingDoctorId":"doctor-gross",
+                         "recorderId":"recorder","idempotencyKey":"grossing-%s"}
+                        """.formatted(suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        mockMvc.perform(post("/api/v2/grossings/%s/specimens".formatted(grossing.get("grossingId").asText()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"materialDescription\":\"synthetic\",\"idempotencyKey\":\"associate-%s\"}"
+                        .formatted(specimen.get("specimenId").asText(), suffix)))
+                .andExpect(status().isOk());
+        JsonNode block = json(mockMvc.perform(post("/api/v2/grossings/%s/blocks".formatted(grossing.get("grossingId").asText()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"blockCode\":\"A1\",\"blockType\":\"ROUTINE\",\"idempotencyKey\":\"block-%s\"}"
+                        .formatted(specimen.get("specimenId").asText(), suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        mockMvc.perform(post("/api/v2/grossings/%s/complete".formatted(grossing.get("grossingId").asText()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"idempotencyKey\":\"complete-grossing-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk());
+        String slideId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?", String.class,
+                UUID.fromString(block.get("blockId").asText()));
+        mockMvc.perform(post("/api/v2/slides/%s/complete".formatted(slideId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"idempotencyKey\":\"complete-slide-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk());
+        return caseId;
+    }
+
+    private JsonNode json(String value) throws Exception { return objectMapper.readTree(value); }
+}

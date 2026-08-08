@@ -359,3 +359,59 @@ INSERT INTO pis_v2.print_rule
      active, configuration_version, created_at, updated_at, created_by_ref)
 VALUES ('00000000-0000-0000-0000-00000000b011', 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'ON_GROSSING_COMPLETE',
         'SYNTH-PRINTER', TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
+
+CREATE TABLE IF NOT EXISTS pis_v2.report_template (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
+    template_code VARCHAR(128) NOT NULL, template_name VARCHAR(256) NOT NULL, enabled BOOLEAN NOT NULL,
+    configuration_version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, template_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_template_version (
+    id UUID PRIMARY KEY, template_id UUID NOT NULL, version_no INTEGER NOT NULL, definition VARCHAR(20000) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, published_at TIMESTAMP WITH TIME ZONE, published_by_ref VARCHAR(128),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    concurrency_version BIGINT NOT NULL, UNIQUE (template_id, version_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report (
+    id UUID PRIMARY KEY, report_no VARCHAR(64) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    case_id UUID NOT NULL, diagnosis_id UUID NOT NULL, template_version_id UUID NOT NULL,
+    report_nature_code VARCHAR(32) NOT NULL, prior_report_id UUID, status_code VARCHAR(32) NOT NULL,
+    diagnosis_snapshot VARCHAR(20000) NOT NULL, responsibility_snapshot VARCHAR(20000) NOT NULL,
+    case_snapshot VARCHAR(20000) NOT NULL, material_snapshot VARCHAR(50000) NOT NULL,
+    technical_result_snapshot VARCHAR(50000) NOT NULL, supplemental_content VARCHAR(10000),
+    rendered_content VARCHAR(100000) NOT NULL, rendered_content_hash VARCHAR(128) NOT NULL,
+    pdf_file_reference VARCHAR(256) NOT NULL, pdf_content_hash VARCHAR(128) NOT NULL,
+    signed_by_ref VARCHAR(128) NOT NULL, signed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    withdrawn_by_ref VARCHAR(128), withdrawn_at TIMESTAMP WITH TIME ZONE, withdrawal_reason VARCHAR(2000),
+    concurrency_version BIGINT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, case_id, report_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_pdf_output (
+    id UUID PRIMARY KEY, report_id UUID NOT NULL UNIQUE, file_reference VARCHAR(256) NOT NULL UNIQUE,
+    content VARBINARY NOT NULL, content_hash VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_report_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
+
+DELETE FROM pis_v2.report_command_idempotency;
+DELETE FROM pis_v2.report_pdf_output;
+DELETE FROM pis_v2.report;
+DELETE FROM pis_v2.report_template_version;
+DELETE FROM pis_v2.report_template;
+INSERT INTO pis_v2.report_template
+    (id, organization_reference, business_type_id, template_code, template_name, enabled,
+     configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)
+VALUES ('00000000-0000-0000-0000-00000000b501', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
+        'DEFAULT-REPORT-HISTOLOGY', 'V2报告模板', TRUE, 1, CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST');
+INSERT INTO pis_v2.report_template_version
+    (id, template_id, version_no, definition, status_code, published_at, published_by_ref,
+     created_at, created_by_ref, concurrency_version)
+VALUES ('00000000-0000-0000-0000-00000000b502', '00000000-0000-0000-0000-00000000b501', 1,
+        '{"sections":["CASE","PATIENT","MATERIAL","DIAGNOSIS","RESPONSIBILITY","TECHNICAL_RESULTS","SIGN_OUT"]}',
+        'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);

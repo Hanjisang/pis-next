@@ -146,9 +146,11 @@ async function submit(operation: () => Promise<void>) {
         </div>
         <form class="project-form" @submit.prevent="createProject">
           <label>Business type ID<input v-model="projectDraft.businessTypeId" required /></label>
+          <!-- eslint-disable vue/max-attributes-per-line -->
           <label
             >Project code<input v-model="projectDraft.projectCode" required placeholder="IHC-KI67"
           /></label>
+          <!-- eslint-enable vue/max-attributes-per-line -->
           <label>Project name<input v-model="projectDraft.projectName" required /></label>
           <label>Allowed targets<input v-model="projectDraft.allowedTargetTypes" required /></label>
           <label>Default slide type<input v-model="projectDraft.defaultSlideType" /></label>

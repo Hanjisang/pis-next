@@ -295,6 +295,12 @@ public class V2TechnicalOrderApplicationService {
                 .map(snapshot -> orderResult(snapshot, false)).toList();
     }
 
+    /** Shared sign-out gate; the report module must not duplicate I04's blocking projection. */
+    public boolean hasBlockingTechnicalOrders(UUID diagnosisId, String organizationReference) {
+        return repository.findOrderSnapshotsByDiagnosis(diagnosisId, organizationReference).stream()
+                .anyMatch(OrderSnapshot::blocking);
+    }
+
     @Transactional(readOnly = true)
     public WorkbenchResult workbench() {
         ActorContext actor = authorization.require(TECHNICAL_QUERY);

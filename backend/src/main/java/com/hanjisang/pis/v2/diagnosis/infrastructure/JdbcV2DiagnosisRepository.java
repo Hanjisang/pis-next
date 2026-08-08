@@ -275,6 +275,24 @@ public class JdbcV2DiagnosisRepository {
                 expectedVersion, organizationReference) == 1;
     }
 
+    /** Reopens only the last non-ended AUDIT node after a report withdrawal. */
+    public boolean reopenLastAuditResponsibility(UUID diagnosisId, String organizationReference) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.responsibility_unit r
+                   SET completed_at = NULL, concurrency_version = concurrency_version + 1
+                 WHERE r.id = (
+                     SELECT candidate.id FROM pis_v2.responsibility_unit candidate
+                     JOIN pis_v2.diagnosis d ON d.id = candidate.diagnosis_id
+                     WHERE candidate.diagnosis_id = ? AND candidate.role_code = 'AUDIT'
+                       AND candidate.ended_at IS NULL AND candidate.completed_at IS NOT NULL
+                       AND d.organization_reference = ?
+                     ORDER BY candidate.sequence_no DESC
+                     LIMIT 1
+                 )
+                   AND r.completed_at IS NOT NULL AND r.ended_at IS NULL
+                """, diagnosisId, organizationReference) == 1;
+    }
+
     public boolean endResponsibility(ResponsibilityUnit responsibility, String organizationReference,
             long expectedVersion) {
         return jdbcTemplate.update("""

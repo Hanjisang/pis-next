@@ -8,6 +8,11 @@ import {
   getV2DiagnosisWorkspace,
   getV2TechnicalProjects,
   createV2TechnicalOrder,
+  getV2ReportPreview,
+  signOutV2Report,
+  withdrawV2Report,
+  supplementV2Report,
+  getV2ReportPdfUrl,
   reassignV2Diagnosis,
   saveV2Diagnosis,
   type V2DiagnosisWorkspace as DiagnosisWorkspace,
@@ -59,6 +64,9 @@ const technicalRequiredBeforeSignOut = ref(true);
 const technicalDrafts = ref<TechnicalDraft[]>([
   { projectId: '', quantity: 1, targetType: 'CASE', targetId: '', parameters: '{}', note: '' },
 ]);
+const reportPreview = ref<{ renderedContent: string; blockingReasons: string[] } | null>(null);
+const withdrawalReason = ref('');
+const supplementalContent = ref('');
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
 const templateComponents = computed(() =>
@@ -322,6 +330,64 @@ async function complete() {
       currentRole.value === 'AUDIT' && !followingRole
         ? '审核责任已完成，当前结果仅形成 READY_FOR_SIGN_OUT 投影。'
         : '当前责任已完成，已生成下一责任节点。';
+  });
+}
+
+async function previewReport() {
+  if (!workspace.value?.diagnosis) return;
+  await submit(async () => {
+    const preview = await getV2ReportPreview(workspace.value!.diagnosis!.diagnosisId);
+    reportPreview.value = preview;
+    notice.value = preview.valid
+      ? '报告预览已按当前 Diagnosis、模板和技术结果重新渲染。'
+      : '报告预览已生成，但仍存在签发阻断原因。';
+  });
+}
+
+async function signOutReport() {
+  if (!workspace.value?.diagnosis) return;
+  await submit(async () => {
+    const report = await signOutV2Report({
+      diagnosisId: workspace.value!.diagnosis!.diagnosisId,
+      idempotencyKey: requestKey('v2-report-sign-out'),
+    });
+    await loadWorkspace();
+    notice.value = `${report.reportNo} 已签发；快照和 PDF 已持久化。`;
+  });
+}
+
+async function withdrawReport(reportId: string) {
+  if (!withdrawalReason.value.trim()) {
+    error.value = '撤回原因不能为空';
+    return;
+  }
+  await submit(async () => {
+    await withdrawV2Report({
+      reportId,
+      reason: withdrawalReason.value,
+      idempotencyKey: requestKey('v2-report-withdraw'),
+    });
+    withdrawalReason.value = '';
+    await loadWorkspace();
+    notice.value = '报告已撤回；最后审查责任节点已重新打开。';
+  });
+}
+
+async function supplementReport() {
+  if (!workspace.value?.diagnosis || !supplementalContent.value.trim()) return;
+  const prior = (workspace.value.reports ?? []).find(
+    (report) => report.nature === 'ORIGINAL' && report.status === 'EFFECTIVE',
+  );
+  await submit(async () => {
+    await supplementV2Report({
+      diagnosisId: workspace.value!.diagnosis!.diagnosisId,
+      priorReportId: prior?.reportId,
+      content: supplementalContent.value,
+      idempotencyKey: requestKey('v2-report-supplement'),
+    });
+    supplementalContent.value = '';
+    await loadWorkspace();
+    notice.value = '补充报告已独立签发，原报告保持生效。';
   });
 }
 
@@ -686,6 +752,80 @@ async function submit(operation: () => Promise<void>) {
             </article>
           </div>
           <p v-else class="field-hint">当前 Diagnosis 尚无 TechnicalOrder。</p>
+        </section>
+
+        <section class="report-panel" aria-label="V2 报告预览与签发">
+          <div class="section-heading">
+            <div>
+              <h3>报告预览 / 签发</h3>
+              <span>预览可重新生成；每次签发都会创建新的不可变 Report。</span>
+            </div>
+            <strong v-if="(workspace.blockingReasons ?? []).length" class="blocking-chip">
+              {{ (workspace.blockingReasons ?? []).length }} 个阻断原因
+            </strong>
+          </div>
+          <ul v-if="(workspace.blockingReasons ?? []).length" class="blocking-reasons">
+            <li v-for="reason in workspace.blockingReasons ?? []" :key="reason">{{ reason }}</li>
+          </ul>
+          <div class="report-actions">
+            <button
+              type="button"
+              :disabled="!workspace.actions.canPreview || submitting"
+              @click="previewReport"
+            >
+              预览报告
+            </button>
+            <button
+              class="primary-action"
+              type="button"
+              :disabled="!workspace.actions.canSignOut || submitting"
+              @click="signOutReport"
+            >
+              签发报告
+            </button>
+          </div>
+          <pre v-if="reportPreview" class="report-preview">{{ reportPreview.renderedContent }}</pre>
+          <div v-if="workspace.actions.canWithdraw" class="report-withdrawal">
+            <input v-model="withdrawalReason" placeholder="撤回原因" />
+            <button
+              v-for="report in (workspace.reports ?? []).filter(
+                (item) => item.status === 'EFFECTIVE',
+              )"
+              :key="report.reportId"
+              type="button"
+              :disabled="submitting || !withdrawalReason.trim()"
+              @click="withdrawReport(report.reportId)"
+            >
+              撤回 {{ report.reportNo }}
+            </button>
+          </div>
+          <div v-if="workspace.actions.canSupplement" class="report-supplement">
+            <textarea v-model="supplementalContent" rows="3" placeholder="补充诊断或技术结果" />
+            <button
+              type="button"
+              :disabled="submitting || !supplementalContent.trim()"
+              @click="supplementReport"
+            >
+              签发补充报告
+            </button>
+          </div>
+          <div class="report-history" aria-label="Report history">
+            <h4>报告历史</h4>
+            <p v-if="!(workspace.reports ?? []).length" class="field-hint">尚无已签发报告。</p>
+            <article
+              v-for="report in workspace.reports ?? []"
+              :key="report.reportId"
+              class="report-history-card"
+            >
+              <strong>{{ report.reportNo }}</strong>
+              <span>{{ report.nature }} / {{ report.status }}</span>
+              <small>{{ report.signedBy }} · {{ report.signedAt }}</small>
+              <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
+                >打开 PDF</a
+              >
+              <p v-if="report.withdrawalReason">{{ report.withdrawalReason }}</p>
+            </article>
+          </div>
         </section>
 
         <div class="responsibility-history" aria-label="责任链历史">
@@ -1136,6 +1276,60 @@ button:disabled {
 }
 .technical-order-card .blocking-chip {
   color: #9b5a1c;
+}
+.report-panel {
+  border-top: 1px solid #d5e3db;
+  margin-top: 28px;
+  padding-top: 20px;
+}
+.report-actions,
+.report-withdrawal,
+.report-supplement {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.blocking-reasons {
+  color: #9b5a1c;
+  font-size: 0.82rem;
+  margin: 12px 0 0;
+}
+.report-preview {
+  background: #10211c;
+  border-radius: 12px;
+  color: #d7f3df;
+  max-height: 260px;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre-wrap;
+  margin-top: 14px;
+}
+.report-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.report-history h4 {
+  margin: 0;
+}
+.report-history-card {
+  background: #fff;
+  border: 1px solid #cbd9d2;
+  border-radius: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.report-history-card span,
+.report-history-card small {
+  color: #60786d;
+  font-size: 0.8rem;
+}
+.report-history-card a {
+  color: #1e6a52;
+  font-weight: 750;
 }
 .empty-editor {
   background: #f3f7f3;

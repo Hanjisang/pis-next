@@ -20,6 +20,8 @@ class V2ArchitectureDriftTest {
             "ActualSlide", "PhysicalSlideInstance", "SlideRework", "ReportVersion", "InitialDiagnosis",
             "ReviewDiagnosis", "AuditDiagnosis", "SingleSignWorkflow", "DoubleSignWorkflow",
             "TripleSignWorkflow", "DiagnosisTask", "AssignmentTask", "TechnicalSlide", "TechnicalBlock",
+            "ReportContentVersion", "SignedDiagnosis", "WithdrawWorkflow", "ReSignWorkflow",
+            "SingleSignReport", "DoubleSignReport", "TripleSignReport",
             "GenericTechnicalResult", "IhcWorkflow", "DeepSectionWorkflow", "SpecialStainWorkflow");
 
     @Test
