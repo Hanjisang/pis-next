@@ -124,6 +124,14 @@ CREATE TABLE IF NOT EXISTS pis_v2.slide (
     updated_by_ref VARCHAR(128) NOT NULL,
     slide_code_active VARCHAR(128) AS (CASE WHEN deleted_at IS NULL THEN slide_code ELSE NULL END)
 );
+ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_by_ref VARCHAR(128);
+ALTER TABLE pis_v2.block ADD IF NOT EXISTS destruction_reason VARCHAR(2000);
+ALTER TABLE pis_v2.block ADD IF NOT EXISTS destruction_batch_reference VARCHAR(256);
+ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destroyed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destroyed_by_ref VARCHAR(128);
+ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destruction_reason VARCHAR(2000);
+ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destruction_batch_reference VARCHAR(256);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_slide_code_active
     ON pis_v2.slide (case_id, slide_code_active);
 CREATE TABLE IF NOT EXISTS pis_v2.print_rule (
@@ -398,6 +406,62 @@ CREATE TABLE IF NOT EXISTS pis_v2.report_command_idempotency (
     payload_digest VARCHAR(128) NOT NULL, result_report_id UUID NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
     UNIQUE (operation_code, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.digital_slide (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, block_id UUID, slide_id UUID,
+    binding_mode_code VARCHAR(32) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    viewer_reference VARCHAR(512) NOT NULL, source_platform VARCHAR(256) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.archive_location (
+    id UUID PRIMARY KEY, parent_id UUID, location_code VARCHAR(128) NOT NULL,
+    location_name VARCHAR(256) NOT NULL, location_kind_code VARCHAR(64) NOT NULL, active BOOLEAN NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, location_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.material_archive_history (
+    id UUID PRIMARY KEY, block_id UUID, slide_id UUID, location_id UUID NOT NULL,
+    event_code VARCHAR(32) NOT NULL, occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    occurred_by_ref VARCHAR(128) NOT NULL, reason VARCHAR(2000)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.block_archive_current (
+    block_id UUID PRIMARY KEY, location_id UUID NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.slide_archive_current (
+    slide_id UUID PRIMARY KEY, location_id UUID NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.loan (
+    id UUID PRIMARY KEY, borrower_reference VARCHAR(256) NOT NULL, purpose VARCHAR(2000) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, borrowed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    borrowed_by_ref VARCHAR(128) NOT NULL, returned_at TIMESTAMP WITH TIME ZONE,
+    returned_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.loan_item (
+    id UUID PRIMARY KEY, loan_id UUID NOT NULL, block_id UUID, slide_id UUID,
+    returned_at TIMESTAMP WITH TIME ZONE, returned_by_ref VARCHAR(128)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.material_destruction (
+    id UUID PRIMARY KEY, block_id UUID, slide_id UUID, destroyed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    destroyed_by_ref VARCHAR(128) NOT NULL, reason VARCHAR(2000) NOT NULL, batch_reference VARCHAR(256) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.custody_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_entity_id UUID, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, UNIQUE (operation_code, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.qc_rule (
+    id UUID PRIMARY KEY, rule_code VARCHAR(128) NOT NULL UNIQUE, rule_name VARCHAR(256) NOT NULL,
+    metric_code VARCHAR(128) NOT NULL, warning_threshold NUMERIC(18,6) NOT NULL,
+    overdue_threshold NUMERIC(18,6) NOT NULL, active BOOLEAN NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.qc_evaluation (
+    id UUID PRIMARY KEY, rule_id UUID NOT NULL, case_id UUID, measure_value NUMERIC(18,6) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    evaluated_by_ref VARCHAR(128) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pis_v2.molecular_result (
     id UUID PRIMARY KEY, case_id UUID NOT NULL, specimen_id UUID, result_code VARCHAR(128) NOT NULL,

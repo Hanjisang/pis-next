@@ -40,9 +40,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("V2-I06-B");
+                String.class)).isEqualTo("V2-I06-C");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("18");
+                String.class)).isEqualTo("19");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
@@ -107,6 +107,14 @@ class V2RegistrationPostgresIntegrationTest {
                   AND table_name IN ('molecular_result', 'molecular_result_idempotency', 'send_out',
                                      'send_out_idempotency')
                 """, Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('digital_slide', 'archive_location', 'material_archive_history',
+                                     'block_archive_current', 'slide_archive_current', 'loan', 'loan_item',
+                                     'material_destruction', 'custody_command_idempotency', 'qc_rule', 'qc_evaluation')
+                """, Integer.class)).isEqualTo(11);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM pg_indexes

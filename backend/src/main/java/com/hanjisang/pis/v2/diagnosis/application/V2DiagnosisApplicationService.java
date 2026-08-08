@@ -32,6 +32,7 @@ import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.I
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.PublicPoolCase;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
+import com.hanjisang.pis.v2.digital.infrastructure.JdbcV2DigitalSlideRepository;
 import com.hanjisang.pis.v2.molecular.infrastructure.JdbcV2MolecularResultRepository;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
@@ -62,12 +63,13 @@ public class V2DiagnosisApplicationService {
     private final JdbcV2TechnicalOrderRepository technicalRepository;
     private final V2ReportApplicationService reportService;
     private final JdbcV2MolecularResultRepository molecularResultRepository;
+    private final JdbcV2DigitalSlideRepository digitalSlideRepository;
 
     public V2DiagnosisApplicationService(JdbcV2DiagnosisRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2MaterialRepository materialRepository,
             P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
             JdbcV2TechnicalOrderRepository technicalRepository, V2ReportApplicationService reportService,
-            JdbcV2MolecularResultRepository molecularResultRepository) {
+            JdbcV2MolecularResultRepository molecularResultRepository, JdbcV2DigitalSlideRepository digitalSlideRepository) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
@@ -77,6 +79,7 @@ public class V2DiagnosisApplicationService {
         this.technicalRepository = technicalRepository;
         this.reportService = reportService;
         this.molecularResultRepository = molecularResultRepository;
+        this.digitalSlideRepository = digitalSlideRepository;
     }
 
     @Transactional
@@ -303,6 +306,9 @@ public class V2DiagnosisApplicationService {
                 .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
         List<MaterialTreeRow> rows = materialRepository.findMaterialTree(caseId, actor.hospitalScope());
         MaterialTreeResult materialTree = materialTree(pathologyCase, rows);
+        List<DigitalSlideView> digitalSlides = digitalSlideRepository.findByCase(caseId, actor.hospitalScope()).stream()
+                .map(item -> new DigitalSlideView(item.id(), item.blockId(), item.slideId(), item.statusCode(),
+                        item.viewerReference(), item.sourcePlatform())).toList();
         Diagnosis diagnosis = repository.findDiagnosisByCase(caseId, actor.hospitalScope()).orElse(null);
         DiagnosisTemplateVersion templateVersion = diagnosis == null ? null
                 : repository.findTemplateVersion(diagnosis.templateVersionId(), actor.hospitalScope()).orElse(null);
@@ -344,7 +350,7 @@ public class V2DiagnosisApplicationService {
                 current == null ? null : responsibilityView(current), actions, technicalOrders,
                 blockingTechnicalOrderCount,
                 new Placeholder("TECHNICAL_ORDER", "V2-I04已实现"), new Placeholder("REPORT", "V2-I05待实现"),
-                reportWorkspace.reports(), reportWorkspace.blockingReasons(),
+                reportWorkspace.reports(), reportWorkspace.blockingReasons(), digitalSlides,
                 Instant.now());
     }
 
@@ -747,7 +753,7 @@ public class V2DiagnosisApplicationService {
             ResponsibilityView currentResponsibility, Actions actions, List<TechnicalOrderView> technicalOrders,
             int blockingTechnicalOrderCount, Placeholder technicalOrder,
             Placeholder report, List<V2ReportApplicationService.ReportView> reports,
-            List<String> blockingReasons, Instant refreshedAt) { }
+            List<String> blockingReasons, List<DigitalSlideView> digitalSlides, Instant refreshedAt) { }
     public record CaseSummary(UUID caseId, String pathologyNo, String businessTypeCode, String lifecycle) { }
     public record ApplicationSummary(String applicationItemCode, String sourceSystemCode, String externalApplicationId) { }
     public record PatientSnapshot(String patientReference, String visitReference) { }
@@ -770,6 +776,8 @@ public class V2DiagnosisApplicationService {
     public record TechnicalTargetView(UUID targetId, String targetType, UUID targetObjectId, String displayCode) { }
     public record TechnicalOutputView(String outputKind, UUID outputId, int occurrenceNo) { }
     public record TechnicalResultView(UUID resultId, String resultData, long version, Instant enteredAt) { }
+    public record DigitalSlideView(UUID digitalSlideId, UUID blockId, UUID slideId, String statusCode,
+            String viewerReference, String sourcePlatform) { }
     public record Placeholder(String kind, String status) { }
     public record PublicPoolEntry(UUID caseId, String pathologyNo, String businessTypeCode) { }
     public record MaterialTreeResult(UUID caseId, String caseNo, String businessTypeCode,
