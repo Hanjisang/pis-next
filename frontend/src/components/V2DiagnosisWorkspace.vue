@@ -6,10 +6,13 @@ import {
   claimV2Diagnosis,
   completeV2Responsibility,
   getV2DiagnosisWorkspace,
+  getV2TechnicalProjects,
+  createV2TechnicalOrder,
   reassignV2Diagnosis,
   saveV2Diagnosis,
   type V2DiagnosisWorkspace as DiagnosisWorkspace,
   type V2ResponsibilityRole,
+  type V2TechnicalProject,
 } from '../v2DiagnosisApi';
 
 type TemplateOption = { value: string; label: string };
@@ -22,6 +25,15 @@ type TemplateComponent = {
   options?: string[] | TemplateOption[];
   readOnly?: boolean;
   unit?: string;
+};
+type TechnicalTargetType = 'CASE' | 'SPECIMEN' | 'BLOCK' | 'SLIDE';
+type TechnicalDraft = {
+  projectId: string;
+  quantity: number;
+  targetType: TechnicalTargetType;
+  targetId: string;
+  parameters: string;
+  note: string;
 };
 
 const caseId = defineModel<string>('caseId', {
@@ -42,6 +54,11 @@ const assignmentDoctor = ref('');
 const assignmentReason = ref('');
 const nextRole = ref<V2ResponsibilityRole | ''>('REVIEW');
 const nextDoctorId = ref('p15-local-registration-actor');
+const technicalProjects = ref<V2TechnicalProject[]>([]);
+const technicalRequiredBeforeSignOut = ref(true);
+const technicalDrafts = ref<TechnicalDraft[]>([
+  { projectId: '', quantity: 1, targetType: 'CASE', targetId: '', parameters: '{}', note: '' },
+]);
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
 const templateComponents = computed(() =>
@@ -80,11 +97,69 @@ async function loadWorkspace() {
     if (workspace.value.currentResponsibility) {
       nextDoctorId.value = workspace.value.currentResponsibility.doctorId;
     }
+    technicalProjects.value = [];
+    if (workspace.value.actions.canCreateTechnicalOrder) {
+      technicalProjects.value = await getV2TechnicalProjects(caseId.value);
+      if (!technicalDrafts.value[0].projectId && technicalProjects.value[0]) {
+        technicalDrafts.value[0].projectId = technicalProjects.value[0].projectId;
+        technicalDrafts.value[0].targetType = (technicalProjects.value[0].allowedTargetTypes[0] ??
+          'CASE') as TechnicalTargetType;
+      }
+    }
   } catch (requestError) {
     error.value = requestError instanceof Error ? requestError.message : '工作区加载失败';
   } finally {
     loading.value = false;
   }
+}
+
+function addTechnicalDraft() {
+  const project = technicalProjects.value[0];
+  technicalDrafts.value.push({
+    projectId: project?.projectId ?? '',
+    quantity: 1,
+    targetType: (project?.allowedTargetTypes[0] ?? 'CASE') as TechnicalTargetType,
+    targetId: '',
+    parameters: '{}',
+    note: '',
+  });
+}
+
+function removeTechnicalDraft(index: number) {
+  if (technicalDrafts.value.length > 1) technicalDrafts.value.splice(index, 1);
+}
+
+function projectForDraft(projectId: string) {
+  return technicalProjects.value.find((project) => project.projectId === projectId);
+}
+
+function syncDraftTargetType(index: number) {
+  const draft = technicalDrafts.value[index];
+  const project = projectForDraft(draft.projectId);
+  if (project && !project.allowedTargetTypes.includes(draft.targetType)) {
+    draft.targetType = (project.allowedTargetTypes[0] ?? 'CASE') as TechnicalTargetType;
+  }
+}
+
+async function createTechnicalOrder() {
+  if (!workspace.value?.diagnosis) return;
+  await submit(async () => {
+    await createV2TechnicalOrder({
+      diagnosisId: workspace.value!.diagnosis!.diagnosisId,
+      requiredBeforeSignOut: technicalRequiredBeforeSignOut.value,
+      items: technicalDrafts.value.map((draft) => ({
+        projectId: draft.projectId,
+        quantity: draft.quantity,
+        parameters: draft.parameters || '{}',
+        note: draft.note,
+        targets: [{ targetType: draft.targetType, targetId: draft.targetId }],
+      })),
+      idempotencyKey: requestKey('v2-technical-order-create'),
+    });
+    await loadWorkspace();
+    notice.value =
+      'TechnicalOrder created; execution and facts are managed in the Technical Workbench.';
+  });
 }
 
 function parseTemplateComponents(schemaDefinition?: string): TemplateComponent[] {
@@ -495,6 +570,124 @@ async function submit(operation: () => Promise<void>) {
           保存 Diagnosis 草稿
         </button>
 
+        <section class="technical-order-panel" aria-label="TechnicalOrder technical order loop">
+          <div class="section-heading">
+            <div>
+              <h3>TechnicalOrder Loop</h3>
+              <span>Diagnosis → TechnicalProject → official material/result outputs</span>
+            </div>
+            <strong v-if="workspace.blockingTechnicalOrderCount">
+              {{ workspace.blockingTechnicalOrderCount }} blocking
+            </strong>
+          </div>
+          <p v-if="!workspace.diagnosis" class="field-hint">
+            先建立 Diagnosis 后才可以开立 TechnicalOrder。
+          </p>
+          <template v-else>
+            <div v-if="workspace.actions.canCreateTechnicalOrder" class="technical-order-form">
+              <label class="checkbox-field">
+                <input v-model="technicalRequiredBeforeSignOut" type="checkbox" />
+                Required before sign-out
+              </label>
+              <article
+                v-for="(draft, index) in technicalDrafts"
+                :key="index"
+                class="technical-draft"
+              >
+                <label>
+                  Project
+                  <select v-model="draft.projectId" required @change="syncDraftTargetType(index)">
+                    <option value="" disabled>选择 TechnicalProject</option>
+                    <option
+                      v-for="project in technicalProjects"
+                      :key="project.projectId"
+                      :value="project.projectId"
+                    >
+                      {{ project.projectCode }} · {{ project.projectName }}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Target type
+                  <select v-model="draft.targetType" required>
+                    <option
+                      v-for="targetType in projectForDraft(draft.projectId)?.allowedTargetTypes ??
+                      []"
+                      :key="targetType"
+                      :value="targetType"
+                    >
+                      {{ targetType }}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Target ID
+                  <input
+                    v-model="draft.targetId"
+                    required
+                    placeholder="CASE / SPECIMEN / BLOCK / SLIDE ID"
+                  />
+                </label>
+                <label>
+                  Quantity
+                  <input v-model.number="draft.quantity" min="1" type="number" />
+                </label>
+                <label>
+                  Parameters JSON
+                  <input v-model="draft.parameters" placeholder="{}" />
+                </label>
+                <button
+                  type="button"
+                  :disabled="technicalDrafts.length === 1"
+                  @click="removeTechnicalDraft(index)"
+                >
+                  Remove item
+                </button>
+              </article>
+              <div class="technical-form-actions">
+                <button type="button" @click="addTechnicalDraft">Add item</button>
+                <button
+                  class="primary-action"
+                  type="button"
+                  :disabled="submitting"
+                  @click="createTechnicalOrder"
+                >
+                  Create TechnicalOrder
+                </button>
+              </div>
+            </div>
+            <p v-else class="field-hint">当前责任人或权限不足，TechnicalOrder 只读。</p>
+          </template>
+          <div v-if="workspace.technicalOrders.length" class="technical-order-list">
+            <article
+              v-for="order in workspace.technicalOrders"
+              :key="order.orderId"
+              class="technical-order-card"
+            >
+              <div class="technical-order-card-heading">
+                <strong>{{ order.orderNo }}</strong>
+                <span :class="{ 'blocking-chip': order.blocking }">{{ order.status }}</span>
+              </div>
+              <small
+                >{{ order.items.length }} items ·
+                {{ order.requiredBeforeSignOut ? 'blocking configured' : 'not blocking' }}</small
+              >
+              <ul>
+                <li v-for="item in order.items" :key="item.itemId">
+                  {{ item.projectCode }} · {{ item.status }} · {{ item.completedCount }}/{{
+                    item.expectedCount
+                  }}
+                  <span v-if="item.outputs.length">
+                    · {{ item.outputs.map((output) => output.outputKind).join(', ') }}</span
+                  >
+                  <span v-if="item.result"> · result v{{ item.result.version }}</span>
+                </li>
+              </ul>
+            </article>
+          </div>
+          <p v-else class="field-hint">当前 Diagnosis 尚无 TechnicalOrder。</p>
+        </section>
+
         <div class="responsibility-history" aria-label="责任链历史">
           <div class="section-heading">
             <h3>Responsibility Chain</h3>
@@ -879,6 +1072,71 @@ button:disabled {
   margin-top: 16px;
   width: 100%;
 }
+.technical-order-panel {
+  border-top: 1px solid #d5e3db;
+  margin-top: 28px;
+  padding-top: 20px;
+}
+.technical-order-form,
+.technical-order-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+.technical-draft {
+  align-items: end;
+  background: #f1f6f2;
+  border: 1px solid #d5e3db;
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.3fr 0.8fr 1.4fr 0.55fr 1.2fr auto;
+  padding: 12px;
+}
+.technical-draft label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+.technical-draft input,
+.technical-draft select {
+  min-width: 0;
+  padding: 8px 9px;
+}
+.technical-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.technical-order-card {
+  background: #fff;
+  border: 1px solid #cbd9d2;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.technical-order-card-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+.technical-order-card small,
+.technical-order-card li {
+  color: #60786d;
+  font-size: 0.82rem;
+}
+.technical-order-card ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.technical-order-card span {
+  color: #24784c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.technical-order-card .blocking-chip {
+  color: #9b5a1c;
+}
 .empty-editor {
   background: #f3f7f3;
   border: 1px dashed #b8cec0;
@@ -966,6 +1224,9 @@ button:disabled {
     border-bottom: 1px solid #d2dfd8;
     border-right: 0;
   }
+  .technical-draft {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 560px) {
   .diagnosis-header,
@@ -980,6 +1241,9 @@ button:disabled {
   }
   .future-actions {
     width: 100%;
+  }
+  .technical-draft {
+    grid-template-columns: 1fr;
   }
 }
 </style>

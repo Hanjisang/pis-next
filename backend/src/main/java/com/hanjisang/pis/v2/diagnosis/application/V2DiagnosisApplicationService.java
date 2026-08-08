@@ -34,6 +34,10 @@ import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
+import com.hanjisang.pis.v2.technical.domain.TechnicalOrderStatus;
+import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository;
+import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository.ItemSnapshot;
+import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository.OrderSnapshot;
 
 @Service
 public class V2DiagnosisApplicationService {
@@ -52,16 +56,19 @@ public class V2DiagnosisApplicationService {
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
+    private final JdbcV2TechnicalOrderRepository technicalRepository;
 
     public V2DiagnosisApplicationService(JdbcV2DiagnosisRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2MaterialRepository materialRepository,
-            P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox) {
+            P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
+            JdbcV2TechnicalOrderRepository technicalRepository) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
+        this.technicalRepository = technicalRepository;
     }
 
     @Transactional
@@ -303,7 +310,12 @@ public class V2DiagnosisApplicationService {
                 active && actorCurrent && current.role() == ResponsibilityRole.INITIAL,
                 active && actorCurrent && current.role() == ResponsibilityRole.REVIEW,
                 active && actorCurrent && current.role() == ResponsibilityRole.AUDIT,
-                active && current != null && current.role() == ResponsibilityRole.INITIAL, readyForSignOut);
+                active && current != null && current.role() == ResponsibilityRole.INITIAL, readyForSignOut,
+                active && actorCurrent && diagnosis != null);
+        List<TechnicalOrderView> technicalOrders = diagnosis == null ? List.of()
+                : technicalRepository.findOrderSnapshotsByDiagnosis(diagnosis.id(), actor.hospitalScope()).stream()
+                        .map(this::technicalOrderView).toList();
+        int blockingTechnicalOrderCount = (int) technicalOrders.stream().filter(TechnicalOrderView::blocking).count();
         return new DiagnosisWorkspaceResult(new CaseSummary(pathologyCase.id(), pathologyCase.caseNo(),
                 pathologyCase.businessTypeCode(), pathologyCase.lifecycleStateCode()),
                 new ApplicationSummary(pathologyCase.applicationItemCode(), pathologyCase.sourceSystemCode(),
@@ -311,8 +323,9 @@ public class V2DiagnosisApplicationService {
                 new PatientSnapshot(pathologyCase.patientReference(), pathologyCase.visitReference()), materialTree,
                 diagnosis == null ? null : diagnosisView(diagnosis), templateVersion == null ? null
                         : templateVersionView(templateVersion), responsibilities.stream().map(this::responsibilityView).toList(),
-                current == null ? null : responsibilityView(current), actions,
-                new Placeholder("TECHNICAL_ORDER", "V2-I04待实现"), new Placeholder("REPORT", "V2-I05待实现"),
+                current == null ? null : responsibilityView(current), actions, technicalOrders,
+                blockingTechnicalOrderCount,
+                new Placeholder("TECHNICAL_ORDER", "V2-I04已实现"), new Placeholder("REPORT", "V2-I05待实现"),
                 Instant.now());
     }
 
@@ -595,6 +608,24 @@ public class V2DiagnosisApplicationService {
                 version.status(), version.publishedAt());
     }
 
+    private TechnicalOrderView technicalOrderView(OrderSnapshot snapshot) {
+        return new TechnicalOrderView(snapshot.order().id(), snapshot.order().orderNo(), snapshot.derivedStatus(),
+                snapshot.order().requiredBeforeSignOut(), snapshot.blocking(), snapshot.order().version(),
+                snapshot.items().stream().map(this::technicalItemView).toList());
+    }
+
+    private TechnicalOrderItemView technicalItemView(ItemSnapshot snapshot) {
+        return new TechnicalOrderItemView(snapshot.item().id(), snapshot.item().project().code(),
+                snapshot.item().project().name(), snapshot.item().quantity(), snapshot.status().name(),
+                snapshot.expectedCount(), snapshot.completedCount(), snapshot.targets().stream()
+                        .map(target -> new TechnicalTargetView(target.target().id(), target.target().targetType().name(),
+                                target.target().targetId(), target.target().displayCode())).toList(),
+                snapshot.outputs().stream().map(output -> new TechnicalOutputView(output.kind().name(), output.outputId(),
+                        output.occurrenceNo())).toList(), snapshot.result() == null ? null
+                                : new TechnicalResultView(snapshot.result().id(), snapshot.result().data(),
+                                        snapshot.result().version(), snapshot.result().enteredAt()));
+    }
+
     private ResponsibilityView responsibilityView(ResponsibilityUnit responsibility) {
         return new ResponsibilityView(responsibility.id(), responsibility.role(), responsibility.doctorId(),
                 responsibility.sequence(), responsibility.assignmentSource(), responsibility.assignmentReason(),
@@ -682,7 +713,8 @@ public class V2DiagnosisApplicationService {
     public record DiagnosisWorkspaceResult(CaseSummary caseSummary, ApplicationSummary application,
             PatientSnapshot patient, MaterialTreeResult materialTree, DiagnosisView diagnosis,
             TemplateVersionView templateVersion, List<ResponsibilityView> responsibilityChain,
-            ResponsibilityView currentResponsibility, Actions actions, Placeholder technicalOrder,
+            ResponsibilityView currentResponsibility, Actions actions, List<TechnicalOrderView> technicalOrders,
+            int blockingTechnicalOrderCount, Placeholder technicalOrder,
             Placeholder report, Instant refreshedAt) { }
     public record CaseSummary(UUID caseId, String pathologyNo, String businessTypeCode, String lifecycle) { }
     public record ApplicationSummary(String applicationItemCode, String sourceSystemCode, String externalApplicationId) { }
@@ -695,7 +727,16 @@ public class V2DiagnosisApplicationService {
             AssignmentSource assignmentSource, String assignmentReason, Instant acceptedAt, Instant completedAt,
             Instant endedAt, String endReason, long version, boolean current) { }
     public record Actions(boolean canClaim, boolean canAssign, boolean canCompleteInitial, boolean canCompleteReview,
-            boolean canCompleteAudit, boolean canReassign, boolean readyForSignOut) { }
+            boolean canCompleteAudit, boolean canReassign, boolean readyForSignOut,
+            boolean canCreateTechnicalOrder) { }
+    public record TechnicalOrderView(UUID orderId, String orderNo, TechnicalOrderStatus status,
+            boolean requiredBeforeSignOut, boolean blocking, long version, List<TechnicalOrderItemView> items) { }
+    public record TechnicalOrderItemView(UUID itemId, String projectCode, String projectName, int quantity,
+            String status, int expectedCount, int completedCount, List<TechnicalTargetView> targets,
+            List<TechnicalOutputView> outputs, TechnicalResultView result) { }
+    public record TechnicalTargetView(UUID targetId, String targetType, UUID targetObjectId, String displayCode) { }
+    public record TechnicalOutputView(String outputKind, UUID outputId, int occurrenceNo) { }
+    public record TechnicalResultView(UUID resultId, String resultData, long version, Instant enteredAt) { }
     public record Placeholder(String kind, String status) { }
     public record PublicPoolEntry(UUID caseId, String pathologyNo, String businessTypeCode) { }
     public record MaterialTreeResult(UUID caseId, String caseNo, String businessTypeCode,

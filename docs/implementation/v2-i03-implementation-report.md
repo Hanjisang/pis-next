@@ -42,7 +42,7 @@ V2-I03 已完成本阶段实施并通过当前可运行门禁。V2 Diagnosis 使
 
 I03 语义权限映射到当前 P14 共享能力：DIAGNOSIS_VIEW→P14-PERM-055，INITIAL/REVIEW/AUDIT/ASSIGN/REASSIGN→P14-PERM-034，TEMPLATE_MANAGE→P14-PERM-042。当前仓库没有可供 V2 直接引用的 User/Doctor 主数据表，因此 I03 对 doctorId 执行非空和责任一致性校验；主体存在性、资格和组织范围由 identity-access 适配器接入时补强，属于“待业务确认”。
 
-TechnicalOrder、DigitalSlide、Report 和正式签发不在 I03 实施范围，工作区只显示占位，不伪造后续领域事实。V2-I04 未启动。
+TechnicalOrder、DigitalSlide、Report 和正式签发不在 I03 实施范围；TechnicalOrder 已由后续 V2-I04 独立模块提供，I03 不反向拥有其数据或状态。
 
 ## 5. 检查结论
 

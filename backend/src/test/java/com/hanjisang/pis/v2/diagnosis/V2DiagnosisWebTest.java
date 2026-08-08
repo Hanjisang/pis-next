@@ -98,7 +98,7 @@ class V2DiagnosisWebTest {
         assertThat(workspace.get("responsibilityChain")).hasSize(3);
         assertThat(workspace.has("currentResponsibility")).isFalse();
         assertThat(workspace.get("actions").get("readyForSignOut").asBoolean()).isTrue();
-        assertThat(workspace.get("technicalOrder").get("status").asText()).isEqualTo("V2-I04待实现");
+        assertThat(workspace.get("technicalOrder").get("status").asText()).isEqualTo("V2-I04已实现");
     }
 
     @Test

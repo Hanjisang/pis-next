@@ -246,6 +246,15 @@ public class JdbcV2MaterialRepository {
                 """, Integer.class, blockId, sourceContextType, ruleCode, occurrenceNo) > 0;
     }
 
+    public boolean slideOutputExists(UUID blockId, String sourceContextType, UUID sourceContextId,
+            String ruleCode, int occurrenceNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.slide
+                WHERE block_id = ? AND source_context_type = ? AND source_context_id = ?
+                  AND rule_code = ? AND occurrence_no = ? AND deleted_at IS NULL
+                """, Integer.class, blockId, sourceContextType, sourceContextId, ruleCode, occurrenceNo) > 0;
+    }
+
     public void insertSlide(Slide slide, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.slide

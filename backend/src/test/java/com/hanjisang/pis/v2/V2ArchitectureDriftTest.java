@@ -19,7 +19,8 @@ class V2ArchitectureDriftTest {
             "BusinessRecord", "ProcessingTask", "EmbeddingTask", "PlannedBlock", "ActualBlock", "PlannedSlide",
             "ActualSlide", "PhysicalSlideInstance", "SlideRework", "ReportVersion", "InitialDiagnosis",
             "ReviewDiagnosis", "AuditDiagnosis", "SingleSignWorkflow", "DoubleSignWorkflow",
-            "TripleSignWorkflow", "DiagnosisTask", "AssignmentTask");
+            "TripleSignWorkflow", "DiagnosisTask", "AssignmentTask", "TechnicalSlide", "TechnicalBlock",
+            "GenericTechnicalResult", "IhcWorkflow", "DeepSectionWorkflow", "SpecialStainWorkflow");
 
     @Test
     void v2DoesNotDefineDownstreamCoreTypes() {

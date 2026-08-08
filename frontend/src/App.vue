@@ -6,11 +6,13 @@ import P18TechnicalOrderWorkbench from './components/P18TechnicalOrderWorkbench.
 import P19DiagnosisReportWorkbench from './components/P19DiagnosisReportWorkbench.vue';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
 import V2MaterialProductionWorkbench from './components/V2MaterialProductionWorkbench.vue';
+import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 
 const workspaceQuery = new URLSearchParams(window.location.search);
 const showV2Material = workspaceQuery.get('workspace') === 'v2';
 const showV2Diagnosis = workspaceQuery.get('workspace') === 'v2-diagnosis';
-const showLegacyWorkbenches = !showV2Material && !showV2Diagnosis;
+const showV2Technical = workspaceQuery.get('workspace') === 'v2-technical';
+const showLegacyWorkbenches = !showV2Material && !showV2Diagnosis && !showV2Technical;
 let v2CaseId = workspaceQuery.get('caseId') ?? '';
 </script>
 
@@ -24,12 +26,20 @@ let v2CaseId = workspaceQuery.get('caseId') ?? '';
           {{
             showV2Diagnosis
               ? 'V2 Diagnosis 连续诊断与责任工作区。'
-              : 'P15 登记与标本接收纵向工作台。'
+              : showV2Technical
+                ? 'V2 TechnicalOrder 材料与结构化结果工作台。'
+                : 'P15 登记与标本接收纵向工作台。'
           }}
         </p>
       </div>
       <div class="phase-badge" aria-label="当前阶段">
-        {{ showV2Diagnosis ? 'V2 · DIAGNOSIS WORKSPACE' : 'P19 · DIAGNOSIS &amp; REPORT' }}
+        {{
+          showV2Diagnosis
+            ? 'V2 · DIAGNOSIS WORKSPACE'
+            : showV2Technical
+              ? 'V2 · TECHNICAL WORKSPACE'
+              : 'P19 · DIAGNOSIS &amp; REPORT'
+        }}
       </div>
     </section>
 
@@ -60,13 +70,16 @@ let v2CaseId = workspaceQuery.get('caseId') ?? '';
     </template>
     <V2MaterialProductionWorkbench v-if="showV2Material" />
     <V2DiagnosisWorkspace v-if="showV2Diagnosis" v-model:case-id="v2CaseId" />
+    <V2TechnicalWorkbench v-if="showV2Technical" />
 
     <footer>
       <span>PIS Next · Clean-room design</span>
       <span>{{
         showV2Diagnosis
           ? 'V2-I03 · Diagnosis 与责任链'
-          : 'P19 已实现 · 报告签发、修订和撤回保持版本链'
+          : showV2Technical
+            ? 'V2-I04 · TechnicalOrder 与正式输出链'
+            : 'P19 已实现 · 报告签发、修订和撤回保持版本链'
       }}</span>
     </footer>
   </main>

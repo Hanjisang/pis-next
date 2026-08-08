@@ -77,10 +77,68 @@ export type V2DiagnosisWorkspace = {
     canCompleteAudit: boolean;
     canReassign: boolean;
     readyForSignOut: boolean;
+    canCreateTechnicalOrder: boolean;
   };
+  technicalOrders: V2TechnicalOrder[];
+  blockingTechnicalOrderCount: number;
   technicalOrder: { kind: string; status: string };
   report: { kind: string; status: string };
   refreshedAt: string;
+};
+
+export type V2TechnicalProject = {
+  projectId: string;
+  businessTypeId: string;
+  projectCode: string;
+  projectName: string;
+  enabled: boolean;
+  allowedTargetTypes: string[];
+  producesSlide: boolean;
+  producesBlock: boolean;
+  producesStructuredResult: boolean;
+  defaultSlideType?: string;
+  parametersSchema?: string;
+  resultSchema?: string;
+  requiredBeforeSignOutDefault: boolean;
+  configurationVersion: number;
+};
+
+export type V2TechnicalOrder = {
+  orderId: string;
+  orderNo: string;
+  diagnosisId: string;
+  caseId: string;
+  status: 'PENDING' | 'EXECUTING' | 'COMPLETED' | 'CANCELLED';
+  requiredBeforeSignOut: boolean;
+  blocking: boolean;
+  version: number;
+  cancelledAt?: string;
+  cancellationReason?: string;
+  duplicate: boolean;
+  items: V2TechnicalItem[];
+};
+
+export type V2TechnicalItem = {
+  itemId: string;
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  quantity: number;
+  status: 'PENDING' | 'EXECUTING' | 'COMPLETED';
+  expectedCount: number;
+  completedCount: number;
+  targets: Array<{
+    targetId: string;
+    targetType: 'CASE' | 'SPECIMEN' | 'BLOCK' | 'SLIDE';
+    targetObjectId: string;
+    displayCode: string;
+  }>;
+  outputs: Array<{
+    outputKind: 'GROSSING' | 'BLOCK' | 'SLIDE' | 'RESULT';
+    outputId: string;
+    occurrenceNo: number;
+  }>;
+  result?: { resultId: string; resultData: string; version: number; enteredAt: string };
 };
 
 export type V2MaterialSlide = {
@@ -111,6 +169,87 @@ async function diagnosisRequest<T>(path: string, init: RequestInit = {}): Promis
 
 export function getV2DiagnosisWorkspace(caseId: string): Promise<V2DiagnosisWorkspace> {
   return diagnosisRequest(`/diagnosis-workspaces/${caseId}`);
+}
+
+export function getV2TechnicalProjects(caseId?: string): Promise<V2TechnicalProject[]> {
+  return diagnosisRequest(
+    `/technical-projects${caseId ? `?caseId=${encodeURIComponent(caseId)}` : ''}`,
+  );
+}
+
+export function createV2TechnicalProject(input: {
+  businessTypeId: string;
+  projectCode: string;
+  projectName: string;
+  enabled: boolean;
+  allowedTargetTypes: string;
+  producesSlide: boolean;
+  producesBlock: boolean;
+  producesStructuredResult: boolean;
+  defaultSlideType?: string;
+  parametersSchema?: string;
+  resultSchema?: string;
+  feeMapping?: string;
+  displayConfiguration?: string;
+  requiredBeforeSignOutDefault: boolean;
+  configurationVersion: number;
+}): Promise<V2TechnicalProject> {
+  return diagnosisRequest('/technical-projects', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function createV2TechnicalOrder(input: {
+  diagnosisId: string;
+  requiredBeforeSignOut?: boolean;
+  items: Array<{
+    projectId: string;
+    quantity: number;
+    parameters: string;
+    note?: string;
+    targets: Array<{ targetType: 'CASE' | 'SPECIMEN' | 'BLOCK' | 'SLIDE'; targetId: string }>;
+  }>;
+  idempotencyKey: string;
+}): Promise<V2TechnicalOrder> {
+  return diagnosisRequest('/technical-orders', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function getV2TechnicalWorkbench(): Promise<{ orders: V2TechnicalOrder[] }> {
+  return diagnosisRequest('/technical-workbench');
+}
+
+export function executeV2TechnicalOrder(
+  orderId: string,
+  idempotencyKey: string,
+): Promise<V2TechnicalOrder> {
+  return diagnosisRequest(`/technical-orders/${orderId}/execute`, {
+    method: 'POST',
+    body: JSON.stringify({ idempotencyKey }),
+  });
+}
+
+export function cancelV2TechnicalOrder(input: {
+  orderId: string;
+  expectedVersion: number;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<V2TechnicalOrder> {
+  const { orderId, ...body } = input;
+  return diagnosisRequest(`/technical-orders/${orderId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function enterV2TechnicalResult(input: {
+  itemId: string;
+  resultData: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<V2TechnicalOrder> {
+  const { itemId, ...body } = input;
+  return diagnosisRequest(`/technical-order-items/${itemId}/result`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export function claimV2Diagnosis(caseId: string, idempotencyKey: string) {

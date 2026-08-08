@@ -192,8 +192,87 @@ CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_command_idempotency (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
     UNIQUE (operation_code, idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS pis_v2.technical_project (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
+    project_code VARCHAR(128) NOT NULL, project_name VARCHAR(256) NOT NULL, enabled BOOLEAN NOT NULL,
+    allowed_target_types VARCHAR(512) NOT NULL, produces_slide BOOLEAN NOT NULL, produces_block BOOLEAN NOT NULL,
+    produces_structured_result BOOLEAN NOT NULL, default_slide_type VARCHAR(64), parameters_schema VARCHAR(20000),
+    result_schema VARCHAR(20000), fee_mapping VARCHAR(20000), display_configuration VARCHAR(20000),
+    required_before_sign_out_default BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, business_type_id, project_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_sequence (
+    organization_reference VARCHAR(128) NOT NULL, case_id UUID NOT NULL, next_serial BIGINT NOT NULL,
+    PRIMARY KEY (organization_reference, case_id)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, order_no VARCHAR(64) NOT NULL,
+    diagnosis_id UUID NOT NULL, case_id UUID NOT NULL, required_before_sign_out BOOLEAN NOT NULL,
+    status_code VARCHAR(32) NOT NULL, cancelled_at TIMESTAMP WITH TIME ZONE, cancelled_by_ref VARCHAR(128),
+    cancellation_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, case_id, order_no)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_test_technical_order_diagnosis
+    ON pis_v2.technical_order (diagnosis_id, status_code, created_at);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_item (
+    id UUID PRIMARY KEY, order_id UUID NOT NULL, technical_project_id UUID NOT NULL,
+    project_code_snapshot VARCHAR(128) NOT NULL, project_name_snapshot VARCHAR(256) NOT NULL,
+    project_configuration_version INTEGER NOT NULL, quantity INTEGER NOT NULL, parameters VARCHAR(20000) NOT NULL,
+    note VARCHAR(10000), cancelled_at TIMESTAMP WITH TIME ZONE, cancelled_by_ref VARCHAR(128),
+    cancellation_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_target (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, case_id UUID NOT NULL, target_type VARCHAR(32) NOT NULL,
+    case_target_id UUID, specimen_target_id UUID, block_target_id UUID, slide_target_id UUID,
+    target_display_code VARCHAR(256), concurrency_version BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    CHECK (
+        (target_type = 'CASE' AND case_target_id IS NOT NULL AND specimen_target_id IS NULL AND block_target_id IS NULL AND slide_target_id IS NULL)
+        OR (target_type = 'SPECIMEN' AND case_target_id IS NULL AND specimen_target_id IS NOT NULL AND block_target_id IS NULL AND slide_target_id IS NULL)
+        OR (target_type = 'BLOCK' AND case_target_id IS NULL AND specimen_target_id IS NULL AND block_target_id IS NOT NULL AND slide_target_id IS NULL)
+        OR (target_type = 'SLIDE' AND case_target_id IS NULL AND specimen_target_id IS NULL AND block_target_id IS NULL AND slide_target_id IS NOT NULL)
+    )
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_item_result (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL UNIQUE, result_schema_snapshot VARCHAR(20000),
+    result_data VARCHAR(20000) NOT NULL, concurrency_version BIGINT NOT NULL,
+    entered_at TIMESTAMP WITH TIME ZONE NOT NULL, entered_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_output (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, target_id UUID, output_kind VARCHAR(32) NOT NULL,
+    grossing_output_id UUID, block_output_id UUID, slide_output_id UUID, result_output_id UUID,
+    occurrence_no INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (item_id, target_id, output_kind, occurrence_no),
+    CHECK (
+        (output_kind = 'GROSSING' AND grossing_output_id IS NOT NULL AND block_output_id IS NULL AND slide_output_id IS NULL AND result_output_id IS NULL)
+        OR (output_kind = 'BLOCK' AND grossing_output_id IS NULL AND block_output_id IS NOT NULL AND slide_output_id IS NULL AND result_output_id IS NULL)
+        OR (output_kind = 'SLIDE' AND grossing_output_id IS NULL AND block_output_id IS NULL AND slide_output_id IS NOT NULL AND result_output_id IS NULL)
+        OR (output_kind = 'RESULT' AND grossing_output_id IS NULL AND block_output_id IS NULL AND slide_output_id IS NULL AND result_output_id IS NOT NULL)
+    )
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_kind_code VARCHAR(64) NOT NULL, result_entity_id UUID,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
 
 DELETE FROM pis_v2.idempotency_record;
+DELETE FROM pis_v2.technical_order_idempotency;
+DELETE FROM pis_v2.technical_order_output;
+DELETE FROM pis_v2.technical_order_item_result;
+DELETE FROM pis_v2.technical_order_target;
+DELETE FROM pis_v2.technical_order_item;
+DELETE FROM pis_v2.technical_order;
+DELETE FROM pis_v2.technical_order_sequence;
+DELETE FROM pis_v2.technical_project;
 DELETE FROM pis_v2.diagnosis_command_idempotency;
 DELETE FROM pis_v2.responsibility_unit;
 DELETE FROM pis_v2.diagnosis;
@@ -234,6 +313,28 @@ INSERT INTO pis_v2.diagnosis_template_version
 VALUES ('00000000-0000-0000-0000-00000000b021', '00000000-0000-0000-0000-00000000b020', 1,
         '{"components":[{"type":"TEXTAREA","code":"diagnosisText"}],"version":1}', 'PUBLISHED',
         CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
+INSERT INTO pis_v2.technical_project
+    (id, organization_reference, business_type_id, project_code, project_name, enabled,
+     allowed_target_types, produces_slide, produces_block, produces_structured_result, default_slide_type,
+     parameters_schema, result_schema, fee_mapping, display_configuration, required_before_sign_out_default,
+     configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)
+VALUES
+    ('00000000-0000-0000-0000-00000000b401', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
+     'IHC-KI67', 'Ki67免疫组化', TRUE, 'BLOCK,SLIDE', TRUE, FALSE, FALSE, 'IHC',
+     '{"fields":[{"code":"antibody","required":true,"type":"TEXT"}]}', NULL,
+     '{"externalFeeCode":"SYNTH-IHC-KI67"}', '{"color":"amber"}', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b402', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
+     'SUPPLEMENTARY-GROSSING', '补充取材', TRUE, 'CASE,SPECIMEN', TRUE, TRUE, FALSE, 'HE',
+     '{"fields":[{"code":"specimenId","required":true,"type":"REFERENCE"},{"code":"blockCode","required":true,"type":"TEXT"}]}', NULL,
+     '{"externalFeeCode":"SYNTH-SUPPLEMENTARY-GROSSING"}', '{"color":"green"}', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b403', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
+     'MOLECULAR-STRUCTURED', '结构化检测结果', TRUE, 'CASE,SPECIMEN,BLOCK,SLIDE', FALSE, FALSE, TRUE, NULL,
+     '{"fields":[{"code":"panel","required":true,"type":"TEXT"}]}',
+     '{"fields":[{"code":"mutationDetected","type":"BOOLEAN"},{"code":"interpretation","type":"TEXTAREA"}]}',
+     '{"externalFeeCode":"SYNTH-MOLECULAR"}', '{"color":"blue"}', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.application_item_mapping
     (id, application_item_code, business_type_id, default_specimen_kind_code, required, sequence_no,
      active, configuration_version, created_at, created_by_ref)

@@ -99,8 +99,11 @@ const workspace = {
     canCompleteAudit: false,
     canReassign: false,
     readyForSignOut: false,
+    canCreateTechnicalOrder: false,
   },
-  technicalOrder: { kind: 'TECHNICAL_ORDER', status: 'V2-I04待实现' },
+  technicalOrders: [],
+  blockingTechnicalOrderCount: 0,
+  technicalOrder: { kind: 'TECHNICAL_ORDER', status: 'V2-I04已实现' },
   report: { kind: 'REPORT', status: 'V2-I05待实现' },
   refreshedAt: '2026-08-08T00:00:00Z',
 };
