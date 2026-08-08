@@ -1,86 +1,52 @@
 <script setup lang="ts">
-import P15RegistrationWorkbench from './components/P15RegistrationWorkbench.vue';
-import P16GrossingWorkbench from './components/P16GrossingWorkbench.vue';
-import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessingWorkbench.vue';
-import P18TechnicalOrderWorkbench from './components/P18TechnicalOrderWorkbench.vue';
-import P19DiagnosisReportWorkbench from './components/P19DiagnosisReportWorkbench.vue';
+import { ref } from 'vue';
+
+import V2Home from './components/V2Home.vue';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
 import V2MaterialProductionWorkbench from './components/V2MaterialProductionWorkbench.vue';
+import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 
 const workspaceQuery = new URLSearchParams(window.location.search);
-const showV2Material = workspaceQuery.get('workspace') === 'v2';
-const showV2Diagnosis = workspaceQuery.get('workspace') === 'v2-diagnosis';
-const showV2Technical = workspaceQuery.get('workspace') === 'v2-technical';
-const showLegacyWorkbenches = !showV2Material && !showV2Diagnosis && !showV2Technical;
-let v2CaseId = workspaceQuery.get('caseId') ?? '';
+const workspace = workspaceQuery.get('workspace') ?? 'v2-home';
+const showHome = workspace === 'v2-home';
+const showRegistration = workspace === 'v2-registration';
+const showMaterial = workspace === 'v2';
+const showDiagnosis = workspace === 'v2-diagnosis';
+const showTechnical = workspace === 'v2-technical';
+const v2CaseId = ref(workspaceQuery.get('caseId') ?? '');
+
+const title = showRegistration
+  ? '登记与标本'
+  : showMaterial
+    ? '取材与制片'
+    : showDiagnosis
+      ? '诊断与报告'
+      : showTechnical
+        ? '技术医嘱'
+        : '工作台';
 </script>
 
 <template>
   <main class="shell">
     <section class="hero">
       <div>
-        <p class="eyebrow">PATHOLOGY INFORMATION SYSTEM</p>
+        <p class="eyebrow">PATHOLOGY INFORMATION SYSTEM · V2</p>
         <h1>PIS Next</h1>
-        <p class="lede">
-          {{
-            showV2Diagnosis
-              ? 'V2 Diagnosis 连续诊断与责任工作区。'
-              : showV2Technical
-                ? 'V2 TechnicalOrder 材料与结构化结果工作台。'
-                : 'P15 登记与标本接收纵向工作台。'
-          }}
-        </p>
+        <p class="lede">{{ title }} · 面向业务角色的统一入口</p>
       </div>
-      <div class="phase-badge" aria-label="当前阶段">
-        {{
-          showV2Diagnosis
-            ? 'V2 · DIAGNOSIS WORKSPACE'
-            : showV2Technical
-              ? 'V2 · TECHNICAL WORKSPACE'
-              : 'P19 · DIAGNOSIS &amp; REPORT'
-        }}
-      </div>
+      <div class="phase-badge" aria-label="当前版本">V2 · 正式业务入口</div>
     </section>
 
-    <section class="summary-grid" aria-label="P15 摘要">
-      <article class="summary-card accent">
-        <span>当前切片</span>
-        <strong>登记 → 接收</strong>
-        <small>申请、病例、预计标本和扫码核对</small>
-      </article>
-      <article class="summary-card">
-        <span>追溯</span>
-        <strong>追加事实</strong>
-        <small>状态历史、交接、审计和发件箱同事务</small>
-      </article>
-      <article class="summary-card">
-        <span>数据</span>
-        <strong>合成数据</strong>
-        <small>不显示真实患者正文或诊断报告</small>
-      </article>
-    </section>
-
-    <template v-if="showLegacyWorkbenches">
-      <P15RegistrationWorkbench />
-      <P16GrossingWorkbench />
-      <P17TechnicalProcessingWorkbench />
-      <P18TechnicalOrderWorkbench />
-      <P19DiagnosisReportWorkbench />
-    </template>
-    <V2MaterialProductionWorkbench v-if="showV2Material" />
-    <V2DiagnosisWorkspace v-if="showV2Diagnosis" v-model:case-id="v2CaseId" />
-    <V2TechnicalWorkbench v-if="showV2Technical" />
+    <V2Home v-if="showHome" />
+    <V2RegistrationWorkbench v-if="showRegistration" />
+    <V2MaterialProductionWorkbench v-if="showMaterial" v-model:case-id="v2CaseId" />
+    <V2DiagnosisWorkspace v-if="showDiagnosis" v-model:case-id="v2CaseId" />
+    <V2TechnicalWorkbench v-if="showTechnical" />
 
     <footer>
-      <span>PIS Next · Clean-room design</span>
-      <span>{{
-        showV2Diagnosis
-          ? 'V2-I03 · Diagnosis 与责任链'
-          : showV2Technical
-            ? 'V2-I04 · TechnicalOrder 与正式输出链'
-            : 'P19 已实现 · 报告签发、修订和撤回保持版本链'
-      }}</span>
+      <span>PIS V2 · 病例、材料、诊断、报告全程追溯</span
+      ><a href="?workspace=v2-home">返回 V2 工作台</a>
     </footer>
   </main>
 </template>

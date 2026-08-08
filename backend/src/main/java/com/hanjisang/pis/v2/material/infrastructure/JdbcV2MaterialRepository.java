@@ -379,7 +379,7 @@ public class JdbcV2MaterialRepository {
             String resultKindCode, UUID resultEntityId, Integer resultCount, String actorRef, Instant now) {
         return jdbcTemplate.update("""
                 MERGE INTO pis_v2.material_command_idempotency AS target
-                USING (VALUES (?, ?, ?, ?, ?, CAST(? AS UUID), ?, ?, ?)) AS incoming
+                USING (VALUES (?, ?, ?, ?, ?, CAST(? AS UUID), CAST(? AS INTEGER), CAST(? AS TIMESTAMP WITH TIME ZONE), ?)) AS incoming
                     (id, operation_code, idempotency_key, payload_digest, result_kind_code,
                      result_entity_id, result_count, created_at, created_by_ref)
                 ON target.operation_code = incoming.operation_code

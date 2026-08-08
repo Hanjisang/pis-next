@@ -172,8 +172,7 @@ function reopenGrossing() {
         <output
           v-for="block in blocks"
           :key="block.blockId"
-          >{{ block.blockCode }} · v{{ block.concurrencyVersion }}</output
-        >
+        >{{ block.blockCode }} · v{{ block.concurrencyVersion }}</output>
       </form>
 
       <article class="business-card">

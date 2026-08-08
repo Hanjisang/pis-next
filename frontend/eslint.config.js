@@ -23,6 +23,9 @@ export default tseslint.config(
       'vue/max-attributes-per-line': ['error', { singleline: 4 }],
       'vue/html-self-closing': 'off',
       'vue/singleline-html-element-content-newline': 'off',
+      // Prettier owns Vue template wrapping and indentation.
+      'vue/html-closing-bracket-newline': 'off',
+      'vue/html-indent': 'off',
     },
   },
   {

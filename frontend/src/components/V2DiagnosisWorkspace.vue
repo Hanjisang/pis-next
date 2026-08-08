@@ -99,9 +99,14 @@ async function loadWorkspace() {
     const diagnosis = workspace.value.diagnosis;
     structuredData.value = diagnosis?.structuredData ?? '{}';
     structuredValues.value = parseStructuredValues(structuredData.value);
-    microscopicDescription.value = diagnosis?.microscopicDescription ?? '';
-    diagnosisText.value = diagnosis?.diagnosisText ?? '';
-    comment.value = diagnosis?.comment ?? '';
+    microscopicDescription.value =
+      diagnosis?.microscopicDescription?.trim() ||
+      stringStructuredValue('microscopicDescription', structuredValues.value);
+    diagnosisText.value =
+      diagnosis?.diagnosisText?.trim() ||
+      stringStructuredValue('diagnosisText', structuredValues.value);
+    comment.value =
+      diagnosis?.comment?.trim() || stringStructuredValue('comment', structuredValues.value);
     if (workspace.value.currentResponsibility) {
       nextDoctorId.value = workspace.value.currentResponsibility.doctorId;
     }
@@ -207,6 +212,19 @@ function structuredValue(component: TemplateComponent) {
 function updateStructuredValue(code: string, value: unknown) {
   structuredValues.value = { ...structuredValues.value, [code]: value };
   structuredData.value = JSON.stringify(structuredValues.value, null, 2);
+  const canonicalValue = value === null || value === undefined ? '' : String(value);
+  if (code === 'microscopicDescription') microscopicDescription.value = canonicalValue;
+  if (code === 'diagnosisText') diagnosisText.value = canonicalValue;
+  if (code === 'comment') comment.value = canonicalValue;
+}
+
+function stringStructuredValue(code: string, values: Record<string, unknown>) {
+  const value = values[code];
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function hasTemplateComponent(code: string) {
+  return templateComponents.value.some((component) => component.code === code);
 }
 
 function eventValue(event: Event) {
@@ -619,12 +637,18 @@ async function submit(operation: () => Promise<void>) {
               </p>
             </template>
           </div>
-          <label v-else
+          <label v-if="!templateComponents.length"
             >结构化诊断数据（JSON）<textarea v-model="structuredData" rows="4" spellcheck="false" />
           </label>
-          <label>镜下所见<textarea v-model="microscopicDescription" rows="5" /></label>
-          <label>诊断意见<textarea v-model="diagnosisText" rows="5" /></label>
-          <label>备注<textarea v-model="comment" rows="3" /></label>
+          <label v-if="!hasTemplateComponent('microscopicDescription')"
+            >镜下所见<textarea v-model="microscopicDescription" rows="5" />
+          </label>
+          <label v-if="!hasTemplateComponent('diagnosisText')"
+            >诊断意见<textarea v-model="diagnosisText" rows="5" />
+          </label>
+          <label v-if="!hasTemplateComponent('comment')"
+            >备注<textarea v-model="comment" rows="3" />
+          </label>
         </fieldset>
         <button
           v-if="workspace.diagnosis"
