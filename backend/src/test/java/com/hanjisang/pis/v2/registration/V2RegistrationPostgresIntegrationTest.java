@@ -22,7 +22,7 @@ class V2RegistrationPostgresIntegrationTest {
             .withPassword("synthetic-v2-i01");
 
     @Test
-    void postgresMigrationCreatesV2I01ASchemaAndSeedConfiguration() {
+    void postgresMigrationCreatesV2I02SchemaAndSeedConfiguration() {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("pis")
@@ -35,14 +35,17 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("V2-I01A");
+                String.class)).isEqualTo("V2-I02");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("12");
+                String.class)).isEqualTo("13");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(4);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.pathology_number_rule", Integer.class))
                 .isEqualTo(16);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.slide_rule", Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.print_rule", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.tables
@@ -52,10 +55,19 @@ class V2RegistrationPostgresIntegrationTest {
                 """, Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('grossing', 'grossing_specimen', 'block', 'slide',
+                                     'slide_rule', 'print_rule', 'print_log', 'material_command_idempotency')
+                """, Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
                 FROM pg_indexes
                 WHERE schemaname = 'pis_v2'
-                  AND indexname IN ('uq_v2_specimen_code_active', 'uq_v2_specimen_label_active')
-                """, Integer.class)).isEqualTo(2);
+                  AND indexname IN ('uq_v2_specimen_code_active', 'uq_v2_specimen_label_active',
+                                    'uq_v2_block_code_active', 'uq_v2_slide_code_active',
+                                    'uq_v2_slide_rule_output_active')
+                """, Integer.class)).isEqualTo(5);
 
         UUID caseResult = UUID.randomUUID();
         int inserted = jdbc.update("""

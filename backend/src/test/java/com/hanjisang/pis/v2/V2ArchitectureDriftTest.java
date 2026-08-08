@@ -16,7 +16,8 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 class V2ArchitectureDriftTest {
 
     private static final Set<String> FORBIDDEN_V2_CORE_TYPES = Set.of(
-            "BusinessRecord", "PlannedBlock", "ActualBlock", "PlannedSlide", "ActualSlide", "ReportVersion");
+            "BusinessRecord", "ProcessingTask", "EmbeddingTask", "PlannedBlock", "ActualBlock", "PlannedSlide",
+            "ActualSlide", "PhysicalSlideInstance", "SlideRework", "ReportVersion");
 
     @Test
     void v2DoesNotDefineDownstreamCoreTypes() {

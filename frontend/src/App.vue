@@ -4,6 +4,9 @@ import P16GrossingWorkbench from './components/P16GrossingWorkbench.vue';
 import P17TechnicalProcessingWorkbench from './components/P17TechnicalProcessingWorkbench.vue';
 import P18TechnicalOrderWorkbench from './components/P18TechnicalOrderWorkbench.vue';
 import P19DiagnosisReportWorkbench from './components/P19DiagnosisReportWorkbench.vue';
+import V2MaterialProductionWorkbench from './components/V2MaterialProductionWorkbench.vue';
+
+const showV2Material = new URLSearchParams(window.location.search).get('workspace') === 'v2';
 </script>
 
 <template>
@@ -40,6 +43,7 @@ import P19DiagnosisReportWorkbench from './components/P19DiagnosisReportWorkbenc
     <P17TechnicalProcessingWorkbench />
     <P18TechnicalOrderWorkbench />
     <P19DiagnosisReportWorkbench />
+    <V2MaterialProductionWorkbench v-if="showV2Material" />
 
     <footer>
       <span>PIS Next · Clean-room design</span>

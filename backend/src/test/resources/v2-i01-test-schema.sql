@@ -73,7 +73,86 @@ CREATE TABLE IF NOT EXISTS pis_v2.idempotency_record (
     UNIQUE (operation_code, idempotency_key)
 );
 
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_sequence (
+    organization_reference VARCHAR(128) NOT NULL, case_id UUID NOT NULL,
+    next_serial BIGINT NOT NULL, PRIMARY KEY (organization_reference, case_id)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.grossing (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, grossing_no VARCHAR(64) NOT NULL,
+    source_type VARCHAR(32) NOT NULL, source_reference_id UUID, gross_description VARCHAR(4000) NOT NULL,
+    grossing_instruction VARCHAR(4000), grossing_doctor_id VARCHAR(128) NOT NULL, recorder_id VARCHAR(128) NOT NULL,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL, completed_at TIMESTAMP WITH TIME ZONE,
+    completed_by_ref VARCHAR(128), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
+    deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, case_id, grossing_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_specimen (
+    grossing_id UUID NOT NULL, specimen_id UUID NOT NULL, sequence_no INTEGER NOT NULL,
+    material_description VARCHAR(4000), concurrency_version BIGINT NOT NULL, deleted_at TIMESTAMP WITH TIME ZONE,
+    PRIMARY KEY (grossing_id, specimen_id), UNIQUE (grossing_id, sequence_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.block (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, grossing_id UUID NOT NULL, specimen_id UUID NOT NULL,
+    block_code VARCHAR(64) NOT NULL, block_type VARCHAR(64) NOT NULL, external_source_flag BOOLEAN NOT NULL,
+    external_source_reference VARCHAR(256), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
+    deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    block_code_active VARCHAR(64) AS (CASE WHEN deleted_at IS NULL THEN block_code ELSE NULL END)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_block_code_active
+    ON pis_v2.block (case_id, block_code_active);
+CREATE TABLE IF NOT EXISTS pis_v2.slide_rule (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
+    rule_code VARCHAR(64) NOT NULL, source_context_type VARCHAR(32) NOT NULL, trigger_code VARCHAR(64) NOT NULL,
+    slide_type VARCHAR(64) NOT NULL, stain_code VARCHAR(64) NOT NULL, copies INTEGER NOT NULL,
+    active BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, business_type_id, rule_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.slide (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, block_id UUID, specimen_id UUID, slide_code VARCHAR(128) NOT NULL,
+    slide_type VARCHAR(64) NOT NULL, source_context_type VARCHAR(32) NOT NULL, source_context_id UUID,
+    rule_code VARCHAR(64) NOT NULL, occurrence_no INTEGER NOT NULL, required BOOLEAN NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE, completed_by_ref VARCHAR(128), deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by_ref VARCHAR(128), deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL,
+    slide_code_active VARCHAR(128) AS (CASE WHEN deleted_at IS NULL THEN slide_code ELSE NULL END)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_slide_code_active
+    ON pis_v2.slide (case_id, slide_code_active);
+CREATE TABLE IF NOT EXISTS pis_v2.print_rule (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID,
+    entity_kind_code VARCHAR(32) NOT NULL, trigger_code VARCHAR(64) NOT NULL, printer_profile_code VARCHAR(128) NOT NULL,
+    active BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.print_log (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, entity_kind_code VARCHAR(32) NOT NULL, entity_id UUID NOT NULL,
+    business_code VARCHAR(128) NOT NULL, printer_profile_code VARCHAR(128) NOT NULL, operator_ref VARCHAR(128) NOT NULL,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, result_code VARCHAR(32) NOT NULL, failure_reason VARCHAR(2000)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.material_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_kind_code VARCHAR(64) NOT NULL, result_entity_id UUID,
+    result_count INTEGER, created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
+
 DELETE FROM pis_v2.idempotency_record;
+DELETE FROM pis_v2.material_command_idempotency;
+DELETE FROM pis_v2.print_log;
+DELETE FROM pis_v2.slide;
+DELETE FROM pis_v2.block;
+DELETE FROM pis_v2.grossing_specimen;
+DELETE FROM pis_v2.grossing_sequence;
+DELETE FROM pis_v2.grossing;
+DELETE FROM pis_v2.print_rule;
+DELETE FROM pis_v2.slide_rule;
 DELETE FROM pis_v2.specimen;
 DELETE FROM pis_v2.case_context_snapshot;
 DELETE FROM pis_v2.pathology_case;
@@ -100,3 +179,14 @@ VALUES
      'CASE', 'H-', 'ORGANIZATION', 6, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
     ('00000000-0000-0000-0000-00000000b004', '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL',
      'SPECIMEN', 'HS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
+INSERT INTO pis_v2.slide_rule
+    (id, organization_reference, business_type_id, rule_code, source_context_type, trigger_code,
+     slide_type, stain_code, copies, active, configuration_version, created_at, updated_at, created_by_ref)
+VALUES ('00000000-0000-0000-0000-00000000b010', 'LOCAL_HOSPITAL',
+        '00000000-0000-0000-0000-00000000b001', 'INITIAL-HE', 'INITIAL', 'ON_GROSSING_COMPLETE',
+        'HE', 'HE', 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
+INSERT INTO pis_v2.print_rule
+    (id, organization_reference, business_type_id, entity_kind_code, trigger_code, printer_profile_code,
+     active, configuration_version, created_at, updated_at, created_by_ref)
+VALUES ('00000000-0000-0000-0000-00000000b011', 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'ON_GROSSING_COMPLETE',
+        'SYNTH-PRINTER', TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
