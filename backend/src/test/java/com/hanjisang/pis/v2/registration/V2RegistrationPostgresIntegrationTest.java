@@ -1,16 +1,21 @@
 package com.hanjisang.pis.v2.registration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 
 import org.flywaydb.core.Flyway;
+import org.springframework.dao.DataAccessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import com.hanjisang.pis.v2.diagnosis.domain.Diagnosis;
+import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
 
 @Testcontainers
 class V2RegistrationPostgresIntegrationTest {
@@ -19,10 +24,10 @@ class V2RegistrationPostgresIntegrationTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:18.4-alpine")
             .withDatabaseName("pis")
             .withUsername("pis")
-            .withPassword("synthetic-v2-i01");
+            .withPassword(UUID.randomUUID().toString());
 
     @Test
-    void postgresMigrationCreatesV2I02SchemaAndSeedConfiguration() {
+    void postgresMigrationCreatesV2I03SchemaAndSeedConfiguration() {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("pis")
@@ -35,9 +40,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("V2-I02");
+                String.class)).isEqualTo("V2-I03");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("13");
+                String.class)).isEqualTo("14");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(4);
@@ -45,6 +50,9 @@ class V2RegistrationPostgresIntegrationTest {
                 .isEqualTo(16);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.slide_rule", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.print_rule", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template", Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template_version", Integer.class))
+                .isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
@@ -60,6 +68,13 @@ class V2RegistrationPostgresIntegrationTest {
                   AND table_name IN ('grossing', 'grossing_specimen', 'block', 'slide',
                                      'slide_rule', 'print_rule', 'print_log', 'material_command_idempotency')
                 """, Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('diagnosis', 'diagnosis_template', 'diagnosis_template_version',
+                                     'responsibility_unit', 'assignment_rule', 'diagnosis_command_idempotency')
+                """, Integer.class)).isEqualTo(6);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM pg_indexes
@@ -89,5 +104,45 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(inserted).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.idempotency_record WHERE operation_code = 'V2-TEST'",
                 Integer.class)).isEqualTo(1);
+
+        UUID businessTypeId = jdbc.queryForObject("SELECT id FROM pis_v2.business_type WHERE business_type_code = 'HISTOLOGY'",
+                UUID.class);
+        UUID publishedTemplateVersionId = jdbc.queryForObject("""
+                SELECT tv.id
+                FROM pis_v2.diagnosis_template_version tv
+                JOIN pis_v2.diagnosis_template t ON t.id = tv.template_id
+                WHERE t.business_type_id = ? AND tv.status_code = 'PUBLISHED'
+                ORDER BY tv.version_no DESC LIMIT 1
+                """, UUID.class, businessTypeId);
+        UUID diagnosisCaseId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO pis_v2.pathology_case
+                    (id, case_no, source_system_code, external_application_id, application_item_code,
+                     business_type_id, lifecycle_state_code, number_binding_active, concurrency_version,
+                     organization_reference, created_at, created_by_ref)
+                VALUES (?, ?, 'SYNTH-HIS', ?, 'SYNTH-HISTOLOGY', ?, 'ACTIVE', TRUE, 0, 'LOCAL_HOSPITAL', ?, 'TEST')
+                """, diagnosisCaseId, "H-I03-JSON", "APP-I03-JSON", businessTypeId,
+                java.sql.Timestamp.from(java.time.Instant.now()));
+        JdbcV2DiagnosisRepository diagnosisRepository = new JdbcV2DiagnosisRepository(jdbc);
+        Diagnosis diagnosis = Diagnosis.create(UUID.randomUUID(), diagnosisCaseId, publishedTemplateVersionId,
+                "{\"marker\":\"synthetic\"}", "synthetic microscopic", "synthetic diagnosis", "synthetic comment",
+                java.time.Instant.now(), "TEST");
+        diagnosisRepository.insertDiagnosis(diagnosis, "LOCAL_HOSPITAL", java.time.Instant.now(), "TEST");
+        assertThat(jdbc.queryForObject("SELECT structured_data::text FROM pis_v2.diagnosis WHERE id = ?", String.class,
+                diagnosis.id())).contains("marker");
+
+        UUID templateId = jdbc.queryForObject("SELECT template_id FROM pis_v2.diagnosis_template_version WHERE id = ?",
+                UUID.class, publishedTemplateVersionId);
+        UUID draftVersionId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO pis_v2.diagnosis_template_version
+                    (id, template_id, version_no, schema_definition, status_code, created_at, created_by_ref,
+                     concurrency_version)
+                VALUES (?, ?, 2, '{}'::jsonb, 'DRAFT', ?, 'TEST', 0)
+                """, draftVersionId, templateId, java.sql.Timestamp.from(java.time.Instant.now()));
+        assertThat(diagnosisRepository.publishTemplateVersion(draftVersionId, "LOCAL_HOSPITAL",
+                java.time.Instant.now(), "TEST")).isTrue();
+        assertThatThrownBy(() -> jdbc.update("UPDATE pis_v2.diagnosis_template_version SET version_no = 99 WHERE id = ?",
+                publishedTemplateVersionId)).isInstanceOf(DataAccessException.class);
     }
 }

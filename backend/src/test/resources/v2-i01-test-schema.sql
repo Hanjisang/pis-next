@@ -142,8 +142,64 @@ CREATE TABLE IF NOT EXISTS pis_v2.material_command_idempotency (
     result_count INTEGER, created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
     UNIQUE (operation_code, idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_template (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, template_code VARCHAR(128) NOT NULL,
+    template_name VARCHAR(256) NOT NULL, business_type_id UUID NOT NULL, scope_code VARCHAR(128) NOT NULL,
+    enabled BOOLEAN NOT NULL, concurrency_version BIGINT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, template_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_template_version (
+    id UUID PRIMARY KEY, template_id UUID NOT NULL, version_no INTEGER NOT NULL,
+    schema_definition VARCHAR(20000) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    published_at TIMESTAMP WITH TIME ZONE, published_by_ref VARCHAR(128),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    concurrency_version BIGINT NOT NULL, UNIQUE (template_id, version_no)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_test_template_published
+    ON pis_v2.diagnosis_template_version (template_id, status_code, version_no);
+CREATE TABLE IF NOT EXISTS pis_v2.diagnosis (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, context_type VARCHAR(32) NOT NULL, context_id UUID NOT NULL,
+    template_version_id UUID NOT NULL, structured_data VARCHAR(20000) NOT NULL,
+    microscopic_description VARCHAR(10000), diagnosis_text VARCHAR(10000), comment_text VARCHAR(10000),
+    concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, case_id, context_type, context_id)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_test_diagnosis_case ON pis_v2.diagnosis (case_id, context_type);
+CREATE TABLE IF NOT EXISTS pis_v2.responsibility_unit (
+    id UUID PRIMARY KEY, diagnosis_id UUID NOT NULL, role_code VARCHAR(32) NOT NULL, doctor_id VARCHAR(128) NOT NULL,
+    sequence_no INTEGER NOT NULL, accepted_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE, ended_at TIMESTAMP WITH TIME ZONE, end_reason VARCHAR(2000),
+    assignment_source_code VARCHAR(32) NOT NULL, assignment_reason VARCHAR(2000),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    concurrency_version BIGINT NOT NULL, UNIQUE (diagnosis_id, sequence_no)
+);
+CREATE INDEX IF NOT EXISTS idx_v2_test_responsibility_open
+    ON pis_v2.responsibility_unit (diagnosis_id, role_code, completed_at, ended_at);
+CREATE TABLE IF NOT EXISTS pis_v2.assignment_rule (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, campus_code VARCHAR(128) NOT NULL,
+    business_type_code VARCHAR(64) NOT NULL, department_code VARCHAR(128) NOT NULL, site_code VARCHAR(256) NOT NULL,
+    diagnosis_group_code VARCHAR(128) NOT NULL, doctor_id VARCHAR(128), priority INTEGER NOT NULL,
+    enabled BOOLEAN NOT NULL, concurrency_version BIGINT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL, result_kind_code VARCHAR(64) NOT NULL, result_entity_id UUID,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (operation_code, idempotency_key)
+);
 
 DELETE FROM pis_v2.idempotency_record;
+DELETE FROM pis_v2.diagnosis_command_idempotency;
+DELETE FROM pis_v2.responsibility_unit;
+DELETE FROM pis_v2.diagnosis;
+DELETE FROM pis_v2.diagnosis_template_version;
+DELETE FROM pis_v2.assignment_rule;
+DELETE FROM pis_v2.diagnosis_template;
 DELETE FROM pis_v2.material_command_idempotency;
 DELETE FROM pis_v2.print_log;
 DELETE FROM pis_v2.slide;
@@ -166,6 +222,18 @@ INSERT INTO pis_v2.business_type
     (id, business_type_code, display_name, modality_code, active, configuration_version, created_at, created_by_ref)
 VALUES ('00000000-0000-0000-0000-00000000b001', 'HISTOLOGY', '组织病理', 'TISSUE', TRUE, 1,
         CURRENT_TIMESTAMP, 'TEST');
+INSERT INTO pis_v2.diagnosis_template
+    (id, organization_reference, template_code, template_name, business_type_id, scope_code, enabled,
+     concurrency_version, created_at, created_by_ref, updated_at, updated_by_ref)
+VALUES ('00000000-0000-0000-0000-00000000b020', 'LOCAL_HOSPITAL', 'DEFAULT-HISTOLOGY', 'V2默认诊断模板',
+        '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL', TRUE, 0, CURRENT_TIMESTAMP, 'TEST',
+        CURRENT_TIMESTAMP, 'TEST');
+INSERT INTO pis_v2.diagnosis_template_version
+    (id, template_id, version_no, schema_definition, status_code, published_at, published_by_ref,
+     created_at, created_by_ref, concurrency_version)
+VALUES ('00000000-0000-0000-0000-00000000b021', '00000000-0000-0000-0000-00000000b020', 1,
+        '{"components":[{"type":"TEXTAREA","code":"diagnosisText"}],"version":1}', 'PUBLISHED',
+        CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
 INSERT INTO pis_v2.application_item_mapping
     (id, application_item_code, business_type_id, default_specimen_kind_code, required, sequence_no,
      active, configuration_version, created_at, created_by_ref)
