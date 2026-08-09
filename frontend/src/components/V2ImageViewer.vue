@@ -1,14 +1,29 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-const props = defineProps<{ source?: string | null; label?: string; sourcePlatform?: string }>();
+type ViewerContext = {
+  caseNo?: string;
+  specimenCode?: string;
+  blockCode?: string;
+  slideCode?: string;
+  digitalSlideId?: string;
+};
 
+const props = defineProps<{
+  source?: string | null;
+  label?: string;
+  sourcePlatform?: string;
+  context?: ViewerContext;
+}>();
+
+const viewerRoot = ref<HTMLElement | null>(null);
 const viewport = ref<HTMLDivElement | null>(null);
 const scale = ref(1);
 const offsetX = ref(0);
 const offsetY = ref(0);
 const dragging = ref(false);
 const imageError = ref(false);
+const fullscreenActive = ref(false);
 const dragStart = ref({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
 
 const isImageReference = computed(() => {
@@ -58,17 +73,28 @@ function onWheel(event: WheelEvent) {
   zoom(event.deltaY > 0 ? -0.1 : 0.1);
 }
 
+function onFullscreenChange() {
+  fullscreenActive.value = document.fullscreenElement === viewerRoot.value;
+}
+
 function fullscreen() {
-  void viewport.value?.requestFullscreen?.();
+  if (fullscreenActive.value) {
+    void document.exitFullscreen?.();
+    return;
+  }
+  void viewerRoot.value?.requestFullscreen?.();
 }
 
 function imageFailed() {
   imageError.value = true;
 }
+
+onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange));
+onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
 </script>
 
 <template>
-  <section class="image-viewer" aria-label="数字切片阅片器">
+  <section ref="viewerRoot" class="image-viewer" aria-label="数字切片阅片器">
     <header class="image-viewer-toolbar">
       <div>
         <strong>{{ label || '数字切片' }}</strong>
@@ -79,9 +105,37 @@ function imageFailed() {
         <span aria-live="polite">{{ Math.round(scale * 100) }}%</span>
         <button type="button" aria-label="放大" @click="zoom(0.25)">＋</button>
         <button type="button" aria-label="还原视图" @click="reset">还原</button>
-        <button type="button" aria-label="全屏查看" @click="fullscreen">全屏</button>
+        <button
+          type="button"
+          :aria-label="fullscreenActive ? '退出全屏' : '全屏查看'"
+          @click="fullscreen"
+        >
+          {{ fullscreenActive ? '退出全屏' : '全屏' }}
+        </button>
       </div>
     </header>
+    <dl v-if="context" class="image-viewer-context" aria-label="阅片上下文">
+      <div v-if="context.caseNo">
+        <dt>病例</dt>
+        <dd>{{ context.caseNo }}</dd>
+      </div>
+      <div v-if="context.specimenCode">
+        <dt>标本</dt>
+        <dd>{{ context.specimenCode }}</dd>
+      </div>
+      <div v-if="context.blockCode">
+        <dt>蜡块</dt>
+        <dd>{{ context.blockCode }}</dd>
+      </div>
+      <div v-if="context.slideCode">
+        <dt>玻片</dt>
+        <dd>{{ context.slideCode }}</dd>
+      </div>
+      <div v-if="context.digitalSlideId">
+        <dt>数字切片</dt>
+        <dd>{{ context.digitalSlideId }}</dd>
+      </div>
+    </dl>
     <div
       ref="viewport"
       class="image-viewer-viewport"

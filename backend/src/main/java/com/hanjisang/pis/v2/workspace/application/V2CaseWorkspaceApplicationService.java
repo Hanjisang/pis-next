@@ -118,6 +118,7 @@ public class V2CaseWorkspaceApplicationService {
         if (operation.contains("GROSSING-COMPLETE")) return "完成取材";
         if (operation.contains("BLOCK-CREATE")) return "新增蜡块";
         if (operation.contains("BLOCK-UPDATE")) return "修改蜡块";
+        if (operation.contains("BLOCK-SOFT-DELETE")) return "作废蜡块";
         if (operation.contains("SLIDE-CREATE")) return "生成玻片";
         if (operation.contains("SLIDE-COMPLETE")) return "完成制片";
         if (operation.contains("PRINT")) return "完成标签打印";

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">PX01A 合成数字切片一</title>
+  <desc id="desc">用于本地阅片器验收的合成组织图像</desc>
+  <rect width="1600" height="1000" fill="#f7eee2"/>
+  <path d="M80 690C180 470 280 560 390 360s230-160 320 20 180 210 300 50 270-180 510 30v540H80Z" fill="#d9a5ad" opacity=".82"/>
+  <path d="M130 735c180-170 260-85 390-245s210-120 310 65 220 130 340-20 260-130 420 20" fill="none" stroke="#8a536e" stroke-width="26" opacity=".75"/>
+  <g fill="#6b3e62" opacity=".72">
+    <ellipse cx="250" cy="620" rx="28" ry="18"/><ellipse cx="340" cy="520" rx="22" ry="16"/>
+    <ellipse cx="520" cy="430" rx="27" ry="19"/><ellipse cx="680" cy="560" rx="23" ry="17"/>
+    <ellipse cx="870" cy="650" rx="28" ry="20"/><ellipse cx="1060" cy="505" rx="23" ry="17"/>
+    <ellipse cx="1290" cy="585" rx="26" ry="18"/><ellipse cx="1450" cy="670" rx="22" ry="16"/>
+  </g>
+  <g fill="#ffffff" opacity=".55">
+    <circle cx="400" cy="760" r="34"/><circle cx="760" cy="720" r="28"/><circle cx="1180" cy="760" r="36"/>
+  </g>
+</svg>

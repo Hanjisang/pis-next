@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">PX01A 合成数字切片二</title>
+  <desc id="desc">用于本地阅片器切换验收的第二张合成组织图像</desc>
+  <rect width="1600" height="1000" fill="#eaf2f1"/>
+  <path d="M0 620C170 390 300 520 430 300s245-80 330 120 220 210 350 10 290-140 490 110v460H0Z" fill="#9ec9c0" opacity=".8"/>
+  <path d="M40 700c210-155 330-80 430-250s250-80 350 90 220 120 330-50 270-90 430 30" fill="none" stroke="#3e7776" stroke-width="25" opacity=".72"/>
+  <g fill="#285c61" opacity=".72">
+    <ellipse cx="180" cy="590" rx="24" ry="17"/><ellipse cx="355" cy="455" rx="28" ry="19"/>
+    <ellipse cx="570" cy="520" rx="22" ry="16"/><ellipse cx="760" cy="610" rx="26" ry="18"/>
+    <ellipse cx="990" cy="500" rx="23" ry="17"/><ellipse cx="1220" cy="570" rx="28" ry="19"/>
+    <ellipse cx="1430" cy="620" rx="24" ry="17"/>
+  </g>
+  <g fill="#ffffff" opacity=".58">
+    <circle cx="270" cy="760" r="30"/><circle cx="860" cy="740" r="38"/><circle cx="1340" cy="760" r="30"/>
+  </g>
+</svg>

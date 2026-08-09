@@ -154,6 +154,24 @@ class V2TechnicalOrderWebTest {
     }
 
     @Test
+    void executingStructuredResultOrderRemainsVisibleAsExecutingInWorkbench() throws Exception {
+        CaseSetup setup = createReadyCase("I04-EXECUTING-RESULT");
+        String diagnosisId = claim(setup.caseId(), "claim-i04-executing-result").get("diagnosisId").asText();
+        JsonNode created = createOrder("order-i04-executing-result", diagnosisId, true,
+                item(projectId("MOLECULAR-STRUCTURED"), "CASE", setup.caseId()));
+
+        JsonNode executing = execute(created.get("orderId").asText(), "execute-i04-executing-result");
+        assertThat(executing.get("status").asText()).isEqualTo("EXECUTING");
+        assertThat(executing.get("blocking").asBoolean()).isTrue();
+
+        JsonNode workbench = json(mockMvc.perform(get("/api/v2/technical-workbench"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workbench.get("orders")).hasSize(1);
+        assertThat(workbench.get("orders").get(0).get("caseNo").asText()).isNotBlank();
+        assertThat(workbench.get("orders").get(0).get("status").asText()).isEqualTo("EXECUTING");
+    }
+
+    @Test
     void cancellationReleasesBlockingButPreservesFactsAndCompletedOrderCannotBeCancelled() throws Exception {
         CaseSetup setup = createReadyCase("I04-CANCEL");
         String diagnosisId = claim(setup.caseId(), "claim-i04-cancel").get("diagnosisId").asText();
@@ -163,8 +181,8 @@ class V2TechnicalOrderWebTest {
         JsonNode cancelled = json(mockMvc.perform(post("/api/v2/technical-orders/%s/cancel".formatted(created.get("orderId").asText()))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"expectedVersion":0,"reason":"synthetic operator cancellation","idempotencyKey":"cancel-i04-001"}
-                        """))
+                        {"expectedVersion":%d,"reason":"synthetic operator cancellation","idempotencyKey":"cancel-i04-001"}
+                        """.formatted(executed.get("version").asLong())))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(cancelled.get("status").asText()).isEqualTo("CANCELLED");
         assertThat(cancelled.get("blocking").asBoolean()).isFalse();

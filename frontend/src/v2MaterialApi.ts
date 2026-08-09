@@ -47,6 +47,7 @@ export type V2MaterialTree = {
       blockCode: string;
       blockType: string;
       concurrencyVersion: number;
+      printCount: number;
       slides: V2SlideNode[];
     }>;
     directSlides: V2SlideNode[];

@@ -43,6 +43,28 @@ const selectedDigitalSlide = computed(
     slides.value[0] ??
     null,
 );
+const selectedViewerContext = computed(() => {
+  const selected = selectedDigitalSlide.value;
+  if (!selected || !materials.value) return undefined;
+  const specimen = materials.value.specimens.find((item) =>
+    [...item.directSlides, ...item.blocks.flatMap((block) => block.slides)].some(
+      (slide) => slide.slideId === selected.slideId,
+    ),
+  );
+  const block = specimen?.blocks.find((item) => item.blockId === selected.blockId);
+  const physicalSlide = specimen
+    ? [...specimen.directSlides, ...specimen.blocks.flatMap((item) => item.slides)].find(
+        (item) => item.slideId === selected.slideId,
+      )
+    : undefined;
+  return {
+    caseNo: materials.value.caseNo,
+    specimenCode: specimen?.specimenCode,
+    blockCode: block?.blockCode,
+    slideCode: physicalSlide?.slideCode,
+    digitalSlideId: selected.digitalSlideId,
+  };
+});
 
 watch(
   () => props.caseId,
@@ -200,6 +222,7 @@ function slideCode(id?: string) {
             :source="selectedDigitalSlide.viewerReference"
             :label="slideCode(selectedDigitalSlide.slideId)"
             :source-platform="selectedDigitalSlide.sourcePlatform"
+            :context="selectedViewerContext"
           />
         </div>
       </section>

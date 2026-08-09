@@ -576,8 +576,9 @@ public class V2MaterialProductionApplicationService {
                             row.specimenKindCode()));
             if (row.blockId() != null) {
                 BlockNodeBuilder block = specimen.blocks.computeIfAbsent(row.blockId(), ignored ->
-                        new BlockNodeBuilder(row.blockId(), row.blockCode(), row.blockType(),
-                                row.blockConcurrencyVersion() == null ? 0L : row.blockConcurrencyVersion()));
+                    new BlockNodeBuilder(row.blockId(), row.blockCode(), row.blockType(),
+                                row.blockConcurrencyVersion() == null ? 0L : row.blockConcurrencyVersion(),
+                                row.blockPrintCount() == null ? 0 : row.blockPrintCount()));
                 if (row.slideId() != null) {
                     block.slides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
                             row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
@@ -833,12 +834,13 @@ public class V2MaterialProductionApplicationService {
     }
 
     private record BlockNodeBuilder(UUID id, String blockCode, String blockType, long concurrencyVersion,
+            int printCount,
             List<SlideNode> slides) {
-        private BlockNodeBuilder(UUID id, String blockCode, String blockType, long concurrencyVersion) {
-            this(id, blockCode, blockType, concurrencyVersion, new ArrayList<>());
+        private BlockNodeBuilder(UUID id, String blockCode, String blockType, long concurrencyVersion, int printCount) {
+            this(id, blockCode, blockType, concurrencyVersion, printCount, new ArrayList<>());
         }
 
-        private BlockNode build() { return new BlockNode(id, blockCode, blockType, concurrencyVersion, slides); }
+        private BlockNode build() { return new BlockNode(id, blockCode, blockType, concurrencyVersion, printCount, slides); }
     }
 
     private record MaterialAuthorization(ActorContext actor, String permissionCode) { }
@@ -949,7 +951,7 @@ public class V2MaterialProductionApplicationService {
     public record SpecimenNode(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
             List<BlockNode> blocks, List<SlideNode> directSlides) { }
 
-    public record BlockNode(UUID blockId, String blockCode, String blockType, long concurrencyVersion,
+    public record BlockNode(UUID blockId, String blockCode, String blockType, long concurrencyVersion, int printCount,
             List<SlideNode> slides) { }
 
     public record SlideNode(UUID slideId, String slideCode, String slideType, String sourceContextType,

@@ -190,6 +190,16 @@ public class V2TechnicalOrderApplicationService {
                 }
             }
         }
+        TechnicalOrder order = snapshot.order();
+        if (order.status() == TechnicalOrderStatus.PENDING) {
+            long expectedOrderVersion = order.version();
+            Instant now = Instant.now();
+            order.syncStatus(TechnicalOrderStatus.EXECUTING);
+            if (!repository.updateOrder(order, actor.hospitalScope(), expectedOrderVersion, now,
+                    actor.actorId())) {
+                throw conflict("鎶€鏈尰鍢辩増鏈啿绐侊紝寮€濮嬪鐞嗘湭鐢熸晥");
+            }
+        }
         repository.insertIdempotency(operation, idempotencyKey, digest, "TECHNICAL_ORDER", orderId, actor.actorId(),
                 Instant.now());
         audit.append(operation, TECHNICAL_EXECUTION, actor, "ALLOWED", "COMPLETED", orderId, "V2-TECHNICAL-ORDER",

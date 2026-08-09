@@ -28,6 +28,7 @@ const error = ref('');
 const notice = ref('');
 const resultDrafts = reactive<Record<string, ResultDraft>>({});
 const cancellationReasons = reactive<Record<string, string>>({});
+let refreshSequence = 0;
 const molecularCase = ref<V2CaseResult | null>(null);
 const molecularSpecimenId = ref('');
 const molecularProject = ref('常用分子检测');
@@ -65,19 +66,24 @@ function progress(order: V2TechnicalOrder) {
 }
 
 async function refresh() {
+  const sequence = ++refreshSequence;
   loading.value = true;
   error.value = '';
   try {
-    ({ orders: orders.value } = await getV2TechnicalWorkbench());
-    for (const order of orders.value) {
+    const result = await getV2TechnicalWorkbench();
+    if (sequence !== refreshSequence) return;
+    orders.value = result.orders;
+    for (const order of result.orders) {
       for (const item of order.items) {
         resultDrafts[item.itemId] ??= { conclusion: '', value: '' };
       }
     }
   } catch (requestError) {
-    error.value = friendlyError(requestError, '技术医嘱队列暂时无法加载，请稍后重试。');
+    if (sequence === refreshSequence) {
+      error.value = friendlyError(requestError, '技术医嘱队列暂时无法加载，请稍后重试。');
+    }
   } finally {
-    loading.value = false;
+    if (sequence === refreshSequence) loading.value = false;
   }
 }
 

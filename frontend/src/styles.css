@@ -663,6 +663,29 @@
   color: #eef8f3;
   text-align: center;
 }
+.image-viewer-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 8px var(--space-4);
+  border-top: 1px solid #384f45;
+  border-bottom: 1px solid #384f45;
+  background: #1d2d27;
+  color: #d9eee5;
+  font-size: var(--font-xs);
+}
+.image-viewer-context div {
+  display: inline-flex;
+  gap: 5px;
+}
+.image-viewer-context dt {
+  color: #9fc0b0;
+}
+.image-viewer-context dd {
+  margin: 0;
+  font-weight: 700;
+}
 .image-viewer-viewport {
   position: relative;
   display: grid;
@@ -740,6 +763,31 @@
 }
 .diagnosis-viewer-panel .image-viewer {
   min-height: 430px;
+}
+
+.context-history-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.context-history-list article {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.context-history-list time,
+.context-history-list span,
+.context-history-list small {
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+
+.context-history-list article > div {
+  display: grid;
+  gap: 2px;
 }
 
 .personal-workbench-page {
@@ -2179,9 +2227,29 @@ textarea:focus {
   align-items: center;
   justify-content: space-between;
 }
+.block-edit-input {
+  width: 6rem;
+  min-height: 30px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  padding: 4px 6px;
+}
 
 .block-quick-entry {
   width: min(300px, 45%);
+}
+
+.specimen-detail-editor {
+  align-items: end;
+  margin-bottom: var(--space-3);
+}
+
+.field-action-cell {
+  display: flex;
+  align-items: end;
+  min-height: 100%;
 }
 
 .block-quick-entry label {

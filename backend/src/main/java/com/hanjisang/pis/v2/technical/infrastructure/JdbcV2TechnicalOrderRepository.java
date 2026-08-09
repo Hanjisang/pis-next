@@ -429,7 +429,8 @@ public class JdbcV2TechnicalOrderRepository {
         if (!items.isEmpty() && items.stream().allMatch(item -> item.status() == TechnicalItemStatus.COMPLETED)) {
             return TechnicalOrderStatus.COMPLETED;
         }
-        if (items.stream().anyMatch(item -> item.status() != TechnicalItemStatus.PENDING)) {
+        if (order.status() == TechnicalOrderStatus.EXECUTING
+                || items.stream().anyMatch(item -> item.status() != TechnicalItemStatus.PENDING)) {
             return TechnicalOrderStatus.EXECUTING;
         }
         return TechnicalOrderStatus.PENDING;

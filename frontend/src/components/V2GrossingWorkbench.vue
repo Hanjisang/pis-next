@@ -9,6 +9,7 @@ import {
   idempotencyKey,
   specimenKindName,
 } from '../uiText';
+import { getV2Specimen, updateV2Specimen, type V2SpecimenResult } from '../v2Api';
 import {
   associateV2Specimen,
   completeV2Grossing,
@@ -17,6 +18,7 @@ import {
   getV2GrossingWorkspace,
   printV2Block,
   softDeleteV2Block,
+  updateV2Block,
   updateV2Grossing,
   type V2GrossingWorkspace,
 } from '../v2MaterialApi';
@@ -35,10 +37,14 @@ const emit = defineEmits<{ navigate: [path: string] }>();
 const caseId = defineModel<string>('caseId', { default: '' });
 const lookupCaseId = ref(caseId.value);
 const workspace = ref<V2GrossingWorkspace | null>(null);
+const specimenDetails = ref<Record<string, V2SpecimenResult>>({});
 const selectedSpecimenId = ref('');
+const specimenSiteDraft = ref('');
 const grossDescription = ref('');
 const grossingInstruction = ref('');
 const newBlockCode = ref('');
+const editingBlockId = ref('');
+const editingBlockCode = ref('');
 const busy = ref(false);
 const loading = ref(false);
 const error = ref('');
@@ -49,6 +55,9 @@ const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
 const currentSpecimen = computed(
   () =>
     workspace.value?.specimens.find((item) => item.specimenId === selectedSpecimenId.value) ?? null,
+);
+const currentSpecimenDetail = computed(() =>
+  selectedSpecimenId.value ? specimenDetails.value[selectedSpecimenId.value] : undefined,
 );
 const currentBlocks = computed(() => currentSpecimen.value?.blocks ?? []);
 const currentDoctor = computed(
@@ -107,7 +116,22 @@ async function loadWorkspace() {
       props.sourceType,
       props.sourceReferenceId,
     );
+    const details = await Promise.all(
+      workspace.value.specimens.map(async (specimen) => {
+        try {
+          return await getV2Specimen(specimen.specimenId);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    specimenDetails.value = Object.fromEntries(
+      details
+        .filter((detail): detail is V2SpecimenResult => Boolean(detail))
+        .map((detail) => [detail.specimenId, detail]),
+    );
     selectedSpecimenId.value ||= workspace.value.specimens[0]?.specimenId ?? '';
+    specimenSiteDraft.value = specimenDetails.value[selectedSpecimenId.value]?.collectionSite ?? '';
     if (workspace.value.grossing) {
       selectedDoctorId.value = workspace.value.grossing.grossingDoctorId;
       grossDescription.value = workspace.value.grossing.grossDescription;
@@ -140,7 +164,24 @@ function openCase() {
 
 function selectSpecimen(specimenId: string) {
   selectedSpecimenId.value = specimenId;
+  specimenSiteDraft.value = specimenDetails.value[specimenId]?.collectionSite ?? '';
   setSuggestedBlockCode();
+}
+
+function saveSpecimenDetails() {
+  const detail = currentSpecimenDetail.value;
+  if (!detail || !specimenSiteDraft.value.trim()) return;
+  void run(async () => {
+    const updated = await updateV2Specimen({
+      ...detail,
+      collectionSite: specimenSiteDraft.value.trim(),
+      labelCode: detail.labelCode ?? '',
+      expectedVersion: detail.concurrencyVersion,
+    });
+    specimenDetails.value = { ...specimenDetails.value, [updated.specimenId]: updated };
+    notice.value = `标本 ${updated.specimenCode} 信息已保存。`;
+    await loadWorkspace();
+  });
 }
 
 function setSuggestedBlockCode() {
@@ -220,6 +261,33 @@ function duplicateLastBlock() {
   addBlock();
 }
 
+function beginBlockEdit(block: V2GrossingWorkspace['specimens'][number]['blocks'][number]) {
+  editingBlockId.value = block.blockId;
+  editingBlockCode.value = block.blockCode;
+}
+
+function cancelBlockEdit() {
+  editingBlockId.value = '';
+  editingBlockCode.value = '';
+}
+
+function saveBlock(block: V2GrossingWorkspace['specimens'][number]['blocks'][number]) {
+  const nextCode = editingBlockCode.value.trim();
+  if (!nextCode || !workspace.value) return;
+  void run(async () => {
+    await updateV2Block({
+      blockId: block.blockId,
+      blockCode: nextCode,
+      blockType: block.blockType,
+      expectedVersion: block.concurrencyVersion,
+      idempotencyKey: idempotencyKey('ux01a-block-update'),
+    });
+    cancelBlockEdit();
+    notice.value = `蜡块已修改为 ${nextCode}。`;
+    await loadWorkspace();
+  });
+}
+
 function removeBlock(blockId: string, blockCode: string, version: number) {
   void run(async () => {
     await softDeleteV2Block({
@@ -241,6 +309,7 @@ function printBlock(blockId: string, blockCode: string) {
       idempotencyKey: idempotencyKey('ux01-block-print'),
     });
     notice.value = `蜡块 ${blockCode} 的标签已发送到当前打印机。`;
+    await loadWorkspace();
   });
 }
 
@@ -376,6 +445,26 @@ onMounted(() => void loadDoctors());
                 specimenKindName(currentSpecimen?.specimenKindCode)
               }}</span>
             </header>
+            <div v-if="currentSpecimenDetail" class="field-grid specimen-detail-editor">
+              <label>
+                取材部位
+                <input
+                  v-model="specimenSiteDraft"
+                  aria-label="当前标本取材部位"
+                  :readonly="!canEdit"
+                />
+              </label>
+              <div class="field-action-cell">
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="!canEdit || busy || !specimenSiteDraft.trim()"
+                  @click="saveSpecimenDetails"
+                >
+                  保存标本信息
+                </button>
+              </div>
+            </div>
             <div class="field-grid">
               <label class="span-two">
                 大体描述
@@ -427,17 +516,53 @@ onMounted(() => void loadDoctors());
             <div v-else class="block-quick-grid">
               <article v-for="block in currentBlocks" :key="block.blockId" class="block-chip">
                 <header>
-                  <strong>{{ block.blockCode }}</strong
-                  ><span class="status-pill">{{ blockTypeName(block.blockType) }}</span>
+                  <template v-if="editingBlockId === block.blockId">
+                    <input
+                      v-model="editingBlockCode"
+                      :aria-label="`修改蜡块 ${block.blockCode}`"
+                      class="block-edit-input"
+                      @keydown.enter.prevent="saveBlock(block)"
+                    />
+                  </template>
+                  <template v-else>
+                    <strong>{{ block.blockCode }}</strong>
+                    <span class="status-pill">{{ blockTypeName(block.blockType) }}</span>
+                  </template>
                 </header>
                 <small class="muted">{{ block.slides.length }} 张玻片</small>
                 <div class="inline-actions">
+                  <template v-if="editingBlockId === block.blockId">
+                    <button
+                      class="text-button"
+                      type="button"
+                      :disabled="busy || !editingBlockCode.trim()"
+                      @click="saveBlock(block)"
+                    >
+                      保存修改
+                    </button>
+                    <button
+                      class="text-button"
+                      type="button"
+                      :disabled="busy"
+                      @click="cancelBlockEdit"
+                    >
+                      取消
+                    </button>
+                  </template>
+                  <button
+                    v-else-if="canEdit"
+                    class="text-button"
+                    type="button"
+                    @click="beginBlockEdit(block)"
+                  >
+                    修改
+                  </button>
                   <button
                     class="text-button"
                     type="button"
                     @click="printBlock(block.blockId, block.blockCode)"
                   >
-                    {{ block.slides.length ? '补打' : '打印' }}
+                    {{ block.printCount > 0 || block.slides.length ? '补打' : '打印' }}
                   </button>
                   <button
                     v-if="canEdit"

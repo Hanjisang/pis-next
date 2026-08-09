@@ -30,6 +30,7 @@ import {
 } from '../v2DiagnosisApi';
 import V2ImageViewer from './V2ImageViewer.vue';
 import V2CaseHeader from './V2CaseHeader.vue';
+import { getV2CaseWorkspace, type V2WorkspaceTimelineEntry } from '../v2WorkspaceApi';
 
 type TemplateOption = { value: string; label: string };
 type TemplateComponent = {
@@ -130,6 +131,13 @@ const selectedViewer = ref<{
   viewerReference: string;
   sourcePlatform: string;
   slideId?: string | null;
+  context: {
+    caseNo: string;
+    specimenCode?: string;
+    blockCode?: string;
+    slideCode?: string;
+    digitalSlideId: string;
+  };
 } | null>(null);
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
@@ -175,6 +183,7 @@ const technicalReturnedCount = computed(
       .filter((item) => item.result).length,
 );
 const molecularResults = computed(() => workspace.value?.molecularResults ?? []);
+const timelineEntries = ref<V2WorkspaceTimelineEntry[]>([]);
 
 function molecularResultSummary(resultData: string) {
   try {
@@ -286,15 +295,21 @@ async function loadWorkspace() {
   previewOpen.value = false;
   if (!caseId.value) {
     workspace.value = null;
+    timelineEntries.value = [];
     await loadPublicPool();
     return;
   }
   loading.value = true;
   error.value = '';
   try {
-    workspace.value = props.frozenRoundId
-      ? await getV2FrozenRoundDiagnosisWorkspace(props.frozenRoundId)
-      : await getV2DiagnosisWorkspace(caseId.value);
+    const [loadedWorkspace, caseContext] = await Promise.all([
+      props.frozenRoundId
+        ? getV2FrozenRoundDiagnosisWorkspace(props.frozenRoundId)
+        : getV2DiagnosisWorkspace(caseId.value),
+      getV2CaseWorkspace(caseId.value),
+    ]);
+    workspace.value = loadedWorkspace;
+    timelineEntries.value = caseContext.timeline;
     const diagnosis = workspace.value.diagnosis;
     structuredData.value = diagnosis?.structuredData ?? '{}';
     structuredValues.value = parseStructuredValues(structuredData.value);
@@ -642,7 +657,27 @@ function openViewer(digital: {
   sourcePlatform: string;
   slideId?: string | null;
 }) {
-  selectedViewer.value = digital;
+  const material = workspace.value?.materialTree.specimens
+    .map((specimen) => ({
+      specimen,
+      block: specimen.blocks.find((block) =>
+        block.slides.some((slide) => slide.slideId === digital.slideId),
+      ),
+      slide: [...specimen.directSlides, ...specimen.blocks.flatMap((block) => block.slides)].find(
+        (slide) => slide.slideId === digital.slideId,
+      ),
+    }))
+    .find((item) => item.slide || item.block);
+  selectedViewer.value = {
+    ...digital,
+    context: {
+      caseNo: workspace.value?.caseSummary.pathologyNo ?? '',
+      specimenCode: material?.specimen.specimenCode,
+      blockCode: material?.block?.blockCode,
+      slideCode: material?.slide?.slideCode,
+      digitalSlideId: digital.digitalSlideId,
+    },
+  };
   activeContext.value = 'digital';
 }
 
@@ -799,6 +834,17 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               </button>
               <p v-if="!(workspace.digitalSlides ?? []).length" class="muted">当前没有数字切片。</p>
             </div>
+            <div v-else-if="activeContext === 'history'" class="context-history-list">
+              <article v-for="entry in timelineEntries" :key="entry.eventId">
+                <time>{{ formatDateTime(entry.occurredAt) }}</time>
+                <div>
+                  <strong>{{ entry.title }}</strong>
+                  <span>{{ entry.actorName || entry.actorRef || '系统记录' }}</span>
+                  <small v-if="entry.detail">{{ entry.detail }}</small>
+                </div>
+              </article>
+              <p v-if="!timelineEntries.length" class="muted">当前病例还没有业务历史。</p>
+            </div>
             <div v-else class="empty-state compact">
               <strong>暂无历史病理记录</strong><span>患者历史接入后显示在这里。</span>
             </div>
@@ -824,6 +870,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               :source="selectedViewer.viewerReference"
               :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
               :source-platform="selectedViewer.sourcePlatform"
+              :context="selectedViewer.context"
             />
           </section>
           <section class="diagnosis-editor-card" aria-label="诊断编辑器">
