@@ -7,6 +7,7 @@ import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
 import V2GlobalSearch from './components/V2GlobalSearch.vue';
 import V2FrozenWorkspace from './components/V2FrozenWorkspace.vue';
 import V2CaseContext from './components/V2CaseContext.vue';
+import V2ConfigurationHub from './components/V2ConfigurationHub.vue';
 import V2GrossingWorkbench from './components/V2GrossingWorkbench.vue';
 import V2Home from './components/V2Home.vue';
 import V2Login from './components/V2Login.vue';
@@ -14,8 +15,8 @@ import V2DigitalSlideWorkbench from './components/V2DigitalSlideWorkbench.vue';
 import V2MaterialCustodyWorkbench from './components/V2MaterialCustodyWorkbench.vue';
 import V2QualityWorkbench from './components/V2QualityWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
-import V2SectionOverview from './components/V2SectionOverview.vue';
 import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.vue';
+import V2SystemAdminHub from './components/V2SystemAdminHub.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 import {
   navigationForUser,
@@ -38,6 +39,7 @@ const tableDensity = ref<'compact' | 'comfortable'>('compact');
 
 const routeTitles: Record<V2RouteName, string> = {
   workbench: '工作台',
+  case: '病例中心',
   registration: '登记',
   grossing: '取材',
   production: '制片',
@@ -107,6 +109,10 @@ function navigate(path: string) {
 }
 
 function navigateByName(name: V2RouteName) {
+  if (name === 'search') {
+    globalSearchOpen.value = true;
+    return;
+  }
   navigate(routePath(name));
 }
 
@@ -207,10 +213,16 @@ onUnmounted(() => {
 
       <main id="workspace-main" class="workspace-main" tabindex="-1">
         <V2Home
-          v-if="route.name === 'workbench'"
+          v-if="route.name === 'workbench' || route.name === 'search'"
           :auth-user="authUser"
           @navigate="navigate"
           @open-search="globalSearchOpen = true"
+        />
+        <V2CaseContext
+          v-else-if="route.name === 'case'"
+          :case-id="route.caseId"
+          :auth-user="authUser"
+          @navigate="navigate"
         />
         <V2RegistrationWorkbench
           v-else-if="route.name === 'registration'"
@@ -223,10 +235,12 @@ onUnmounted(() => {
           :auth-user="authUser"
           :source-type="route.roundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
           :source-reference-id="route.roundId || undefined"
+          @navigate="navigate"
         />
         <V2SlideProductionWorkbench
           v-else-if="route.name === 'production'"
           v-model:case-id="routeCaseId"
+          @navigate="navigate"
         />
         <V2DiagnosisWorkspace
           v-else-if="route.name === 'diagnosis' || route.name === 'reports'"
@@ -249,6 +263,7 @@ onUnmounted(() => {
         <V2DigitalSlideWorkbench
           v-else-if="route.name === 'digital-slides'"
           :case-id="route.caseId"
+          :selected-slide-id="route.slideId"
           @navigate="navigate"
         />
         <V2MaterialCustodyWorkbench
@@ -256,15 +271,11 @@ onUnmounted(() => {
           :case-id="route.caseId"
         />
         <V2QualityWorkbench v-else-if="route.name === 'quality'" />
-        <V2CaseContext
-          v-else-if="route.name === 'search' && route.caseId"
-          :case-id="route.caseId"
-          :auth-user="authUser"
-          @navigate="navigate"
-        />
-        <V2SectionOverview
+        <V2ConfigurationHub v-else-if="route.name === 'configuration'" />
+        <V2SystemAdminHub v-else-if="route.name === 'system'" />
+        <V2Home
           v-else
-          :section="route.name"
+          :auth-user="authUser"
           @navigate="navigate"
           @open-search="globalSearchOpen = true"
         />

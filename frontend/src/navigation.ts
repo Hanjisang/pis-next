@@ -2,6 +2,7 @@ import type { V2AuthUser } from './auth';
 
 export type V2RouteName =
   | 'workbench'
+  | 'case'
   | 'registration'
   | 'grossing'
   | 'production'
@@ -20,6 +21,7 @@ export type V2Route = {
   name: V2RouteName;
   caseId: string;
   roundId: string;
+  slideId: string;
 };
 
 export type NavigationItem = {
@@ -108,6 +110,7 @@ export const primaryNavigation: NavigationItem[] = [
 
 const segmentToRoute: Record<string, V2RouteName> = {
   workbench: 'workbench',
+  cases: 'case',
   registration: 'registration',
   grossing: 'grossing',
   production: 'production',
@@ -131,16 +134,18 @@ export function parseV2Route(location: Pick<Location, 'pathname' | 'search'>): V
     name: name ?? 'workbench',
     caseId: parts[2] ?? query.get('caseId') ?? '',
     roundId: query.get('roundId') ?? '',
+    slideId: query.get('slideId') ?? '',
   };
 }
 
 export function routePath(
   name: V2RouteName,
-  options: { caseId?: string; roundId?: string } = {},
+  options: { caseId?: string; roundId?: string; slideId?: string } = {},
 ): string {
   const encodedCaseId = options.caseId ? `/${encodeURIComponent(options.caseId)}` : '';
   const query = new URLSearchParams();
   if (options.roundId) query.set('roundId', options.roundId);
+  if (options.slideId) query.set('slideId', options.slideId);
   const suffix = query.size ? `?${query.toString()}` : '';
   return `/v2/${name}${encodedCaseId}${suffix}`;
 }

@@ -37,7 +37,7 @@ describe('PIS Next V2 application shell', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('PIS Next');
-    expect(wrapper.text()).toContain('从待办开始处理');
+    expect(wrapper.text()).toContain('我的工作台');
     expect(wrapper.text()).toContain('待登记申请');
     expect(wrapper.find('[aria-label="一级导航"]').text()).toContain('登记');
     expect(wrapper.find('[aria-label="一级导航"]').text()).not.toContain('诊断');

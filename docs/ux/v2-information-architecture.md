@@ -18,12 +18,14 @@
 正式任务路由：
 
 - `/v2/registration`
+- `/v2/cases/:caseId`
 - `/v2/grossing/:caseId`
 - `/v2/production`
 - `/v2/diagnosis/:caseId`
 - `/v2/frozen/:caseId`
 - `/v2/technical-orders`
 - `/v2/material-custody`
+- `/v2/digital-slides/:caseId`
 
 蜡块、责任链和技术医嘱目标不作为一级用户路由。
 

@@ -13,6 +13,7 @@ import {
   type V2TechnicalOrder,
 } from '../v2DiagnosisApi';
 import { completeV2Slides, getV2MaterialTree } from '../v2MaterialApi';
+import V2CaseHeader from './V2CaseHeader.vue';
 
 type QueueTab = 'PENDING' | 'EXECUTING' | 'RESULT' | 'COMPLETED';
 type ResultDraft = { conclusion: string; value: string };
@@ -222,6 +223,19 @@ onMounted(() => void refresh());
     <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
     <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
 
+    <V2CaseHeader
+      v-if="molecularCase"
+      :case-id="molecularCase.caseId"
+      :pathology-no="molecularCase.caseNo"
+      :patient-reference="molecularCase.patientReference"
+      :visit-reference="molecularCase.visitReference"
+      :business-type-code="molecularCase.businessTypeCode"
+      current-responsibility="技术结果录入"
+      :report-status="molecularResult ? '结果已完成' : '待录结果'"
+      progress="独立分子病例"
+      @open-case="emit('navigate', `/v2/cases/${molecularCase.caseId}`)"
+    />
+
     <section
       v-if="molecularLoading || molecularCase"
       class="workspace-panel independent-molecular-panel"
@@ -405,6 +419,13 @@ onMounted(() => void refresh());
             @click="emit('navigate', `/v2/diagnosis/${order.caseId}`)"
           >
             打开诊断工作区
+          </button>
+          <button
+            class="text-button"
+            type="button"
+            @click="emit('navigate', `/v2/cases/${order.caseId}`)"
+          >
+            查看病例历史
           </button>
           <div class="action-group">
             <button

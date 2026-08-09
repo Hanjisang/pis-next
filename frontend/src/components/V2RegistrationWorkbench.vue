@@ -11,6 +11,7 @@ import {
 } from '../v2BusinessApi';
 import { completeV2Slide } from '../v2MaterialApi';
 import { businessTypeName, friendlyError, idempotencyKey } from '../uiText';
+import V2CaseHeader from './V2CaseHeader.vue';
 
 type SpecimenDraft = {
   key: string;
@@ -285,6 +286,18 @@ function nextWorkspacePath(): string {
         进入下一步
       </button>
     </section>
+    <V2CaseHeader
+      v-if="completedCase"
+      :case-id="completedCase.caseId"
+      :pathology-no="completedCase.caseNo"
+      :patient-reference="completedCase.patientReference"
+      :visit-reference="completedCase.visitReference"
+      :business-type-code="completedCase.businessTypeCode"
+      current-responsibility="登记已完成"
+      report-status="已登记"
+      :progress="`${specimens.length} 个标本已登记`"
+      @open-case="emit('navigate', `/v2/cases/${completedCase.caseId}`)"
+    />
     <p v-if="followUpNotice" class="feedback success" role="status">{{ followUpNotice }}</p>
 
     <section

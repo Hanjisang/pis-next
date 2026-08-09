@@ -2,15 +2,10 @@
 import { computed, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
-import {
-  businessTypeName,
-  formatDateTime,
-  friendlyError,
-  idempotencyKey,
-  statusName,
-} from '../uiText';
+import { formatDateTime, friendlyError, idempotencyKey, statusName } from '../uiText';
 import { getV2Case, type V2CaseResult } from '../v2Api';
 import { operationsRequest, type FrozenWorkspace } from '../v2OperationsApi';
+import V2CaseHeader from './V2CaseHeader.vue';
 
 const props = defineProps<{ caseId?: string; authUser?: V2AuthUser | null }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
@@ -20,6 +15,7 @@ const workspace = ref<FrozenWorkspace | null>(null);
 const selectedRoundId = ref('');
 const specimenDraft = ref({ specimenCode: '', collectionSite: '', labelCode: '' });
 const routineCase = ref<V2CaseResult | null>(null);
+const frozenCaseSummary = ref<V2CaseResult | null>(null);
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
@@ -67,9 +63,13 @@ async function loadFrozen() {
   loading.value = true;
   error.value = '';
   try {
-    workspace.value = await operationsRequest<FrozenWorkspace>(
-      `/frozen/cases/${lookupCaseId.value.trim()}/workspace`,
-    );
+    const frozenCaseId = lookupCaseId.value.trim();
+    const [loadedWorkspace, loadedCase] = await Promise.all([
+      operationsRequest<FrozenWorkspace>(`/frozen/cases/${frozenCaseId}/workspace`),
+      getV2Case(frozenCaseId),
+    ]);
+    workspace.value = loadedWorkspace;
+    frozenCaseSummary.value = loadedCase;
     selectedRoundId.value =
       workspace.value.rounds.find((item) => item.roundId === selectedRoundId.value)?.roundId ??
       workspace.value.rounds.at(-1)?.roundId ??
@@ -78,6 +78,7 @@ async function loadFrozen() {
       routineCase.value = await getV2Case(workspace.value.routineCaseId);
   } catch (requestError) {
     workspace.value = null;
+    frozenCaseSummary.value = null;
     error.value = friendlyError(requestError, '未找到冰冻病例，请从冰冻登记或工作台进入。');
   } finally {
     loading.value = false;
@@ -204,25 +205,28 @@ function roundStatus(round: FrozenWorkspace['rounds'][number]) {
     </div>
 
     <template v-else>
-      <div class="case-context-bar" aria-label="冰冻病例上下文">
-        <span
-          ><small>冰冻病理号</small><strong>{{ workspace.pathologyNo }}</strong></span
-        >
-        <span
-          ><small>业务类型</small
-          ><strong>{{ businessTypeName(workspace.businessTypeCode) }}</strong></span
-        >
-        <span
-          ><small>轮次</small><strong>{{ workspace.rounds.length }} 轮</strong></span
-        >
-        <span
-          ><small>当前进度</small
-          ><strong>{{ latestRound ? roundStatus(latestRound) : '待开始' }}</strong></span
-        >
-        <span v-if="routineCase"
-          ><small>冰剩常规</small><strong>{{ routineCase.caseNo }}</strong></span
-        >
-      </div>
+      <V2CaseHeader
+        :case-id="workspace.frozenCaseId"
+        :pathology-no="workspace.pathologyNo"
+        :patient-reference="frozenCaseSummary?.patientReference ?? '当前病例'"
+        :visit-reference="frozenCaseSummary?.visitReference"
+        :business-type-code="workspace.businessTypeCode"
+        :current-responsibility="latestRound ? `冰冻第 ${latestRound.roundNo} 轮` : '待开始冰冻'"
+        :report-status="latestRound ? roundStatus(latestRound) : '待开始'"
+        :progress="`${workspace.rounds.length} 轮${routineCase ? '，已生成冰剩常规' : ''}`"
+        @open-case="emit('navigate', `/v2/cases/${workspace.frozenCaseId}`)"
+      >
+        <template #actions>
+          <button
+            v-if="routineCase"
+            class="secondary-button"
+            type="button"
+            @click="emit('navigate', `/v2/grossing/${routineCase.caseId}`)"
+          >
+            查看冰剩常规
+          </button>
+        </template>
+      </V2CaseHeader>
 
       <div v-if="!workspace.rounds.length" class="empty-state workspace-panel">
         <strong>冰冻尚未开始</strong><span>标本到达后开始第 1 轮。</span>

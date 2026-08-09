@@ -31,9 +31,9 @@ test('登记员在单页登记两个标本，并从全局查询进入病例上�
   await search.getByRole('textbox').fill(pathologyNo!);
   await search.getByRole('button', { name: '查询', exact: true }).click();
   await search.getByRole('button', { name: new RegExp(pathologyNo!) }).click();
-  await expect(page).toHaveURL(/\/v2\/search\?caseId=/);
-  await expect(page.getByRole('region', { name: '病例上下文' })).toContainText(pathologyNo!);
-  await expect(page.getByRole('heading', { name: '材料树' })).toBeVisible();
+  await expect(page).toHaveURL(/\/v2\/cases\//);
+  await expect(page.getByLabel('病例中心')).toContainText(pathologyNo!);
+  await expect(page.getByRole('heading', { name: '标本、蜡块与玻片' })).toBeVisible();
   await expectAccessibleButtons(page);
   await expectNoPageOverflow(page);
 });

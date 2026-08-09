@@ -56,7 +56,26 @@ describe('V2FrozenWorkspace', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('makes rounds explicit and hides material registration from diagnosis-only users', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(workspace))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/frozen/cases/')) {
+          return Promise.resolve(new Response(JSON.stringify(workspace)));
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              caseId: 'CASE-F',
+              caseNo: 'F-000002',
+              businessTypeCode: 'FROZEN',
+              patientReference: 'SYNTH-PATIENT-F',
+              visitReference: 'SYNTH-VISIT-F',
+            }),
+          ),
+        );
+      }),
+    );
     const wrapper = mount(V2FrozenWorkspace, {
       props: {
         caseId: 'CASE-F',

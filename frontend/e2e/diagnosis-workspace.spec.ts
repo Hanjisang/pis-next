@@ -15,7 +15,7 @@ test('医生从查询进入诊断主工作区，关键上下文和固定操作�
     .getByRole('button', { name: new RegExp(pathologyNo) })
     .first()
     .click();
-  await expect(page.getByRole('region', { name: '病例上下文' })).toBeVisible();
+  await expect(page.getByLabel('病例中心')).toBeVisible();
   await page.getByRole('button', { name: '进入诊断' }).click();
 
   await expect(page).toHaveURL(/\/v2\/diagnosis\//);

@@ -4,7 +4,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { currentRecorder, type V2AuthUser } from '../auth';
 import {
   blockTypeName,
-  businessTypeName,
   friendlyError,
   formatDateTime,
   idempotencyKey,
@@ -21,6 +20,7 @@ import {
   updateV2Grossing,
   type V2GrossingWorkspace,
 } from '../v2MaterialApi';
+import V2CaseHeader from './V2CaseHeader.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -31,6 +31,7 @@ const props = withDefaults(
   { sourceType: 'INITIAL', sourceReferenceId: undefined, authUser: null },
 );
 
+const emit = defineEmits<{ navigate: [path: string] }>();
 const caseId = defineModel<string>('caseId', { default: '' });
 const lookupCaseId = ref(caseId.value);
 const workspace = ref<V2GrossingWorkspace | null>(null);
@@ -62,6 +63,14 @@ const canEdit = computed(() =>
 const canStart = computed(() =>
   Boolean(workspace.value && !workspace.value.grossing && selectedDoctorId.value),
 );
+const materialProgress = computed(() => {
+  const slides =
+    workspace.value?.specimens.flatMap((specimen) => [
+      ...specimen.directSlides,
+      ...specimen.blocks.flatMap((block) => block.slides),
+    ]) ?? [];
+  return `${slides.filter((slide) => slide.completed).length}/${slides.length}`;
+});
 
 watch(
   () => caseId.value,
@@ -300,30 +309,35 @@ onMounted(() => void loadDoctors());
       <span>从工作台进入病例时会自动带入，无需记忆内部编号。</span>
     </div>
     <template v-else>
-      <div class="case-context-bar" aria-label="病例上下文">
-        <span
-          ><small>病理号</small><strong>{{ workspace.caseNo }}</strong></span
-        >
-        <span
-          ><small>患者编号</small><strong>{{ workspace.patientReference }}</strong></span
-        >
-        <span
-          ><small>业务类型</small
-          ><strong>{{ businessTypeName(workspace.businessTypeCode) }}</strong></span
-        >
-        <span
-          ><small>申请号</small><strong>{{ workspace.applicationNo }}</strong></span
-        >
-        <span
-          ><small>标本</small><strong>{{ workspace.specimens.length }} 个</strong></span
-        >
-        <span>
-          <small>取材状态</small>
-          <strong>{{
-            workspace.grossing?.completedAt ? '已完成' : workspace.grossing ? '进行中' : '待取材'
-          }}</strong>
-        </span>
-      </div>
+      <V2CaseHeader
+        :case-id="workspace.caseId"
+        :pathology-no="workspace.caseNo"
+        :patient-reference="workspace.patientReference"
+        :visit-reference="workspace.visitReference"
+        :business-type-code="workspace.businessTypeCode"
+        :current-responsibility="
+          currentDoctor ? `取材医生：${currentDoctor.displayName}` : '待安排取材'
+        "
+        :report-status="
+          workspace.grossing?.completedAt
+            ? '取材已完成'
+            : workspace.grossing
+              ? '取材进行中'
+              : '待取材'
+        "
+        :progress="`${workspace.specimens.length} 个标本，玻片 ${materialProgress} 完成`"
+        @open-case="emit('navigate', `/v2/cases/${workspace.caseId}`)"
+      >
+        <template #actions>
+          <button
+            class="secondary-button"
+            type="button"
+            @click="emit('navigate', `/v2/production/${workspace.caseId}`)"
+          >
+            查看制片
+          </button>
+        </template>
+      </V2CaseHeader>
 
       <p v-if="!selectedDoctorId && !workspace.grossing" class="feedback warning">
         开始前请选择本次取材医生；当前登录人将自动记为记录员。

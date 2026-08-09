@@ -11,32 +11,35 @@ describe('V2CaseContext', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes('/cases/C-1/materials')) {
-          return new Response(
-            JSON.stringify({
-              caseId: 'C-1',
-              caseNo: 'P001',
-              businessTypeCode: 'ROUTINE',
-              specimens: [],
-              initialRequiredCount: 0,
-              initialCompletedCount: 0,
-              initialProductionComplete: false,
-            }),
-          );
-        }
+        expect(url).toContain('/api/v2/case-workspaces/C-1');
         return new Response(
           JSON.stringify({
-            caseId: 'C-1',
-            caseNo: 'P001',
-            businessTypeCode: 'ROUTINE',
-            patientReference: 'SYNTH-PATIENT',
-            visitReference: 'SYNTH-VISIT',
-            applicationNo: 'APP-1',
-            lifecycleStateCode: 'ACTIVE',
-            numberBindingActive: true,
-            concurrencyVersion: 0,
-            duplicate: false,
-            eventTypeCode: 'READ',
+            caseHeader: {
+              caseId: 'C-1',
+              pathologyNo: 'P001',
+              businessTypeCode: 'ROUTINE',
+              businessTypeName: '常规组织病理',
+              lifecycle: 'ACTIVE',
+              applicationItemCode: 'SYNTH-ROUTINE',
+              sourceSystemCode: 'MANUAL',
+              applicationNo: 'APP-1',
+              patientReference: 'SYNTH-PATIENT',
+              visitReference: 'SYNTH-VISIT',
+              createdAt: '2026-08-10T08:00:00Z',
+            },
+            materialTree: {
+              caseId: 'C-1',
+              pathologyNo: 'P001',
+              businessTypeCode: 'ROUTINE',
+              specimens: [],
+            },
+            grossings: [],
+            responsibilities: [],
+            technicalOrders: [],
+            digitalSlides: [],
+            reports: [],
+            timeline: [],
+            refreshedAt: '2026-08-10T08:00:00Z',
           }),
         );
       }),
@@ -57,7 +60,7 @@ describe('V2CaseContext', () => {
 
     expect(wrapper.text()).toContain('P001');
     expect(wrapper.text()).toContain('SYNTH-PATIENT');
-    expect(wrapper.text()).toContain('材料树');
+    expect(wrapper.text()).toContain('材料与制片');
     expect(wrapper.text()).toContain('进入诊断');
   });
 });

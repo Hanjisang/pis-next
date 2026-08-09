@@ -71,9 +71,7 @@ async function search() {
 }
 
 function openResult(result: SearchResult) {
-  const target = ['DIAGNOSIS', 'REPORT'].includes(result.resultKind)
-    ? `/v2/diagnosis/${encodeURIComponent(result.caseId)}`
-    : `/v2/search?caseId=${encodeURIComponent(result.caseId)}`;
+  const target = `/v2/cases/${encodeURIComponent(result.caseId)}`;
   emit('navigate', target);
   emit('close');
 }

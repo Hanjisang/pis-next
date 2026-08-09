@@ -3,6 +3,7 @@ backend/target/
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+frontend/test-results/
 
 # Local configuration and credentials
 .env

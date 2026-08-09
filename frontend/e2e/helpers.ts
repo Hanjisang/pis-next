@@ -7,8 +7,16 @@ export async function login(page: Page, username: string) {
   await page.getByRole('textbox', { name: '用户名' }).fill(username);
   await page.getByRole('textbox', { name: '密码' }).fill(password);
   await page.getByRole('button', { name: '登录' }).click();
+  const expectedDisplayName: Record<string, string> = {
+    admin: 'Admin',
+    'doctor-a': 'Doctor A',
+    'doctor-b': 'Doctor B',
+    'doctor-c': 'Doctor C',
+    registrar: 'Registrar',
+    technician: 'Technician',
+  };
   await expect(page.getByLabel('当前登录身份')).toContainText(
-    username === 'registrar' ? 'Registrar' : 'Doctor C',
+    expectedDisplayName[username] ?? username,
   );
 }
 

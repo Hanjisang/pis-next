@@ -28,6 +28,8 @@ import {
   type V2ResponsibilityRole,
   type V2TechnicalProject,
 } from '../v2DiagnosisApi';
+import V2ImageViewer from './V2ImageViewer.vue';
+import V2CaseHeader from './V2CaseHeader.vue';
 
 type TemplateOption = { value: string; label: string };
 type TemplateComponent = {
@@ -123,6 +125,12 @@ const withdrawalReason = ref('');
 const supplementalContent = ref('');
 const supplementalOpen = ref(false);
 const withdrawalOpen = ref(false);
+const selectedViewer = ref<{
+  digitalSlideId: string;
+  viewerReference: string;
+  sourcePlatform: string;
+  slideId?: string | null;
+} | null>(null);
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
 const currentRole = computed<V2ResponsibilityRole | undefined>(
@@ -628,8 +636,14 @@ function blockerText(reason: string) {
   return friendlyError(reason, reason);
 }
 
-function openViewer(reference: string) {
-  window.open(reference, '_blank', 'noopener,noreferrer');
+function openViewer(digital: {
+  digitalSlideId: string;
+  viewerReference: string;
+  sourcePlatform: string;
+  slideId?: string | null;
+}) {
+  selectedViewer.value = digital;
+  activeContext.value = 'digital';
 }
 
 function handleShortcut(event: KeyboardEvent) {
@@ -699,32 +713,17 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
     </section>
 
     <template v-else>
-      <header class="diagnosis-context-bar" aria-label="病例固定上下文">
-        <span
-          ><small>病理号</small><strong>{{ workspace.caseSummary.pathologyNo }}</strong></span
-        >
-        <span
-          ><small>患者</small><strong>{{ workspace.patient.patientReference }}</strong></span
-        >
-        <span
-          ><small>就诊</small
-          ><strong>{{ workspace.patient.visitReference || '未提供' }}</strong></span
-        >
-        <span
-          ><small>业务类型</small
-          ><strong>{{ businessTypeName(workspace.caseSummary.businessTypeCode) }}</strong></span
-        >
-        <span
-          ><small>申请项目</small
-          ><strong>{{ workspace.application.applicationItemCode }}</strong></span
-        >
-        <span
-          ><small>当前责任</small><strong>{{ responsibilitySummary }}</strong></span
-        >
-        <span
-          ><small>报告</small><strong>{{ reportStatus }}</strong></span
-        >
-      </header>
+      <V2CaseHeader
+        :case-id="workspace.caseSummary.caseId"
+        :pathology-no="workspace.caseSummary.pathologyNo"
+        :patient-reference="workspace.patient.patientReference"
+        :visit-reference="workspace.patient.visitReference"
+        :business-type-code="workspace.caseSummary.businessTypeCode"
+        :current-responsibility="responsibilitySummary"
+        :report-status="reportStatus"
+        :progress="productionSummary"
+        @open-case="emit('navigate', `/v2/cases/${workspace.caseSummary.caseId}`)"
+      />
 
       <p v-if="error" class="feedback error diagnosis-feedback" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success diagnosis-feedback" role="status">{{ notice }}</p>
@@ -792,7 +791,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                 :key="digital.digitalSlideId"
                 class="digital-slide-link"
                 type="button"
-                @click="openViewer(digital.viewerReference)"
+                @click="openViewer(digital)"
               >
                 <span
                   ><strong>数字切片</strong><small>{{ digital.sourcePlatform }}</small></span
@@ -807,6 +806,26 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
         </aside>
 
         <main class="diagnosis-editor-stage">
+          <section
+            v-if="selectedViewer"
+            class="diagnosis-viewer-panel workspace-panel"
+            aria-label="数字切片查看"
+          >
+            <header class="panel-title-row">
+              <div>
+                <p class="section-kicker">材料证据</p>
+                <h2>数字切片</h2>
+              </div>
+              <button class="text-button" type="button" @click="selectedViewer = null">
+                收起阅片
+              </button>
+            </header>
+            <V2ImageViewer
+              :source="selectedViewer.viewerReference"
+              :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
+              :source-platform="selectedViewer.sourcePlatform"
+            />
+          </section>
           <section class="diagnosis-editor-card" aria-label="诊断编辑器">
             <header class="panel-title-row">
               <div>

@@ -2,15 +2,19 @@
 import { computed, ref, watch } from 'vue';
 
 import { friendlyError, statusName } from '../uiText';
+import { getV2Case, type V2CaseResult } from '../v2Api';
 import { getV2MaterialTree, type V2MaterialTree } from '../v2MaterialApi';
 import { operationsRequest, type DigitalSlide } from '../v2OperationsApi';
+import V2CaseHeader from './V2CaseHeader.vue';
+import V2ImageViewer from './V2ImageViewer.vue';
 
-const props = defineProps<{ caseId?: string }>();
+const props = defineProps<{ caseId?: string; selectedSlideId?: string }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
 const lookupCaseId = ref(props.caseId ?? '');
 const slides = ref<DigitalSlide[]>([]);
 const materials = ref<V2MaterialTree | null>(null);
+const caseSummary = ref<V2CaseResult | null>(null);
 const draft = ref({
   blockId: '',
   slideId: '',
@@ -33,6 +37,12 @@ const physicalSlides = computed(
       ...specimen.directSlides,
     ]) ?? [],
 );
+const selectedDigitalSlide = computed(
+  () =>
+    slides.value.find((item) => item.digitalSlideId === props.selectedSlideId) ??
+    slides.value[0] ??
+    null,
+);
 
 watch(
   () => props.caseId,
@@ -48,9 +58,10 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    [slides.value, materials.value] = await Promise.all([
+    [slides.value, materials.value, caseSummary.value] = await Promise.all([
       operationsRequest<DigitalSlide[]>(`/digital-slides/cases/${lookupCaseId.value.trim()}`),
       getV2MaterialTree(lookupCaseId.value.trim()),
+      getV2Case(lookupCaseId.value.trim()),
     ]);
   } catch (requestError) {
     error.value = friendlyError(requestError, '数字切片暂时无法加载，请检查病例。');
@@ -145,15 +156,53 @@ function slideCode(id?: string) {
       <strong>请打开一个病例</strong><span>绑定后可从诊断工作区直接打开数字切片。</span>
     </div>
     <template v-else>
-      <div class="case-context-bar">
-        <span
-          ><small>病理号</small><strong>{{ materials.caseNo }}</strong></span
-        ><span
-          ><small>物理玻片</small><strong>{{ physicalSlides.length }} 张</strong></span
-        ><span
-          ><small>数字切片</small><strong>{{ slides.length }} 张</strong></span
-        ><span><small>说明</small><strong>默认不阻塞业务</strong></span>
-      </div>
+      <V2CaseHeader
+        :case-id="materials.caseId"
+        :pathology-no="caseSummary?.caseNo ?? materials.caseNo"
+        :patient-reference="caseSummary?.patientReference ?? '当前病例'"
+        :visit-reference="caseSummary?.visitReference"
+        :business-type-code="materials.businessTypeCode"
+        current-responsibility="数字切片"
+        report-status="查看中"
+        :progress="`物理 ${physicalSlides.length} 张 · 数字 ${slides.length} 张`"
+        notice="数字扫描默认不阻塞物理制片或报告签发"
+        @open-case="emit('navigate', `/v2/cases/${materials.caseId}`)"
+      />
+      <section v-if="slides.length" class="workspace-panel">
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">诊断阅片</p>
+            <h3>数字切片查看器</h3>
+          </div>
+          <span class="status-pill">数字扫描不阻塞物理制片</span>
+        </header>
+        <div class="digital-diagnosis-grid">
+          <aside class="digital-slide-rail" aria-label="数字切片列表">
+            <button
+              v-for="item in slides"
+              :key="item.digitalSlideId"
+              type="button"
+              :class="{ active: selectedDigitalSlide?.digitalSlideId === item.digitalSlideId }"
+              @click="
+                emit(
+                  'navigate',
+                  `/v2/digital-slides/${materials.caseId}?slideId=${item.digitalSlideId}`,
+                )
+              "
+            >
+              <strong>{{ slideCode(item.slideId) }}</strong>
+              <small>{{ blockCode(item.blockId) }}</small>
+              <small>{{ item.sourcePlatform }}</small>
+            </button>
+          </aside>
+          <V2ImageViewer
+            v-if="selectedDigitalSlide"
+            :source="selectedDigitalSlide.viewerReference"
+            :label="slideCode(selectedDigitalSlide.slideId)"
+            :source-platform="selectedDigitalSlide.sourcePlatform"
+          />
+        </div>
+      </section>
       <div class="digital-workspace-grid">
         <section class="workspace-panel">
           <header class="panel-title-row">
