@@ -185,6 +185,64 @@ class V2MaterialProductionWebTest {
         assertThat(slide.get("slideCode").asText()).isEqualTo("A1-HE");
     }
 
+    @Test
+    void histologyFactsExposeFiveDerivedPhasesAndKeepExceptionsOnTheSlide() throws Exception {
+        String caseId = createCase("APP-PX01-HISTOLOGY");
+        String specimenId = createSpecimen(caseId, "A", "specimen-px01-histology");
+        String grossingId = createGrossing(caseId, "grossing-px01-histology");
+        associateSpecimen(grossingId, specimenId, "associate-px01-histology");
+        String blockId = createBlock(grossingId, specimenId, "A1", "block-px01-histology");
+        completeGrossing(grossingId, 0, "complete-px01-histology");
+        String slideId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?", String.class,
+                UUID.fromString(blockId)).toString();
+
+        JsonNode initial = objectMapper.readTree(mockMvc.perform(
+                get("/api/v2/histology/workbench").queryParam("caseId", caseId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(initial.get("slides")).hasSize(1);
+        assertThat(initial.get("slides").get(0).get("phases")).hasSize(5);
+
+        JsonNode started = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/histology/slides/%s/phases/DEHYDRATION/start".formatted(slideId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"deviceReference\":\"SYNTH-DEHYDRATOR\",\"batchReference\":\"B-001\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(started.get("startedAt").isNull()).isFalse();
+        assertThat(started.path("completedAt").isMissingNode() || started.path("completedAt").isNull()).isTrue();
+
+        mockMvc.perform(post("/api/v2/histology/slides/%s/phases/DEHYDRATION/exception".formatted(slideId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"exceptionCode\":\"染色过浅\",\"note\":\"synthetic exception\"}"))
+                .andExpect(status().isOk());
+        JsonNode completed = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/histology/slides/%s/phases/DEHYDRATION/complete".formatted(slideId))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(completed.get("completedAt").isNull()).isFalse();
+        assertThat(completed.path("exceptionCode").isMissingNode() || completed.path("exceptionCode").isNull()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.material_process_fact WHERE slide_id = ?",
+                Integer.class, UUID.fromString(slideId))).isEqualTo(1);
+    }
+
+    @Test
+    void caseWorkspaceReturnsMaterialTreeAndBusinessTimeline() throws Exception {
+        String caseId = createCase("APP-PX01-CASE-WORKSPACE");
+        String specimenId = createSpecimen(caseId, "A", "specimen-px01-case-workspace");
+        String grossingId = createGrossing(caseId, "grossing-px01-case-workspace");
+        associateSpecimen(grossingId, specimenId, "associate-px01-case-workspace");
+        createBlock(grossingId, specimenId, "A1", "block-px01-case-workspace");
+        completeGrossing(grossingId, 0, "complete-px01-case-workspace");
+
+        JsonNode workspace = objectMapper.readTree(mockMvc.perform(
+                get("/api/v2/case-workspaces/%s".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.get("caseHeader").get("caseId").asText()).isEqualTo(caseId);
+        assertThat(workspace.get("materialTree").get("specimens")).hasSize(1);
+        assertThat(workspace.get("materialTree").get("specimens").get(0).get("blocks")).hasSize(1);
+        assertThat(workspace.get("timeline").findValuesAsText("title"))
+                .contains("完成登记", "登记标本", "开始取材", "新增蜡块", "完成取材");
+    }
+
     private String createCase(String suffix) throws Exception {
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/cases")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -1,6 +1,13 @@
 CREATE SCHEMA IF NOT EXISTS pis;
 CREATE SCHEMA IF NOT EXISTS pis_v2;
 
+CREATE TABLE IF NOT EXISTS pis_v2.auth_user (
+    id UUID PRIMARY KEY, display_name VARCHAR(256), username VARCHAR(256)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.doctor_identity (
+    id UUID PRIMARY KEY, user_id UUID, display_name VARCHAR(256)
+);
+
 CREATE TABLE IF NOT EXISTS pis.audit_event (
     id UUID PRIMARY KEY,
     operation_code VARCHAR(128), permission_code VARCHAR(64), actor_ref VARCHAR(128),
@@ -123,6 +130,16 @@ CREATE TABLE IF NOT EXISTS pis_v2.slide (
     created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_by_ref VARCHAR(128) NOT NULL,
     slide_code_active VARCHAR(128) AS (CASE WHEN deleted_at IS NULL THEN slide_code ELSE NULL END)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.material_process_fact (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, slide_id UUID NOT NULL,
+    phase_code VARCHAR(32) NOT NULL, started_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE, operator_ref VARCHAR(128),
+    device_reference VARCHAR(256), batch_reference VARCHAR(256),
+    exception_code VARCHAR(64), exception_note VARCHAR(2000),
+    concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (slide_id, phase_code)
 );
 ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_by_ref VARCHAR(128);
