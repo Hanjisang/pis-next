@@ -32,14 +32,17 @@ public class V2AuthController {
     private final AuthenticationSessionStore sessions;
     private final DoctorIdentityResolver doctorIdentityResolver;
     private final boolean requireAuthentication;
+    private final boolean secureCookie;
 
     public V2AuthController(AuthIdentityRepository identities, AuthenticationSessionStore sessions,
             DoctorIdentityResolver doctorIdentityResolver,
-            @Value("${pis.require-auth:false}") boolean requireAuthentication) {
+            @Value("${pis.require-auth:false}") boolean requireAuthentication,
+            @Value("${pis.auth-cookie-secure:false}") boolean secureCookie) {
         this.identities = identities;
         this.sessions = sessions;
         this.doctorIdentityResolver = doctorIdentityResolver;
         this.requireAuthentication = requireAuthentication;
+        this.secureCookie = secureCookie;
     }
 
     @GetMapping("/config")
@@ -53,7 +56,7 @@ public class V2AuthController {
                 .orElseThrow(() -> new P15BusinessException("V2-AUTH-INVALID-CREDENTIALS", "用户名或密码错误", 401));
         String token = sessions.create(user);
         response.addHeader("Set-Cookie", ResponseCookie.from(AuthenticationSessionFilter.COOKIE_NAME, token)
-                .httpOnly(true).secure(false).sameSite("Lax").path("/").maxAge(8 * 60 * 60).build().toString());
+                .httpOnly(true).secure(secureCookie).sameSite("Lax").path("/").maxAge(8 * 60 * 60).build().toString());
         return AuthResponse.from(user, doctorIdentityResolver);
     }
 
@@ -68,7 +71,7 @@ public class V2AuthController {
         String token = cookie(request, AuthenticationSessionFilter.COOKIE_NAME);
         sessions.remove(token);
         response.addHeader("Set-Cookie", ResponseCookie.from(AuthenticationSessionFilter.COOKIE_NAME, "")
-                .httpOnly(true).secure(false).sameSite("Lax").path("/").maxAge(0).build().toString());
+                .httpOnly(true).secure(secureCookie).sameSite("Lax").path("/").maxAge(0).build().toString());
     }
 
     private static String cookie(jakarta.servlet.http.HttpServletRequest request, String name) {

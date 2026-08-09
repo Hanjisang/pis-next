@@ -374,4 +374,14 @@ V2 领域重构在 `docs/v2/` 中独立维护，不把现有 P05 文档直接冻
 - `v2/P09-cutover-plan.md`：渐进切换和封版门禁；
 - `v2/design-freeze-report.md`：设计封版报告。
 
-V2 当前仍未进入新的业务代码、数据库、API、页面实现或数据迁移；现有 P15-P19 工程实现已在 P00 中审计，但尚未作为 V2 领域正确性证明。Design Gate 已通过前期设计封版，Runtime/Cutover Gate 仍未就绪。下一任务为 V2-I01：Case / BusinessType / ApplicationItemMapping / PathologyNumberRule / Specimen 基础领域实现。原有项目阶段记录继续保留并与 V2 设计线隔离。
+PIS V2 Core 已完成并成为主要业务入口。Core Domain 保持冻结，Legacy 业务生产依赖为 0。项目当前已完成 Site Integration & Production Readiness Foundation，入口为：
+
+- `v2/site-integration/hospital-profile-design.md`：医院 Profile 与配置；
+- `v2/site-integration/integration-architecture.md`：统一接口适配和可靠性；
+- `v2/site-integration/device-adapter-design.md`：打印机和扫描仪适配边界；
+- `v2/site-integration/identity-integration-design.md`：外部认证、DoctorIdentity 和组织映射；
+- `v2/site-integration/migration-execution-plan.md`：历史事实隔离、异常和对账；
+- `v2/site-integration/production-readiness-checklist.md`：生产门禁；
+- `v2/site-integration/pilot-cutover-plan.md`：Pilot、Cutover 和 Rollback。
+
+真实医院接口、设备、迁移、生产部署和 Pilot 尚未验证，必须在独立 Hospital Implementation Project 中执行。

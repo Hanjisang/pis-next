@@ -1,0 +1,93 @@
+name: pis-v2-production
+
+services:
+  postgres:
+    image: ${PIS_POSTGRES_IMAGE:-postgres:18.4-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PIS_DB_NAME:?PIS_DB_NAME must be set}
+      POSTGRES_USER: ${PIS_DB_USER:?PIS_DB_USER must be set}
+      POSTGRES_PASSWORD: ${PIS_DB_PASSWORD:?PIS_DB_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - pis-production-postgres:/var/lib/postgresql
+    networks:
+      - data
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  backend:
+    image: ${PIS_BACKEND_IMAGE:?PIS_BACKEND_IMAGE must be an approved immutable image reference}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    environment:
+      PIS_DB_HOST: postgres
+      PIS_DB_PORT: 5432
+      PIS_DB_NAME: ${PIS_DB_NAME:?PIS_DB_NAME must be set}
+      PIS_DB_USER: ${PIS_DB_USER:?PIS_DB_USER must be set}
+      PIS_DB_PASSWORD: ${PIS_DB_PASSWORD:?PIS_DB_PASSWORD must be set}
+      PIS_RUNTIME_ENV: ${PIS_RUNTIME_ENV:-production}
+      PIS_TRUSTED_RUNTIME_ENVIRONMENTS: ${PIS_TRUSTED_RUNTIME_ENVIRONMENTS:-production}
+      PIS_REQUIRE_AUTH: "true"
+      PIS_AUTH_COOKIE_SECURE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - edge
+      - data
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  frontend:
+    image: ${PIS_FRONTEND_IMAGE:?PIS_FRONTEND_IMAGE must be an approved immutable image reference}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m,mode=0755
+      - /var/run:size=16m,mode=0755
+    depends_on:
+      - backend
+    ports:
+      - "${PIS_HTTP_BIND_ADDRESS:-127.0.0.1}:${PIS_HTTP_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+volumes:
+  pis-production-postgres:
+
+networks:
+  edge:
+  data:
+    internal: true

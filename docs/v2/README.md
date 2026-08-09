@@ -1,7 +1,7 @@
 # PIS-Next V2 领域重构文档
 
-文档状态：P04–P09 设计封版
-文档版本：V2-0.2
+文档状态：Core Complete；Site Integration Foundation Complete
+文档版本：V2-0.3
 创建日期：2026-08-08
 设计原则：净室设计
 
@@ -28,9 +28,19 @@
 
 ## 3. 当前封版边界
 
-P00–P09 前期设计已完成；本轮仍不修改现有 P15-P19 业务代码、数据库迁移、API、页面或生产切换。V2 模块目录仍作为隔离边界占位；当前工程实现属于待重构资产，不等于 V2 已完成。
+P00–P09 是领域设计基线，PIS V2 Core 已完成并成为主要业务入口。Core Domain 现已冻结；医院差异只能通过 Profile、Configuration、Adapter 和 Extension Point 实现。
 
-下一任务固定为：V2-I01：Case / BusinessType / ApplicationItemMapping / PathologyNumberRule / Specimen 基础领域实现。进入 I01 前必须处理 P08 测试骨架和 P09 设计门禁；Docker Server 的历史阻断已解除，V2 运行时门禁仍按封版报告执行。
+Site Integration Foundation 文档位于 `site-integration/`：
+
+- `hospital-profile-design.md`；
+- `integration-architecture.md`；
+- `device-adapter-design.md`；
+- `identity-integration-design.md`；
+- `migration-execution-plan.md`；
+- `production-readiness-checklist.md`；
+- `pilot-cutover-plan.md`。
+
+这些文档和框架不代表真实医院接口、设备、迁移、部署或上线已经验证；下一步必须是有明确医院范围的 Hospital Implementation Project。
 
 ## 4. 规则优先级
 

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 public class P15AuthorizationService {
 
     private final String runtimeEnvironment;
+    private final Set<String> trustedRuntimeEnvironments;
     private final boolean requireAuthentication;
     private final ActorContext configuredActor;
     private final DoctorIdentityResolver doctorIdentityResolver;
@@ -21,9 +22,15 @@ public class P15AuthorizationService {
             @Value("${pis.actor-permissions:}") String permissions,
             @Value("${pis.actor-task-scope:P15-REGISTRATION-RECEIVING}") String taskScope,
             @Value("${pis.subject-type-code:HUMAN_USER}") String subjectTypeCode,
+            @Value("${pis.trusted-runtime-environments:local,test}") String trustedRuntimeEnvironments,
             @Value("${pis.require-auth:false}") boolean requireAuthentication,
             DoctorIdentityResolver doctorIdentityResolver) {
         this.runtimeEnvironment = runtimeEnvironment;
+        this.trustedRuntimeEnvironments = Arrays.stream(trustedRuntimeEnvironments.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .map(String::toLowerCase)
+                .collect(Collectors.toUnmodifiableSet());
         this.requireAuthentication = requireAuthentication;
         this.doctorIdentityResolver = doctorIdentityResolver;
         Set<String> permissionSet = Arrays.stream(permissions.split(","))
@@ -37,8 +44,7 @@ public class P15AuthorizationService {
     public AuthorizationDecision decide(String permissionCode) {
         boolean authenticated = AuthenticationContext.current().isPresent();
         ActorContext actor = currentActor();
-        boolean environmentAllowed = "local".equalsIgnoreCase(runtimeEnvironment)
-                || "test".equalsIgnoreCase(runtimeEnvironment);
+        boolean environmentAllowed = trustedRuntimeEnvironments.contains(runtimeEnvironment.toLowerCase());
         boolean permissionAllowed = actor.permissions().contains(permissionCode);
         if (requireAuthentication && !authenticated) {
             return new AuthorizationDecision(false, permissionCode, "P14-AUTHENTICATION-REQUIRED", actor);

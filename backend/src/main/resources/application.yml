@@ -33,7 +33,9 @@ info:
 
 pis:
   runtime-environment: ${PIS_RUNTIME_ENV:local}
+  trusted-runtime-environments: ${PIS_TRUSTED_RUNTIME_ENVIRONMENTS:local,test}
   require-auth: ${PIS_REQUIRE_AUTH:false}
+  auth-cookie-secure: ${PIS_AUTH_COOKIE_SECURE:false}
   auth-test-password: ${PIS_AUTH_TEST_PASSWORD:}
   actor-id: ${PIS_ACTOR_ID:p15-local-registration-actor}
   subject-type-code: ${PIS_ACTOR_SUBJECT_TYPE:HUMAN_USER}
