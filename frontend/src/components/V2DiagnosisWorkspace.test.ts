@@ -6,24 +6,24 @@ import V2DiagnosisWorkspace from './V2DiagnosisWorkspace.vue';
 const workspace = {
   caseSummary: {
     caseId: 'CASE-1',
-    pathologyNo: 'H-000001',
-    businessTypeCode: 'HISTOLOGY',
+    pathologyNo: 'P20260001',
+    businessTypeCode: 'ROUTINE',
     lifecycle: 'ACTIVE',
   },
   application: {
-    applicationItemCode: 'SYNTH-HISTOLOGY',
+    applicationItemCode: '胃镜活检',
     sourceSystemCode: 'SYNTH-HIS',
     externalApplicationId: 'APP-1',
   },
   patient: { patientReference: 'SYNTH-PATIENT-1', visitReference: 'SYNTH-VISIT-1' },
   materialTree: {
     caseId: 'CASE-1',
-    caseNo: 'H-000001',
-    businessTypeCode: 'HISTOLOGY',
+    caseNo: 'P20260001',
+    businessTypeCode: 'ROUTINE',
     specimens: [
       {
         specimenId: 'S-1',
-        specimenNo: 'HS-000001',
+        specimenNo: 'PS-000001',
         specimenCode: 'A',
         specimenKindCode: 'TISSUE',
         blocks: [
@@ -31,6 +31,7 @@ const workspace = {
             blockId: 'B-1',
             blockCode: 'A1',
             blockType: 'ROUTINE',
+            concurrencyVersion: 0,
             slides: [
               {
                 slideId: 'L-1',
@@ -51,6 +52,7 @@ const workspace = {
     initialCompletedCount: 1,
     initialProductionComplete: true,
   },
+  digitalSlides: [],
   diagnosis: {
     diagnosisId: 'D-1',
     templateVersionId: 'TV-1',
@@ -73,7 +75,7 @@ const workspace = {
     {
       responsibilityId: 'R-1',
       role: 'INITIAL',
-      doctorId: 'p15-local-registration-actor',
+      doctorId: 'doctor-a',
       sequence: 1,
       assignmentSource: 'SELF_CLAIM',
       acceptedAt: '2026-08-08T00:00:00Z',
@@ -84,7 +86,7 @@ const workspace = {
   currentResponsibility: {
     responsibilityId: 'R-1',
     role: 'INITIAL',
-    doctorId: 'p15-local-registration-actor',
+    doctorId: 'doctor-a',
     sequence: 1,
     assignmentSource: 'SELF_CLAIM',
     acceptedAt: '2026-08-08T00:00:00Z',
@@ -99,95 +101,178 @@ const workspace = {
     canCompleteAudit: false,
     canReassign: false,
     readyForSignOut: false,
-    canCreateTechnicalOrder: false,
+    canCreateTechnicalOrder: true,
     canPreview: true,
     canSignOut: false,
     canWithdraw: false,
     canSupplement: false,
   },
+  molecularResults: [],
   technicalOrders: [],
   blockingTechnicalOrderCount: 0,
-  technicalOrder: { kind: 'TECHNICAL_ORDER', status: 'V2-I04已实现' },
-  report: { kind: 'REPORT', status: 'V2-I05待实现' },
   reports: [],
   blockingReasons: [],
   refreshedAt: '2026-08-08T00:00:00Z',
 };
 
+const doctors = [
+  { id: 'doctor-a', displayName: '张医生', title: '主治医师' },
+  { id: 'doctor-b', displayName: '李医生', title: '副主任医师' },
+];
+
+function responseForWorkspace(input: RequestInfo | URL): Response {
+  const url = String(input);
+  if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+  return new Response(JSON.stringify(workspace));
+}
+
 describe('V2DiagnosisWorkspace', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders the independent case context, material tree, diagnosis editor and responsibility chain', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify(workspace), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+  it('keeps case materials, diagnosis, responsibility and reports in one workspace', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => responseForWorkspace(input)),
+    );
 
-    const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
+    const wrapper = mount(V2DiagnosisWorkspace, {
+      props: {
+        caseId: 'CASE-1',
+        authUser: {
+          userId: 'user-a',
+          username: 'doctor-a',
+          displayName: '张医生',
+          roleCode: 'DOCTOR',
+          permissions: [],
+          doctor: { id: 'doctor-a', doctorCode: 'D-A', displayName: '张医生' },
+        },
+      },
+    });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Diagnosis Workspace');
-    expect(wrapper.text()).toContain('Material Tree');
+    expect(wrapper.text()).toContain('P20260001');
+    const slideTab = wrapper
+      .findAll('.context-nav-list button')
+      .find((button) => button.text().includes('玻片'));
+    await slideTab?.trigger('click');
     expect(wrapper.text()).toContain('A1-HE');
-    expect(wrapper.text()).toContain('Responsibility Chain');
-    expect(wrapper.text()).toContain('肿瘤类型');
-    expect(wrapper.find('select').exists()).toBe(true);
-    expect(wrapper.find('textarea').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="标本蜡块切片树"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('诊断内容');
+    expect(wrapper.text()).toContain('责任链');
+    expect(wrapper.text()).toContain('技术医嘱');
+    expect(wrapper.text()).toContain('报告');
+    expect(wrapper.find('[aria-label="诊断主要操作"]').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('ResponsibilityUnit');
+    expect(wrapper.text()).not.toContain('SourceContext');
   });
 
-  it('sends explicit diagnosis save with the workspace version and shows conflict feedback', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(workspace), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error_code: 'V2-VERSION-CONFLICT', message: '请重新加载' }), {
-          status: 409,
-        }),
-      );
+  it('shows an independent molecular result in business language without raw JSON', async () => {
+    const molecularWorkspace = {
+      ...workspace,
+      molecularResults: [
+        {
+          resultId: 'MR-1',
+          resultCode: 'LUNG-PANEL',
+          resultData: '{"conclusion":"未检出相关驱动基因变异"}',
+          statusCode: 'COMPLETED',
+          completedAt: '2026-08-09T02:00:00Z',
+          completedBy: 'TECHNICIAN-A',
+        },
+      ],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+        return new Response(JSON.stringify(molecularWorkspace));
+      }),
+    );
+
+    const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('分子结果');
+    expect(wrapper.text()).toContain('LUNG-PANEL');
+    expect(wrapper.text()).toContain('未检出相关驱动基因变异');
+    expect(wrapper.text()).not.toContain('{"conclusion"');
+  });
+
+  it('saves with optimistic version and explains a conflict in user language', async () => {
+    const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
+      const input = args[0];
+      const url = String(input);
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.includes('/content')) {
+        return new Response(
+          JSON.stringify({ error_code: 'V2-VERSION-CONFLICT', message: '记录版本冲突' }),
+          { status: 409 },
+        );
+      }
+      return new Response(JSON.stringify(workspace));
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
     await flushPromises();
-    await wrapper.findAll('textarea')[1].setValue('synthetic diagnosis');
-    await wrapper.get('button.primary-action').trigger('click');
+    await wrapper.find('textarea[placeholder="输入正式病理诊断"]').setValue('合成病理诊断');
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    await saveButton?.trigger('click');
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({
-      diagnosisText: 'synthetic diagnosis',
+    const contentCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/content'));
+    expect(contentCall).toBeTruthy();
+    expect(JSON.parse(contentCall?.[1]?.body as string)).toMatchObject({
+      diagnosisText: '合成病理诊断',
       expectedVersion: 0,
     });
-    expect(wrapper.text()).toContain('V2-VERSION-CONFLICT');
+    expect(wrapper.text()).toContain('记录已被他人更新，请刷新后重试');
   });
 
-  it('requests regenerable report preview from the backend action', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(workspace), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(
+  it('opens a large report preview without leaving the diagnosis route', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.includes('/report-preview')) {
+        return new Response(
           JSON.stringify({
             valid: true,
             blockingReasons: [],
-            templateVersionId: 'RTV-1',
-            templateVersionNo: 1,
-            renderedContent: '{"diagnosis":"preview"}',
-            renderedContentHash: 'hash-content',
-            pdfContentHash: 'hash-pdf',
+            renderedContent: JSON.stringify({
+              case: {
+                pathologyNo: 'P-TEST-001',
+                patientReference: 'SYNTH-PATIENT',
+                visitReference: 'SYNTH-VISIT',
+                businessTypeCode: 'ROUTINE',
+              },
+              diagnosis: {
+                microscopicDescription: '合成镜下所见',
+                diagnosisText: '合成预览内容',
+              },
+              material: [{ slideCode: 'A1-HE', slideType: 'HE' }],
+              responsibility: [
+                { role: 'INITIAL', doctorId: 'DOCTOR-A', completedAt: '2026-08-09T01:00:00Z' },
+              ],
+              technicalResults: [],
+            }),
           }),
-          { status: 200 },
-        ),
-      );
+        );
+      }
+      return new Response(JSON.stringify(workspace));
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
     await flushPromises();
-    const previewButton = wrapper.findAll('button').find((button) => button.text() === '预览报告');
+    const previewButton = wrapper.findAll('button').find((button) => button.text() === '报告预览');
     await previewButton?.trigger('click');
     await flushPromises();
 
-    expect(fetchMock.mock.calls[1][0]).toContain('/diagnoses/D-1/report-preview');
-    expect(wrapper.text()).toContain('preview');
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes('/diagnoses/D-1/report-preview'),
+      ),
+    ).toBe(true);
+    expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('合成预览内容');
+    expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('A1-HE');
+    expect(wrapper.find('[aria-label="报告预览"]').text()).not.toContain('DOCTOR-A');
   });
 });

@@ -1,204 +1,492 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
+import { currentRecorder, type V2AuthUser } from '../auth';
+import {
+  blockTypeName,
+  businessTypeName,
+  friendlyError,
+  formatDateTime,
+  idempotencyKey,
+  specimenKindName,
+} from '../uiText';
 import {
   associateV2Specimen,
   completeV2Grossing,
   createV2Block,
   createV2Grossing,
-  reopenV2Grossing,
-  type V2BlockResult,
-  type V2GrossingResult,
+  getV2GrossingWorkspace,
+  printV2Block,
+  softDeleteV2Block,
+  updateV2Grossing,
+  type V2GrossingWorkspace,
 } from '../v2MaterialApi';
 
-const props = withDefaults(defineProps<{ sourceType?: string; sourceReferenceId?: string }>(), {
-  sourceType: 'INITIAL',
-  sourceReferenceId: undefined,
-});
-const caseId = defineModel<string>('caseId', { default: '' });
-const grossDescription = ref('synthetic gross description');
-const grossingInstruction = ref('synthetic instruction');
-const grossingDoctorId = ref('SYNTH-DOCTOR');
-const recorderId = ref('SYNTH-RECORDER');
-const specimenIds = ref(['']);
-const blockSpecimenId = ref('');
-const blockCode = ref('A1');
-const blockType = ref('ROUTINE');
-const grossing = ref<V2GrossingResult | null>(null);
-const blocks = ref<V2BlockResult[]>([]);
-const busy = ref(false);
-const errorMessage = ref('');
-const notice = ref('');
+const props = withDefaults(
+  defineProps<{
+    sourceType?: string;
+    sourceReferenceId?: string;
+    authUser?: V2AuthUser | null;
+  }>(),
+  { sourceType: 'INITIAL', sourceReferenceId: undefined, authUser: null },
+);
 
-const canSubmit = computed(() => Boolean(caseId.value.trim()) && !busy.value);
-const grossingState = computed(() =>
-  grossing.value?.completedAt ? 'COMPLETED fact' : 'OPEN fact',
+const caseId = defineModel<string>('caseId', { default: '' });
+const lookupCaseId = ref(caseId.value);
+const workspace = ref<V2GrossingWorkspace | null>(null);
+const selectedSpecimenId = ref('');
+const grossDescription = ref('');
+const grossingInstruction = ref('');
+const newBlockCode = ref('');
+const busy = ref(false);
+const loading = ref(false);
+const error = ref('');
+const notice = ref('');
+const doctors = ref<Array<{ id: string; displayName: string; title?: string | null }>>([]);
+const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
+
+const currentSpecimen = computed(
+  () =>
+    workspace.value?.specimens.find((item) => item.specimenId === selectedSpecimenId.value) ?? null,
+);
+const currentBlocks = computed(() => currentSpecimen.value?.blocks ?? []);
+const currentDoctor = computed(
+  () =>
+    props.authUser?.doctor ??
+    doctors.value.find((doctor) => doctor.id === selectedDoctorId.value) ??
+    null,
+);
+const canEdit = computed(() =>
+  Boolean(workspace.value?.grossing && !workspace.value.grossing.completedAt),
+);
+const canStart = computed(() =>
+  Boolean(workspace.value && !workspace.value.grossing && selectedDoctorId.value),
+);
+
+watch(
+  () => caseId.value,
+  (value) => {
+    lookupCaseId.value = value;
+    if (value) void loadWorkspace();
+  },
+  { immediate: true },
 );
 
 async function run(action: () => Promise<void>) {
   busy.value = true;
-  errorMessage.value = '';
+  error.value = '';
   notice.value = '';
   try {
     await action();
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '请求失败';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '取材操作未完成，请刷新后重试。');
   } finally {
     busy.value = false;
   }
 }
 
-function addSpecimenRow() {
-  specimenIds.value.push('');
+async function loadWorkspace() {
+  if (!caseId.value.trim()) {
+    workspace.value = null;
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  try {
+    workspace.value = await getV2GrossingWorkspace(
+      caseId.value.trim(),
+      props.sourceType,
+      props.sourceReferenceId,
+    );
+    selectedSpecimenId.value ||= workspace.value.specimens[0]?.specimenId ?? '';
+    if (workspace.value.grossing) {
+      selectedDoctorId.value = workspace.value.grossing.grossingDoctorId;
+      grossDescription.value = workspace.value.grossing.grossDescription;
+      grossingInstruction.value = workspace.value.grossing.grossingInstruction ?? '';
+    }
+    setSuggestedBlockCode();
+  } catch (requestError) {
+    workspace.value = null;
+    error.value = friendlyError(requestError, '未找到该病例，请检查病理号或病例标识。');
+  } finally {
+    loading.value = false;
+  }
 }
 
-function submitGrossing() {
-  if (!canSubmit.value) return;
+async function loadDoctors() {
+  try {
+    const response = await fetch('/api/v2/auth/doctors');
+    if (!response.ok) return;
+    doctors.value = (await response.json()) as typeof doctors.value;
+    selectedDoctorId.value ||= props.authUser?.doctor?.id ?? doctors.value[0]?.id ?? '';
+  } catch {
+    doctors.value = [];
+  }
+}
+
+function openCase() {
+  caseId.value = lookupCaseId.value.trim();
+  if (caseId.value) void loadWorkspace();
+}
+
+function selectSpecimen(specimenId: string) {
+  selectedSpecimenId.value = specimenId;
+  setSuggestedBlockCode();
+}
+
+function setSuggestedBlockCode() {
+  const specimen = currentSpecimen.value;
+  if (!specimen) {
+    newBlockCode.value = '';
+    return;
+  }
+  newBlockCode.value = `${specimen.specimenCode}${specimen.blocks.length + 1}`;
+}
+
+function beginGrossing() {
+  if (!canStart.value || !workspace.value) return;
   void run(async () => {
-    grossing.value = await createV2Grossing({
-      caseId: caseId.value,
+    const created = await createV2Grossing({
+      caseId: workspace.value!.caseId,
       sourceType: props.sourceType,
       sourceReferenceId: props.sourceReferenceId,
-      grossDescription: grossDescription.value,
-      grossingInstruction: grossingInstruction.value,
-      grossingDoctorId: grossingDoctorId.value,
-      recorderId: recorderId.value,
-      idempotencyKey: `v2-grossing-${caseId.value}-${props.sourceType}-${props.sourceReferenceId ?? 'initial'}`,
+      grossDescription: grossDescription.value.trim() || '待补充大体描述',
+      grossingInstruction: grossingInstruction.value.trim(),
+      grossingDoctorId: selectedDoctorId.value,
+      recorderId: currentRecorder(props.authUser ?? null),
+      idempotencyKey: idempotencyKey('ux01-grossing-start'),
     });
-    notice.value = `Grossing ${grossing.value.grossingNo} 已建立；多标本关联通过独立命令完成。`;
-  });
-}
-
-function associateSpecimens() {
-  if (!grossing.value) return;
-  void run(async () => {
-    const validSpecimens = specimenIds.value.map((id) => id.trim()).filter(Boolean);
-    for (const [index, specimenId] of validSpecimens.entries()) {
+    for (const specimen of workspace.value!.specimens) {
       await associateV2Specimen({
-        grossingId: grossing.value!.grossingId,
-        specimenId,
-        materialDescription: `synthetic material ${index + 1}`,
-        idempotencyKey: `v2-grossing-specimen-${grossing.value!.grossingId}-${specimenId}`,
+        grossingId: created.grossingId,
+        specimenId: specimen.specimenId,
+        materialDescription: specimen.specimenCode,
+        idempotencyKey: idempotencyKey('ux01-grossing-specimen'),
       });
     }
-    notice.value = `已关联 ${validSpecimens.length} 个 Specimen。`;
+    notice.value = `已开始取材，${workspace.value!.specimens.length} 个标本已加入本次取材。`;
+    await loadWorkspace();
   });
 }
 
-function submitBlock() {
-  if (!grossing.value || !blockSpecimenId.value.trim()) return;
+async function saveDetails(showNotice = true) {
+  const current = workspace.value?.grossing;
+  if (!current || current.completedAt) return;
+  const updated = await updateV2Grossing({
+    grossingId: current.grossingId,
+    grossDescription: grossDescription.value.trim(),
+    grossingInstruction: grossingInstruction.value.trim(),
+    grossingDoctorId: selectedDoctorId.value || current.grossingDoctorId,
+    recorderId: currentRecorder(props.authUser ?? null) || current.recorderId,
+    expectedVersion: current.concurrencyVersion,
+    idempotencyKey: idempotencyKey('ux01-grossing-save'),
+  });
+  current.concurrencyVersion = updated.concurrencyVersion;
+  if (showNotice) notice.value = '取材描述已保存。';
+}
+
+function saveGrossing() {
+  void run(() => saveDetails());
+}
+
+function addBlock() {
+  const specimen = currentSpecimen.value;
+  const grossing = workspace.value?.grossing;
+  if (!specimen || !grossing || !newBlockCode.value.trim()) return;
   void run(async () => {
-    const block = await createV2Block({
-      grossingId: grossing.value!.grossingId,
-      specimenId: blockSpecimenId.value,
-      blockCode: blockCode.value,
-      blockType: blockType.value,
-      idempotencyKey: `v2-block-${grossing.value!.grossingId}-${blockCode.value}`,
+    await createV2Block({
+      grossingId: grossing.grossingId,
+      specimenId: specimen.specimenId,
+      blockCode: newBlockCode.value.trim(),
+      blockType: props.sourceType === 'FROZEN_CONTEXT' ? 'FROZEN' : 'ROUTINE',
+      idempotencyKey: idempotencyKey('ux01-block-create'),
     });
-    blocks.value.push(block);
-    notice.value = `Block ${block.blockCode} 已建立。`;
+    notice.value = `蜡块 ${newBlockCode.value.trim()} 已建立。`;
+    await loadWorkspace();
+  });
+}
+
+function duplicateLastBlock() {
+  setSuggestedBlockCode();
+  addBlock();
+}
+
+function removeBlock(blockId: string, blockCode: string, version: number) {
+  void run(async () => {
+    await softDeleteV2Block({
+      blockId,
+      expectedVersion: version,
+      reason: '取材工作区删除未完成蜡块',
+      idempotencyKey: idempotencyKey('ux01-block-remove'),
+    });
+    notice.value = `蜡块 ${blockCode} 已作废，原记录仍保留。`;
+    await loadWorkspace();
+  });
+}
+
+function printBlock(blockId: string, blockCode: string) {
+  void run(async () => {
+    await printV2Block({
+      blockId,
+      reason: '取材工作区打印',
+      idempotencyKey: idempotencyKey('ux01-block-print'),
+    });
+    notice.value = `蜡块 ${blockCode} 的标签已发送到当前打印机。`;
   });
 }
 
 function completeGrossing() {
-  if (!grossing.value) return;
+  const grossing = workspace.value?.grossing;
+  if (!grossing) return;
   void run(async () => {
+    await saveDetails(false);
+    const currentVersion =
+      workspace.value?.grossing?.concurrencyVersion ?? grossing.concurrencyVersion;
     const result = await completeV2Grossing({
-      grossingId: grossing.value!.grossingId,
-      expectedVersion: grossing.value!.concurrencyVersion,
-      idempotencyKey: `v2-grossing-complete-${grossing.value!.grossingId}-${grossing.value!.concurrencyVersion}`,
+      grossingId: grossing.grossingId,
+      expectedVersion: currentVersion,
+      idempotencyKey: idempotencyKey('ux01-grossing-complete'),
     });
-    grossing.value = { ...grossing.value!, ...result, completedAt: result.completedAt };
-    notice.value = `Grossing 已完成，新增 ${result.createdSlideCount} 张 INITIAL Slide。`;
+    notice.value = `取材已完成，已生成 ${result.createdSlideCount} 张待制玻片。`;
+    await loadWorkspace();
   });
 }
 
-function reopenGrossing() {
-  if (!grossing.value) return;
-  void run(async () => {
-    grossing.value = await reopenV2Grossing({
-      grossingId: grossing.value!.grossingId,
-      expectedVersion: grossing.value!.concurrencyVersion,
-      reason: 'synthetic correction',
-      idempotencyKey: `v2-grossing-reopen-${grossing.value!.grossingId}-${grossing.value!.concurrencyVersion}`,
-    });
-    notice.value = 'Grossing 已显式重开，可以继续新增材料。';
-  });
-}
+onMounted(() => void loadDoctors());
 </script>
 
 <template>
-  <section class="workbench" aria-label="V2-I02 Grossing 与 Block 工作台">
-    <div class="section-heading">
+  <section class="grossing-layout" aria-label="病例取材工作区">
+    <header class="page-heading compact-heading">
       <div>
-        <p class="eyebrow">PIS V2 · V2-I02</p>
-        <h2>Grossing / Block 材料生产</h2>
+        <p class="section-kicker">取材</p>
+        <h2>病例取材工作区</h2>
+        <p>在一个页面切换全部标本，快速建立蜡块并完成取材。</p>
       </div>
-      <span class="status-dot">Case-level Grossing · 多标本</span>
-    </div>
+      <label v-if="!workspace?.grossing" class="compact-select">
+        取材医生
+        <select v-model="selectedDoctorId" aria-label="取材医生">
+          <option value="" disabled>请选择</option>
+          <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+            {{ doctor.displayName }}{{ doctor.title ? ` · ${doctor.title}` : '' }}
+          </option>
+        </select>
+      </label>
+      <span v-else-if="currentDoctor" class="status-pill success"
+        >取材医生：{{ currentDoctor.displayName }}</span
+      >
+    </header>
 
-    <p v-if="errorMessage" class="error-banner" role="alert">{{ errorMessage }}</p>
-    <p v-if="notice" class="success-banner" role="status">{{ notice }}</p>
-
-    <div class="workflow-grid">
-      <form class="business-card" @submit.prevent="submitGrossing">
-        <span class="step-label">I02-01 · Grossing</span>
-        <h3>建立 Case-level 取材记录</h3>
-        <label>Case ID<input v-model="caseId" required /></label>
-        <label>Gross 描述<textarea v-model="grossDescription" required /></label>
-        <label>取材医师<input v-model="grossingDoctorId" required /></label>
-        <label>记录人<input v-model="recorderId" required /></label>
-        <button :disabled="!canSubmit" type="submit">建立 Grossing</button>
-        <output v-if="grossing"
-          >{{ grossing.grossingNo }} · {{ grossingState }} · v{{
-            grossing.concurrencyVersion
-          }}</output
-        >
-      </form>
-
-      <form class="business-card" @submit.prevent="associateSpecimens">
-        <span class="step-label">I02-02 · GrossingSpecimen</span>
-        <h3>关联多个 Specimen</h3>
-        <label v-for="(_, index) in specimenIds" :key="index">
-          Specimen ID {{ index + 1 }}<input v-model="specimenIds[index]" required />
+    <div class="workspace-toolbar">
+      <form class="case-lookup" @submit.prevent="openCase">
+        <label>
+          打开病例
+          <input v-model="lookupCaseId" placeholder="输入病例标识或从待取材列表进入" />
         </label>
-        <button type="button" :disabled="busy" @click="addSpecimenRow">增加 Specimen</button>
-        <button :disabled="!grossing || busy" type="submit">保存多标本关联</button>
-      </form>
-
-      <form class="business-card" @submit.prevent="submitBlock">
-        <span class="step-label">I02-03 · Block</span>
-        <h3>创建统一 Block</h3>
-        <label>来源 Specimen ID<input v-model="blockSpecimenId" required /></label>
-        <label>Block code<input v-model="blockCode" required /></label>
-        <label>Block type<input v-model="blockType" required /></label>
-        <button :disabled="!grossing || busy" type="submit">创建 Block</button>
-        <!-- prettier-ignore -->
-        <output
-          v-for="block in blocks"
-          :key="block.blockId"
-        >{{ block.blockCode }} · v{{ block.concurrencyVersion }}</output>
-      </form>
-
-      <article class="business-card">
-        <span class="step-label">I02-04 · Fact transition</span>
-        <h3>完成 / 重开 Grossing</h3>
-        <p class="muted">完成动作触发 SlideRule；重试只补齐缺失输出，不覆盖既有材料。</p>
-        <button
-          :disabled="!grossing || busy || Boolean(grossing?.completedAt)"
-          type="button"
-          @click="completeGrossing"
-        >
-          完成 Grossing
+        <button class="secondary-button" type="submit" :disabled="loading">
+          {{ loading ? '读取中…' : '打开' }}
         </button>
-        <button
-          :disabled="!grossing || busy || !grossing?.completedAt"
-          type="button"
-          @click="reopenGrossing"
-        >
-          显式重开 Grossing
-        </button>
-      </article>
+      </form>
     </div>
+
+    <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
+    <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
+
+    <div v-if="loading" class="list-skeleton" aria-label="正在读取病例">
+      <span></span><span></span><span></span>
+    </div>
+    <div v-else-if="!workspace" class="empty-state workspace-panel">
+      <strong>请打开一个待取材病例</strong>
+      <span>从工作台进入病例时会自动带入，无需记忆内部编号。</span>
+    </div>
+    <template v-else>
+      <div class="case-context-bar" aria-label="病例上下文">
+        <span
+          ><small>病理号</small><strong>{{ workspace.caseNo }}</strong></span
+        >
+        <span
+          ><small>患者编号</small><strong>{{ workspace.patientReference }}</strong></span
+        >
+        <span
+          ><small>业务类型</small
+          ><strong>{{ businessTypeName(workspace.businessTypeCode) }}</strong></span
+        >
+        <span
+          ><small>申请号</small><strong>{{ workspace.applicationNo }}</strong></span
+        >
+        <span
+          ><small>标本</small><strong>{{ workspace.specimens.length }} 个</strong></span
+        >
+        <span>
+          <small>取材状态</small>
+          <strong>{{
+            workspace.grossing?.completedAt ? '已完成' : workspace.grossing ? '进行中' : '待取材'
+          }}</strong>
+        </span>
+      </div>
+
+      <p v-if="!selectedDoctorId && !workspace.grossing" class="feedback warning">
+        开始前请选择本次取材医生；当前登录人将自动记为记录员。
+      </p>
+
+      <div class="grossing-workspace-grid">
+        <aside class="specimen-sidebar" aria-label="标本列表">
+          <header class="panel-title-row">
+            <div>
+              <p class="section-kicker">标本</p>
+              <h3>{{ workspace.specimens.length }} 个</h3>
+            </div>
+          </header>
+          <div class="specimen-sidebar-list">
+            <button
+              v-for="specimen in workspace.specimens"
+              :key="specimen.specimenId"
+              type="button"
+              :class="{ active: specimen.specimenId === selectedSpecimenId }"
+              @click="selectSpecimen(specimen.specimenId)"
+            >
+              <strong>{{ specimen.specimenCode }} · {{ specimen.specimenNo }}</strong>
+              <small>{{ specimen.blocks.length }} 个蜡块</small>
+            </button>
+          </div>
+        </aside>
+
+        <div class="grossing-editor">
+          <section>
+            <header class="panel-title-row">
+              <div>
+                <p class="section-kicker">当前标本</p>
+                <h3>{{ currentSpecimen?.specimenCode }} · {{ currentSpecimen?.specimenNo }}</h3>
+              </div>
+              <span class="status-pill">{{
+                specimenKindName(currentSpecimen?.specimenKindCode)
+              }}</span>
+            </header>
+            <div class="field-grid">
+              <label class="span-two">
+                大体描述
+                <textarea
+                  v-model="grossDescription"
+                  rows="5"
+                  :readonly="Boolean(workspace.grossing?.completedAt)"
+                  placeholder="记录大小、形态、颜色、切面等大体所见"
+                ></textarea>
+              </label>
+              <label class="span-two">
+                取材说明
+                <textarea
+                  v-model="grossingInstruction"
+                  rows="2"
+                  :readonly="Boolean(workspace.grossing?.completedAt)"
+                  placeholder="可选：特殊取材要求或备注"
+                ></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <header class="panel-title-row">
+              <div>
+                <p class="section-kicker">蜡块</p>
+                <h3>{{ currentBlocks.length }} 个蜡块</h3>
+              </div>
+              <div v-if="canEdit" class="input-action-row block-quick-entry">
+                <label>
+                  <span class="visually-hidden">新蜡块编号</span>
+                  <input
+                    v-model="newBlockCode"
+                    aria-label="新蜡块编号"
+                    placeholder="例如 A1"
+                    @keydown.enter.prevent="addBlock"
+                  />
+                </label>
+                <button class="primary-button" type="button" :disabled="busy" @click="addBlock">
+                  + 蜡块
+                </button>
+              </div>
+            </header>
+
+            <div v-if="!currentBlocks.length" class="empty-state compact">
+              <strong>当前标本还没有蜡块</strong>
+              <span>开始取材后，输入编号并按 Enter 可快速新增。</span>
+            </div>
+            <div v-else class="block-quick-grid">
+              <article v-for="block in currentBlocks" :key="block.blockId" class="block-chip">
+                <header>
+                  <strong>{{ block.blockCode }}</strong
+                  ><span class="status-pill">{{ blockTypeName(block.blockType) }}</span>
+                </header>
+                <small class="muted">{{ block.slides.length }} 张玻片</small>
+                <div class="inline-actions">
+                  <button
+                    class="text-button"
+                    type="button"
+                    @click="printBlock(block.blockId, block.blockCode)"
+                  >
+                    {{ block.slides.length ? '补打' : '打印' }}
+                  </button>
+                  <button
+                    v-if="canEdit"
+                    class="text-button danger-text"
+                    type="button"
+                    @click="removeBlock(block.blockId, block.blockCode, block.concurrencyVersion)"
+                  >
+                    删除
+                  </button>
+                </div>
+              </article>
+            </div>
+            <button
+              v-if="canEdit && currentBlocks.length"
+              class="text-button"
+              type="button"
+              @click="duplicateLastBlock"
+            >
+              + 复制上一蜡块
+            </button>
+          </section>
+        </div>
+      </div>
+
+      <div class="sticky-form-actions" aria-label="取材操作">
+        <span class="muted">
+          <template v-if="workspace.grossing">
+            {{ workspace.grossing.grossingNo }} · 开始于
+            {{ formatDateTime(workspace.grossing.startedAt) }}
+          </template>
+          <template v-else>尚未开始取材</template>
+        </span>
+        <div class="action-group">
+          <button
+            v-if="canEdit"
+            class="secondary-button"
+            type="button"
+            :disabled="busy"
+            @click="saveGrossing"
+          >
+            保存
+          </button>
+          <button
+            v-if="canStart"
+            class="primary-button"
+            type="button"
+            :disabled="busy"
+            @click="beginGrossing"
+          >
+            开始取材
+          </button>
+          <button
+            v-if="canEdit"
+            class="primary-button"
+            type="button"
+            :disabled="busy"
+            @click="completeGrossing"
+          >
+            完成取材
+          </button>
+          <span v-if="workspace.grossing?.completedAt" class="status-pill success">取材已完成</span>
+        </div>
+      </div>
+    </template>
   </section>
 </template>

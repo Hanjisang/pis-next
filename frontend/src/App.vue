@@ -1,36 +1,90 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-import V2Home from './components/V2Home.vue';
+import type { V2AuthUser } from './auth';
+import { departmentName, roleName } from './auth';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
-import V2MaterialProductionWorkbench from './components/V2MaterialProductionWorkbench.vue';
-import V2OperationsWorkbench from './components/V2OperationsWorkbench.vue';
-import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
-import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
+import V2GlobalSearch from './components/V2GlobalSearch.vue';
+import V2FrozenWorkspace from './components/V2FrozenWorkspace.vue';
+import V2CaseContext from './components/V2CaseContext.vue';
+import V2GrossingWorkbench from './components/V2GrossingWorkbench.vue';
+import V2Home from './components/V2Home.vue';
 import V2Login from './components/V2Login.vue';
+import V2DigitalSlideWorkbench from './components/V2DigitalSlideWorkbench.vue';
+import V2MaterialCustodyWorkbench from './components/V2MaterialCustodyWorkbench.vue';
+import V2QualityWorkbench from './components/V2QualityWorkbench.vue';
+import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
+import V2SectionOverview from './components/V2SectionOverview.vue';
+import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.vue';
+import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
+import {
+  navigationForUser,
+  parseV2Route,
+  primaryNavigation,
+  routePath,
+  type V2Route,
+  type V2RouteName,
+} from './navigation';
+import { friendlyError } from './uiText';
 
-type AuthUser = {
-  displayName: string;
-  username: string;
-  roleCode: string;
-  doctor?: { doctorCode: string; displayName: string } | null;
+const authLoading = ref(true);
+const authRequired = ref(false);
+const authUser = ref<V2AuthUser | null>(null);
+const authError = ref('');
+const route = ref<V2Route>(parseV2Route(window.location));
+const globalSearchOpen = ref(false);
+const sidebarOpen = ref(false);
+const tableDensity = ref<'compact' | 'comfortable'>('compact');
+
+const routeTitles: Record<V2RouteName, string> = {
+  workbench: '工作台',
+  registration: '登记',
+  grossing: '取材',
+  production: '制片',
+  diagnosis: '诊断',
+  frozen: '冰冻',
+  'technical-orders': '技术医嘱',
+  reports: '报告',
+  'digital-slides': '数字切片',
+  'material-custody': '归档借阅',
+  search: '查询',
+  quality: '质控统计',
+  configuration: '配置',
+  system: '系统管理',
 };
 
-const authLoading = ref(false);
-const authRequired = ref(false);
-const authUser = ref<AuthUser | null>(null);
-const authError = ref('');
+const navigation = computed(() => navigationForUser(authUser.value));
+const currentNavigation = computed(() =>
+  primaryNavigation.find((item) => item.name === route.value.name),
+);
+const pageTitle = computed(() => currentNavigation.value?.label ?? routeTitles[route.value.name]);
+const routeCaseId = computed({
+  get: () => route.value.caseId,
+  set: (caseId: string) => {
+    route.value = { ...route.value, caseId };
+  },
+});
+
+watch(
+  tableDensity,
+  (density) => {
+    document.documentElement.dataset.tableDensity = density;
+  },
+  { immediate: true },
+);
 
 async function loadAuthentication() {
+  authLoading.value = true;
+  authError.value = '';
   try {
     const configResponse = await fetch('/api/v2/auth/config');
     const config = (await configResponse.json()) as { required?: boolean };
     authRequired.value = Boolean(config.required);
     if (!authRequired.value) return;
     const response = await fetch('/api/v2/auth/me');
-    if (response.ok) authUser.value = (await response.json()) as AuthUser;
+    if (response.ok) authUser.value = (await response.json()) as V2AuthUser;
   } catch (requestError) {
-    authError.value = requestError instanceof Error ? requestError.message : '认证服务不可用';
+    authError.value = friendlyError(requestError, '认证服务暂时不可用，请稍后刷新页面。');
   } finally {
     authLoading.value = false;
   }
@@ -38,78 +92,201 @@ async function loadAuthentication() {
 
 async function logout() {
   await fetch('/api/v2/auth/logout', { method: 'POST' });
-  window.location.reload();
+  window.location.replace('/v2/workbench');
 }
 
 function reloadAfterLogin() {
-  window.location.reload();
+  window.location.replace('/v2/workbench');
 }
 
-onMounted(() => void loadAuthentication());
+function navigate(path: string) {
+  window.history.pushState({}, '', path);
+  route.value = parseV2Route(window.location);
+  sidebarOpen.value = false;
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
 
-const workspaceQuery = new URLSearchParams(window.location.search);
-const workspace = workspaceQuery.get('workspace') ?? 'v2-home';
-const showHome = workspace === 'v2-home';
-const showRegistration = workspace === 'v2-registration';
-const showMaterial = workspace === 'v2';
-const showDiagnosis = workspace === 'v2-diagnosis';
-const showTechnical = workspace === 'v2-technical';
-const operationsMode = ['frozen', 'digital', 'custody', 'quality'].includes(workspace)
-  ? (workspace as 'frozen' | 'digital' | 'custody' | 'quality')
-  : null;
-const v2CaseId = ref(workspaceQuery.get('caseId') ?? '');
-const v2RoundId = workspaceQuery.get('roundId') ?? '';
+function navigateByName(name: V2RouteName) {
+  navigate(routePath(name));
+}
 
-const title = showRegistration
-  ? '登记与标本'
-  : showMaterial
-    ? '取材与制片'
-    : showDiagnosis
-      ? '诊断与报告'
-      : showTechnical
-        ? '技术医嘱'
-        : '工作台';
+function handlePopState() {
+  route.value = parseV2Route(window.location);
+}
+
+function handleGlobalShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    globalSearchOpen.value = true;
+  }
+}
+
+onMounted(() => {
+  if (!window.location.pathname.startsWith('/v2/')) {
+    window.history.replaceState({}, '', '/v2/workbench');
+    route.value = parseV2Route(window.location);
+  }
+  window.addEventListener('popstate', handlePopState);
+  window.addEventListener('keydown', handleGlobalShortcut);
+  void loadAuthentication();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopState);
+  window.removeEventListener('keydown', handleGlobalShortcut);
+});
 </script>
 
 <template>
   <V2Login v-if="!authLoading && authRequired && !authUser" @authenticated="reloadAfterLogin" />
-  <main v-else-if="!authLoading" class="shell">
-    <section v-if="authUser" class="auth-bar" aria-label="当前登录身份">
-      <span>{{ authUser.displayName }} · {{ authUser.roleCode }}</span>
-      <span v-if="authUser.doctor"
-        >医疗人员：{{ authUser.doctor.displayName }}（{{ authUser.doctor.doctorCode }}）</span
-      >
-      <button type="button" @click="logout">退出登录</button>
-    </section>
-    <section class="hero">
-      <div>
-        <p class="eyebrow">PATHOLOGY INFORMATION SYSTEM · V2</p>
-        <h1>PIS Next</h1>
-        <p class="lede">{{ title }} · 面向业务角色的统一入口</p>
+  <div v-else-if="!authLoading" class="app-shell">
+    <a class="skip-link" href="#workspace-main">跳到主要工作区</a>
+    <aside class="app-sidebar" :class="{ open: sidebarOpen }" aria-label="PIS V2 主导航">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span><strong>PIS Next</strong><small>病理信息系统</small></span>
       </div>
-      <div class="phase-badge" aria-label="当前版本">V2 · 正式业务入口</div>
-    </section>
+      <nav class="primary-navigation" aria-label="一级导航">
+        <button
+          v-for="item in navigation"
+          :key="item.name"
+          type="button"
+          :class="{ active: route.name === item.name }"
+          :aria-current="route.name === item.name ? 'page' : undefined"
+          @click="navigateByName(item.name)"
+        >
+          <span class="nav-marker" aria-hidden="true"></span>
+          <span>{{ item.label }}</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="environment-dot" aria-hidden="true"></span>
+        <span><strong>V2 正式业务入口</strong><small>核心业务服务正常</small></span>
+      </div>
+    </aside>
 
-    <V2Home v-if="showHome" />
-    <V2RegistrationWorkbench v-if="showRegistration" />
-    <V2MaterialProductionWorkbench
-      v-if="showMaterial"
-      v-model:case-id="v2CaseId"
-      :source-type="v2RoundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
-      :source-reference-id="v2RoundId || undefined"
-    />
-    <V2DiagnosisWorkspace
-      v-if="showDiagnosis"
-      v-model:case-id="v2CaseId"
-      :frozen-round-id="v2RoundId || undefined"
-    />
-    <V2TechnicalWorkbench v-if="showTechnical" />
-    <V2OperationsWorkbench v-if="operationsMode" :mode="operationsMode" :case-id="v2CaseId" />
+    <div class="app-body">
+      <header class="app-topbar">
+        <div class="topbar-title">
+          <button
+            class="menu-button"
+            type="button"
+            aria-label="打开导航"
+            @click="sidebarOpen = !sidebarOpen"
+          >
+            ☰
+          </button>
+          <div>
+            <p>{{ departmentName(authUser) }}</p>
+            <h1>{{ pageTitle }}</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="search-trigger" type="button" @click="globalSearchOpen = true">
+            <span>搜索病理号、患者或材料</span><kbd>Ctrl K</kbd>
+          </button>
+          <label class="density-switch">
+            <span>列表密度</span>
+            <select v-model="tableDensity" aria-label="列表密度">
+              <option value="compact">紧凑</option>
+              <option value="comfortable">舒适</option>
+            </select>
+          </label>
+          <div v-if="authUser" class="identity-menu" aria-label="当前登录身份">
+            <span class="identity-avatar" aria-hidden="true">{{
+              authUser.displayName.slice(0, 1)
+            }}</span>
+            <span>
+              <strong>{{ authUser.displayName }}</strong>
+              <small>{{ roleName(authUser.roleCode) }}</small>
+            </span>
+            <button type="button" @click="logout">退出</button>
+          </div>
+        </div>
+      </header>
 
-    <footer>
-      <span>PIS V2 · 病例、材料、诊断、报告全程追溯</span
-      ><a href="?workspace=v2-home">返回 V2 工作台</a>
-    </footer>
+      <main id="workspace-main" class="workspace-main" tabindex="-1">
+        <V2Home
+          v-if="route.name === 'workbench'"
+          :auth-user="authUser"
+          @navigate="navigate"
+          @open-search="globalSearchOpen = true"
+        />
+        <V2RegistrationWorkbench
+          v-else-if="route.name === 'registration'"
+          :auth-user="authUser"
+          @navigate="navigate"
+        />
+        <V2GrossingWorkbench
+          v-else-if="route.name === 'grossing'"
+          v-model:case-id="routeCaseId"
+          :auth-user="authUser"
+          :source-type="route.roundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
+          :source-reference-id="route.roundId || undefined"
+        />
+        <V2SlideProductionWorkbench
+          v-else-if="route.name === 'production'"
+          v-model:case-id="routeCaseId"
+        />
+        <V2DiagnosisWorkspace
+          v-else-if="route.name === 'diagnosis' || route.name === 'reports'"
+          v-model:case-id="routeCaseId"
+          :auth-user="authUser"
+          :frozen-round-id="route.roundId || undefined"
+          @navigate="navigate"
+        />
+        <V2TechnicalWorkbench
+          v-else-if="route.name === 'technical-orders'"
+          v-model:case-id="routeCaseId"
+          @navigate="navigate"
+        />
+        <V2FrozenWorkspace
+          v-else-if="route.name === 'frozen'"
+          :case-id="route.caseId"
+          :auth-user="authUser"
+          @navigate="navigate"
+        />
+        <V2DigitalSlideWorkbench
+          v-else-if="route.name === 'digital-slides'"
+          :case-id="route.caseId"
+          @navigate="navigate"
+        />
+        <V2MaterialCustodyWorkbench
+          v-else-if="route.name === 'material-custody'"
+          :case-id="route.caseId"
+        />
+        <V2QualityWorkbench v-else-if="route.name === 'quality'" />
+        <V2CaseContext
+          v-else-if="route.name === 'search' && route.caseId"
+          :case-id="route.caseId"
+          :auth-user="authUser"
+          @navigate="navigate"
+        />
+        <V2SectionOverview
+          v-else
+          :section="route.name"
+          @navigate="navigate"
+          @open-search="globalSearchOpen = true"
+        />
+      </main>
+    </div>
+
+    <button
+      v-if="sidebarOpen"
+      class="sidebar-scrim"
+      type="button"
+      aria-label="关闭导航"
+      @click="sidebarOpen = false"
+    ></button>
+    <V2GlobalSearch
+      :open="globalSearchOpen"
+      @close="globalSearchOpen = false"
+      @navigate="navigate"
+    />
+  </div>
+  <main v-else class="auth-loading" aria-label="正在加载系统">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <p>正在进入工作台…</p>
   </main>
-  <p v-else-if="authError" class="error-banner" role="alert">{{ authError }}</p>
+  <p v-if="authError" class="feedback error auth-error" role="alert">{{ authError }}</p>
 </template>

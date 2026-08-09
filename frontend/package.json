@@ -16,13 +16,15 @@
     "lint": "eslint .",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
     "test:unit": "vitest",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "vue": "3.5.40"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.6",
     "eslint": "9.39.1",

@@ -1,21 +1,29 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
+import type { V2AuthUser } from '../auth';
+import {
+  businessTypeName,
+  friendlyError,
+  formatDateTime,
+  responsibilityName,
+  statusName,
+} from '../uiText';
 import {
   assignV2Diagnosis,
   claimV2Diagnosis,
   completeV2Responsibility,
+  createV2TechnicalOrder,
   getV2DiagnosisWorkspace,
   getV2FrozenRoundDiagnosisWorkspace,
-  getV2TechnicalProjects,
-  createV2TechnicalOrder,
-  getV2ReportPreview,
-  signOutV2Report,
-  withdrawV2Report,
-  supplementV2Report,
   getV2ReportPdfUrl,
+  getV2ReportPreview,
+  getV2TechnicalProjects,
   reassignV2Diagnosis,
   saveV2Diagnosis,
+  signOutV2Report,
+  supplementV2Report,
+  withdrawV2Report,
   type V2DiagnosisWorkspace as DiagnosisWorkspace,
   type V2ResponsibilityRole,
   type V2TechnicalProject,
@@ -38,16 +46,53 @@ type TechnicalDraft = {
   quantity: number;
   targetType: TechnicalTargetType;
   targetId: string;
-  parameters: string;
   note: string;
 };
+type DoctorOption = {
+  id: string;
+  doctorCode: string;
+  displayName: string;
+  title?: string | null;
+  department?: string | null;
+};
+type PoolCase = { caseId: string; pathologyNo: string; businessTypeCode: string };
+type ContextSection = 'application' | 'specimens' | 'blocks' | 'slides' | 'digital' | 'history';
+type ReportPreviewDocument = {
+  case?: {
+    pathologyNo?: string;
+    patientReference?: string;
+    visitReference?: string;
+    businessTypeCode?: string;
+  };
+  diagnosis?: { microscopicDescription?: string; diagnosisText?: string; comment?: string };
+  material?: Array<{
+    specimenCode?: string;
+    blockCode?: string;
+    slideCode?: string;
+    slideType?: string;
+  }>;
+  responsibility?: Array<{ role?: string; doctorId?: string; completedAt?: string }>;
+  technicalResults?: Array<{
+    orderNo?: string;
+    items?: Array<{
+      projectCode?: string;
+      completedCount?: number;
+      expectedCount?: number;
+      status?: string;
+    }>;
+  }>;
+};
 
-const caseId = defineModel<string>('caseId', {
-  default: new URLSearchParams(window.location.search).get('caseId') ?? '',
-});
-const props = defineProps<{ frozenRoundId?: string }>();
+const caseId = defineModel<string>('caseId', { default: '' });
+const props = withDefaults(
+  defineProps<{ frozenRoundId?: string; authUser?: V2AuthUser | null }>(),
+  { frozenRoundId: undefined, authUser: null },
+);
+const emit = defineEmits<{ navigate: [path: string] }>();
 
 const workspace = ref<DiagnosisWorkspace | null>(null);
+const publicPool = ref<PoolCase[]>([]);
+const doctors = ref<DoctorOption[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
@@ -57,41 +102,183 @@ const microscopicDescription = ref('');
 const diagnosisText = ref('');
 const comment = ref('');
 const structuredValues = ref<Record<string, unknown>>({});
+const activeContext = ref<ContextSection>('specimens');
 const assignmentDoctor = ref('');
 const assignmentReason = ref('');
 const nextRole = ref<V2ResponsibilityRole | ''>('REVIEW');
-const nextDoctorId = ref('p15-local-registration-actor');
+const nextDoctorId = ref('');
 const technicalProjects = ref<V2TechnicalProject[]>([]);
 const technicalRequiredBeforeSignOut = ref(true);
+const technicalPanelOpen = ref(false);
 const technicalDrafts = ref<TechnicalDraft[]>([
-  { projectId: '', quantity: 1, targetType: 'CASE', targetId: '', parameters: '{}', note: '' },
+  { projectId: '', quantity: 1, targetType: 'CASE', targetId: '', note: '' },
 ]);
-const reportPreview = ref<{ renderedContent: string; blockingReasons: string[] } | null>(null);
+const reportPreview = ref<{
+  renderedContent: string;
+  blockingReasons: string[];
+  valid: boolean;
+} | null>(null);
+const previewOpen = ref(false);
 const withdrawalReason = ref('');
 const supplementalContent = ref('');
+const supplementalOpen = ref(false);
+const withdrawalOpen = ref(false);
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
-const templateComponents = computed(() =>
-  parseTemplateComponents(workspace.value?.templateVersion?.schemaDefinition),
-);
-const canEdit = computed(() => Boolean(currentResponsibility.value && workspace.value?.diagnosis));
 const currentRole = computed<V2ResponsibilityRole | undefined>(
   () => currentResponsibility.value?.role,
 );
-const completionAllowed = computed(() => {
-  if (!workspace.value || !currentRole.value) return false;
-  return currentRole.value === 'INITIAL'
-    ? workspace.value.actions.canCompleteInitial
-    : currentRole.value === 'REVIEW'
-      ? workspace.value.actions.canCompleteReview
-      : workspace.value.actions.canCompleteAudit;
+const responsibilitySummary = computed(() => {
+  if (currentResponsibility.value) {
+    return `${responsibilityName(currentResponsibility.value.role)} · ${doctorName(currentResponsibility.value.doctorId)}`;
+  }
+  return workspace.value?.responsibilityChain.length ? '责任已完成' : '待接诊';
 });
+const editorTitle = computed(() => {
+  if (currentRole.value) return `${responsibilityName(currentRole.value)}诊断`;
+  if (workspace.value?.reports.some((report) => report.status === 'EFFECTIVE')) {
+    return '已签发诊断';
+  }
+  return workspace.value?.actions.readyForSignOut ? '待签发诊断' : '等待接诊';
+});
+const templateComponents = computed(() =>
+  parseTemplateComponents(workspace.value?.templateVersion?.schemaDefinition),
+);
+const canEdit = computed(() => {
+  if (!workspace.value?.diagnosis || !currentRole.value) return false;
+  if (currentRole.value === 'INITIAL') return workspace.value.actions.canCompleteInitial;
+  if (currentRole.value === 'REVIEW') return workspace.value.actions.canCompleteReview;
+  return workspace.value.actions.canCompleteAudit;
+});
+const completionAllowed = computed(() => Boolean(canEdit.value));
+const productionSummary = computed(() => {
+  const tree = workspace.value?.materialTree;
+  if (!tree) return '未读取';
+  if (props.frozenRoundId) {
+    const completed = allSlides.value.filter((slide) => Boolean(slide.completedAt)).length;
+    return `${completed}/${allSlides.value.length} 张完成`;
+  }
+  return `${tree.initialCompletedCount}/${tree.initialRequiredCount} 张完成`;
+});
+const technicalReturnedCount = computed(
+  () =>
+    (workspace.value?.technicalOrders ?? [])
+      .flatMap((order) => order.items)
+      .filter((item) => item.result).length,
+);
+const molecularResults = computed(() => workspace.value?.molecularResults ?? []);
+
+function molecularResultSummary(resultData: string) {
+  try {
+    const result = JSON.parse(resultData) as Record<string, unknown>;
+    if (typeof result.conclusion === 'string' && result.conclusion.trim()) {
+      return result.conclusion.trim();
+    }
+    if (typeof result.mutationDetected === 'boolean') {
+      return result.mutationDetected ? '检出相关变异' : '未检出相关变异';
+    }
+    const firstReadableValue = Object.values(result).find(
+      (value) => typeof value === 'string' || typeof value === 'number',
+    );
+    if (firstReadableValue !== undefined) return String(firstReadableValue);
+  } catch {
+    // Historical adapters may have stored a plain-text conclusion.
+    if (resultData.trim() && !resultData.trim().startsWith('{')) return resultData.trim();
+  }
+  return '结构化结果已完成';
+}
+const reportStatus = computed(() => {
+  const reports = workspace.value?.reports ?? [];
+  if (reports.some((report) => report.status === 'EFFECTIVE')) return '已签发';
+  if (workspace.value?.actions.readyForSignOut) return '待签发';
+  return workspace.value?.diagnosis ? '诊断中' : '未开始';
+});
+const previewDocument = computed<ReportPreviewDocument | null>(() => {
+  if (!reportPreview.value?.renderedContent) return null;
+  try {
+    return JSON.parse(reportPreview.value.renderedContent) as ReportPreviewDocument;
+  } catch {
+    return null;
+  }
+});
+const previewSlides = computed(
+  () => previewDocument.value?.material?.filter((item) => item.slideCode) ?? [],
+);
+const responsibilityActionLabel = computed(() => {
+  if (currentRole.value === 'INITIAL') return nextRole.value === 'AUDIT' ? '提交审核' : '提交复诊';
+  if (currentRole.value === 'REVIEW') return '提交审核';
+  if (currentRole.value === 'AUDIT') return '完成审核';
+  return '提交下一步';
+});
+const allBlocks = computed(
+  () => workspace.value?.materialTree.specimens.flatMap((item) => item.blocks) ?? [],
+);
+const allSlides = computed(
+  () =>
+    workspace.value?.materialTree.specimens.flatMap((specimen) => [
+      ...specimen.blocks.flatMap((block) => block.slides),
+      ...specimen.directSlides,
+    ]) ?? [],
+);
+const targetOptions = computed(() => {
+  if (!workspace.value)
+    return { CASE: [], SPECIMEN: [], BLOCK: [], SLIDE: [] } as Record<
+      TechnicalTargetType,
+      Array<{ id: string; label: string }>
+    >;
+  return {
+    CASE: [
+      { id: workspace.value.caseSummary.caseId, label: workspace.value.caseSummary.pathologyNo },
+    ],
+    SPECIMEN: workspace.value.materialTree.specimens.map((item) => ({
+      id: item.specimenId,
+      label: `标本 ${item.specimenCode}`,
+    })),
+    BLOCK: allBlocks.value.map((item) => ({ id: item.blockId, label: `蜡块 ${item.blockCode}` })),
+    SLIDE: allSlides.value.map((item) => ({ id: item.slideId, label: `玻片 ${item.slideCode}` })),
+  };
+});
+const contextItems = computed(() => [
+  { id: 'application' as const, label: '申请信息', count: '' },
+  {
+    id: 'specimens' as const,
+    label: '标本',
+    count: workspace.value?.materialTree.specimens.length ?? 0,
+  },
+  { id: 'blocks' as const, label: '蜡块', count: allBlocks.value.length },
+  { id: 'slides' as const, label: '玻片', count: allSlides.value.length },
+  { id: 'digital' as const, label: '数字切片', count: workspace.value?.digitalSlides?.length ?? 0 },
+  { id: 'history' as const, label: '历史病理', count: '' },
+]);
 
 watch(caseId, () => void loadWorkspace(), { immediate: true });
 
+async function loadDoctors() {
+  try {
+    const response = await fetch('/api/v2/auth/doctors');
+    if (!response.ok) return;
+    doctors.value = (await response.json()) as DoctorOption[];
+  } catch {
+    doctors.value = [];
+  }
+}
+
+async function loadPublicPool() {
+  try {
+    const response = await fetch('/api/v2/diagnosis-workspaces/public-pool');
+    if (!response.ok) throw new Error('公共病例池暂时无法加载');
+    publicPool.value = (await response.json()) as PoolCase[];
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '公共病例池暂时无法加载。');
+  }
+}
+
 async function loadWorkspace() {
+  reportPreview.value = null;
+  previewOpen.value = false;
   if (!caseId.value) {
     workspace.value = null;
+    await loadPublicPool();
     return;
   }
   loading.value = true;
@@ -111,38 +298,62 @@ async function loadWorkspace() {
       stringStructuredValue('diagnosisText', structuredValues.value);
     comment.value =
       diagnosis?.comment?.trim() || stringStructuredValue('comment', structuredValues.value);
-    if (workspace.value.currentResponsibility) {
-      nextDoctorId.value = workspace.value.currentResponsibility.doctorId;
-      if (workspace.value.currentResponsibility.role === 'AUDIT') {
-        nextRole.value = '';
-      }
-    }
-    technicalProjects.value = [];
-    if (workspace.value.actions.canCreateTechnicalOrder) {
-      technicalProjects.value = await getV2TechnicalProjects(caseId.value);
-      if (!technicalDrafts.value[0].projectId && technicalProjects.value[0]) {
-        technicalDrafts.value[0].projectId = technicalProjects.value[0].projectId;
-        technicalDrafts.value[0].targetType = (technicalProjects.value[0].allowedTargetTypes[0] ??
-          'CASE') as TechnicalTargetType;
-      }
+    setNextResponsibilityDefaults();
+    technicalProjects.value = workspace.value.actions.canCreateTechnicalOrder
+      ? await getV2TechnicalProjects(caseId.value)
+      : [];
+    const firstProject = technicalProjects.value[0];
+    if (firstProject && !technicalDrafts.value[0]?.projectId) {
+      technicalDrafts.value[0] = createTechnicalDraft(firstProject);
     }
   } catch (requestError) {
-    error.value = requestError instanceof Error ? requestError.message : '工作区加载失败';
+    workspace.value = null;
+    error.value = friendlyError(requestError, '诊断工作区加载失败，请检查病例后重试。');
   } finally {
     loading.value = false;
   }
 }
 
-function addTechnicalDraft() {
-  const project = technicalProjects.value[0];
-  technicalDrafts.value.push({
+function setNextResponsibilityDefaults() {
+  if (currentRole.value === 'INITIAL') nextRole.value = 'REVIEW';
+  else if (currentRole.value === 'REVIEW') nextRole.value = 'AUDIT';
+  else nextRole.value = '';
+  const candidate =
+    (nextRole.value === 'AUDIT'
+      ? doctors.value.find(
+          (doctor) => doctor.title?.includes('审核') && doctor.id !== props.authUser?.doctor?.id,
+        )
+      : undefined) ?? doctors.value.find((doctor) => doctor.id !== props.authUser?.doctor?.id);
+  nextDoctorId.value = candidate?.id ?? '';
+}
+
+function doctorName(doctorId?: string) {
+  if (!doctorId) return '待分配';
+  return doctors.value.find((doctor) => doctor.id === doctorId)?.displayName ?? '已分配医生';
+}
+
+function technicalProjectName(projectCode?: string) {
+  if (!projectCode) return '技术项目';
+  return (
+    workspace.value?.technicalOrders
+      .flatMap((order) => order.items)
+      .find((item) => item.projectCode === projectCode)?.projectName ?? projectCode
+  );
+}
+
+function createTechnicalDraft(project?: V2TechnicalProject): TechnicalDraft {
+  const targetType = (project?.allowedTargetTypes[0] ?? 'CASE') as TechnicalTargetType;
+  return {
     projectId: project?.projectId ?? '',
     quantity: 1,
-    targetType: (project?.allowedTargetTypes[0] ?? 'CASE') as TechnicalTargetType,
-    targetId: '',
-    parameters: '{}',
+    targetType,
+    targetId: targetOptions.value[targetType][0]?.id ?? '',
     note: '',
-  });
+  };
+}
+
+function addTechnicalDraft() {
+  technicalDrafts.value.push(createTechnicalDraft(technicalProjects.value[0]));
 }
 
 function removeTechnicalDraft(index: number) {
@@ -153,15 +364,22 @@ function projectForDraft(projectId: string) {
   return technicalProjects.value.find((project) => project.projectId === projectId);
 }
 
-function syncDraftTargetType(index: number) {
+function syncDraftProject(index: number) {
   const draft = technicalDrafts.value[index];
+  if (!draft) return;
   const project = projectForDraft(draft.projectId);
   if (project && !project.allowedTargetTypes.includes(draft.targetType)) {
     draft.targetType = (project.allowedTargetTypes[0] ?? 'CASE') as TechnicalTargetType;
   }
+  draft.targetId = targetOptions.value[draft.targetType][0]?.id ?? '';
 }
 
-async function createTechnicalOrder() {
+function syncDraftTarget(index: number) {
+  const draft = technicalDrafts.value[index];
+  if (draft) draft.targetId = targetOptions.value[draft.targetType][0]?.id ?? '';
+}
+
+async function createTechnicalOrderCommand() {
   if (!workspace.value?.diagnosis) return;
   await submit(async () => {
     await createV2TechnicalOrder({
@@ -170,15 +388,16 @@ async function createTechnicalOrder() {
       items: technicalDrafts.value.map((draft) => ({
         projectId: draft.projectId,
         quantity: draft.quantity,
-        parameters: draft.parameters || '{}',
+        parameters: '{}',
         note: draft.note,
         targets: [{ targetType: draft.targetType, targetId: draft.targetId }],
       })),
-      idempotencyKey: requestKey('v2-technical-order-create'),
+      idempotencyKey: requestKey('ux01-technical-order-create'),
     });
+    technicalPanelOpen.value = false;
+    technicalDrafts.value = [createTechnicalDraft(technicalProjects.value[0])];
     await loadWorkspace();
-    notice.value =
-      'TechnicalOrder created; execution and facts are managed in the Technical Workbench.';
+    notice.value = '技术医嘱已开立，技术人员可在工作台处理。';
   });
 }
 
@@ -218,11 +437,11 @@ function structuredValue(component: TemplateComponent) {
 
 function updateStructuredValue(code: string, value: unknown) {
   structuredValues.value = { ...structuredValues.value, [code]: value };
-  structuredData.value = JSON.stringify(structuredValues.value, null, 2);
-  const canonicalValue = value === null || value === undefined ? '' : String(value);
-  if (code === 'microscopicDescription') microscopicDescription.value = canonicalValue;
-  if (code === 'diagnosisText') diagnosisText.value = canonicalValue;
-  if (code === 'comment') comment.value = canonicalValue;
+  structuredData.value = JSON.stringify(structuredValues.value);
+  const canonical = value === null || value === undefined ? '' : String(value);
+  if (code === 'microscopicDescription') microscopicDescription.value = canonical;
+  if (code === 'diagnosisText') diagnosisText.value = canonical;
+  if (code === 'comment') comment.value = canonical;
 }
 
 function stringStructuredValue(code: string, values: Record<string, unknown>) {
@@ -238,34 +457,13 @@ function eventValue(event: Event) {
   return (event.target as HTMLInputElement).value;
 }
 
-function eventNumberValue(event: Event) {
-  const value = eventValue(event);
-  return value === '' ? null : Number(value);
-}
-
 function eventCheckedValue(event: Event) {
   return (event.target as HTMLInputElement).checked;
-}
-
-function eventMultiSelectValue(event: Event) {
-  return Array.from((event.target as HTMLSelectElement).selectedOptions).map(
-    (option) => option.value,
-  );
 }
 
 function stringValue(component: TemplateComponent) {
   const value = structuredValue(component);
   return value === null || value === undefined ? '' : String(value);
-}
-
-function numberValue(component: TemplateComponent) {
-  const value = structuredValue(component);
-  return typeof value === 'number' ? String(value) : '';
-}
-
-function multiSelectValue(component: TemplateComponent) {
-  const value = structuredValue(component);
-  return Array.isArray(value) ? value.map(String) : [];
 }
 
 function templateOptions(component: TemplateComponent): TemplateOption[] {
@@ -276,15 +474,14 @@ function templateOptions(component: TemplateComponent): TemplateOption[] {
 }
 
 function requestKey(prefix: string) {
-  const identity = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-  return `${prefix}-${identity}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 
 async function claim() {
   await submit(async () => {
-    await claimV2Diagnosis(caseId.value, requestKey('v2-diagnosis-claim'));
+    await claimV2Diagnosis(caseId.value, requestKey('ux01-diagnosis-claim'));
     await loadWorkspace();
-    notice.value = '已建立初诊责任，可开始编辑。';
+    notice.value = '接诊成功，可以开始填写初诊。';
   });
 }
 
@@ -293,11 +490,11 @@ async function assign() {
     await assignV2Diagnosis({
       caseId: caseId.value,
       doctorId: assignmentDoctor.value,
-      reason: assignmentReason.value,
-      idempotencyKey: requestKey('v2-diagnosis-assign'),
+      reason: assignmentReason.value || '工作区分配',
+      idempotencyKey: requestKey('ux01-diagnosis-assign'),
     });
     await loadWorkspace();
-    notice.value = '已记录手工分配。';
+    notice.value = `病例已分配给 ${doctorName(assignmentDoctor.value)}。`;
   });
 }
 
@@ -307,10 +504,10 @@ async function reassign() {
       caseId: caseId.value,
       doctorId: assignmentDoctor.value,
       reason: assignmentReason.value,
-      idempotencyKey: requestKey('v2-diagnosis-reassign'),
+      idempotencyKey: requestKey('ux01-diagnosis-reassign'),
     });
     await loadWorkspace();
-    notice.value = '已记录责任重分配，历史节点保持不变。';
+    notice.value = `病例已重新分配给 ${doctorName(assignmentDoctor.value)}，原责任记录已保留。`;
   });
 }
 
@@ -324,7 +521,7 @@ async function save() {
       diagnosisText: diagnosisText.value,
       comment: comment.value,
       expectedVersion: workspace.value!.diagnosis!.version,
-      idempotencyKey: requestKey('v2-diagnosis-save'),
+      idempotencyKey: requestKey('ux01-diagnosis-save'),
     });
     await loadWorkspace();
     notice.value = '诊断草稿已保存。';
@@ -333,12 +530,12 @@ async function save() {
 
 async function complete() {
   if (!workspace.value?.diagnosis || !currentResponsibility.value || !currentRole.value) return;
-  const followingRole =
-    currentRole.value?.trim() === 'AUDIT' ? undefined : nextRole.value || undefined;
+  const role = currentRole.value;
+  const followingRole = role === 'AUDIT' ? undefined : nextRole.value || undefined;
   await submit(async () => {
     await completeV2Responsibility({
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,
-      role: currentRole.value!,
+      role,
       responsibilityId: currentResponsibility.value!.responsibilityId,
       responsibilityExpectedVersion: currentResponsibility.value!.version,
       structuredData: structuredData.value,
@@ -348,25 +545,22 @@ async function complete() {
       diagnosisExpectedVersion: workspace.value!.diagnosis!.version,
       nextRole: followingRole,
       nextDoctorId: followingRole ? nextDoctorId.value : undefined,
-      nextReason: followingRole ? '由诊断工作区提交后续责任' : undefined,
-      idempotencyKey: requestKey(`v2-diagnosis-complete-${currentRole.value!.toLowerCase()}`),
+      nextReason: followingRole ? `提交${responsibilityName(followingRole)}` : undefined,
+      idempotencyKey: requestKey(`ux01-diagnosis-complete-${role.toLowerCase()}`),
     });
+    const message = followingRole
+      ? `已提交${responsibilityName(followingRole)}：${doctorName(nextDoctorId.value)}。`
+      : '审核已完成，可以预览并签发报告。';
     await loadWorkspace();
-    notice.value =
-      currentRole.value === 'AUDIT' && !followingRole
-        ? '审核责任已完成，当前结果仅形成 READY_FOR_SIGN_OUT 投影。'
-        : '当前责任已完成，已生成下一责任节点。';
+    notice.value = message;
   });
 }
 
 async function previewReport() {
   if (!workspace.value?.diagnosis) return;
   await submit(async () => {
-    const preview = await getV2ReportPreview(workspace.value!.diagnosis!.diagnosisId);
-    reportPreview.value = preview;
-    notice.value = preview.valid
-      ? '报告预览已按当前 Diagnosis、模板和技术结果重新渲染。'
-      : '报告预览已生成，但仍存在签发阻断原因。';
+    reportPreview.value = await getV2ReportPreview(workspace.value!.diagnosis!.diagnosisId);
+    previewOpen.value = true;
   });
 }
 
@@ -375,27 +569,26 @@ async function signOutReport() {
   await submit(async () => {
     const report = await signOutV2Report({
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,
-      idempotencyKey: requestKey('v2-report-sign-out'),
+      idempotencyKey: requestKey('ux01-report-sign-out'),
     });
+    previewOpen.value = false;
     await loadWorkspace();
-    notice.value = `${report.reportNo} 已签发；快照和 PDF 已持久化。`;
+    notice.value = `${report.reportNo} 已签发，正式 PDF 已生成。`;
   });
 }
 
 async function withdrawReport(reportId: string) {
-  if (!withdrawalReason.value.trim()) {
-    error.value = '撤回原因不能为空';
-    return;
-  }
+  if (!withdrawalReason.value.trim()) return;
   await submit(async () => {
     await withdrawV2Report({
       reportId,
       reason: withdrawalReason.value,
-      idempotencyKey: requestKey('v2-report-withdraw'),
+      idempotencyKey: requestKey('ux01-report-withdraw'),
     });
     withdrawalReason.value = '';
+    withdrawalOpen.value = false;
     await loadWorkspace();
-    notice.value = '报告已撤回；最后审查责任节点已重新打开。';
+    notice.value = '报告已撤回，可修改诊断后重新签发；原报告仍保留在历史中。';
   });
 }
 
@@ -409,11 +602,12 @@ async function supplementReport() {
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,
       priorReportId: prior?.reportId,
       content: supplementalContent.value,
-      idempotencyKey: requestKey('v2-report-supplement'),
+      idempotencyKey: requestKey('ux01-report-supplement'),
     });
     supplementalContent.value = '';
+    supplementalOpen.value = false;
     await loadWorkspace();
-    notice.value = '补充报告已独立签发，原报告保持生效。';
+    notice.value = '补充报告已签发，原报告继续生效。';
   });
 }
 
@@ -424,1052 +618,808 @@ async function submit(operation: () => Promise<void>) {
   try {
     await operation();
   } catch (requestError) {
-    error.value = requestError instanceof Error ? requestError.message : '命令执行失败';
+    error.value = friendlyError(requestError, '操作未完成，请检查当前责任和病例状态。');
   } finally {
     submitting.value = false;
   }
 }
+
+function blockerText(reason: string) {
+  return friendlyError(reason, reason);
+}
+
+function openViewer(reference: string) {
+  window.open(reference, '_blank', 'noopener,noreferrer');
+}
+
+function handleShortcut(event: KeyboardEvent) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === 's' &&
+    workspace.value?.diagnosis
+  ) {
+    event.preventDefault();
+    if (canEdit.value && !submitting.value) void save();
+  }
+  if (event.key === 'Escape') {
+    technicalPanelOpen.value = false;
+    previewOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleShortcut);
+  void loadDoctors().then(() => setNextResponsibilityDefaults());
+});
+onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
 </script>
 
 <template>
-  <!-- eslint-disable vue/html-indent, vue/html-closing-bracket-newline, vue/max-attributes-per-line -->
-  <section class="v2-diagnosis-workspace" aria-label="V2 Diagnosis 工作区">
-    <header class="diagnosis-header">
-      <div>
-        <p class="workspace-kicker">V2 · DIAGNOSIS RESPONSIBILITY</p>
-        <h2>Diagnosis Workspace</h2>
-        <p class="workspace-caption">连续 Diagnosis、材料上下文与可审计责任链</p>
+  <section class="diagnosis-page" aria-label="诊断工作区">
+    <div v-if="loading" class="diagnosis-loading list-skeleton" aria-label="正在加载诊断工作区">
+      <span></span><span></span><span></span>
+    </div>
+
+    <section v-else-if="!workspace" class="diagnosis-pool-page">
+      <header class="page-heading compact-heading">
+        <div>
+          <p class="section-kicker">诊断</p>
+          <h2>病例池</h2>
+          <p>接诊后直接进入诊断主工作区。</p>
+        </div>
+      </header>
+      <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
+      <div v-if="!publicPool.length" class="empty-state workspace-panel">
+        <strong>当前没有待接诊病例</strong><span>制片完成的病例会自动进入公共病例池。</span>
       </div>
-      <label class="case-entry">
-        <span>Case ID</span>
-        <input v-model="caseId" aria-label="输入病例内部ID" placeholder="粘贴 Case ID" />
-      </label>
-    </header>
-
-    <p v-if="loading" class="state-message" role="status" aria-busy="true">正在加载 V2 工作区…</p>
-    <p v-else-if="error" class="state-message error" role="alert">{{ error }}</p>
-    <p v-if="notice" class="state-message success" role="status">{{ notice }}</p>
-
-    <div v-if="workspace" class="workspace-body">
-      <section class="case-context" aria-label="病例与材料上下文">
-        <div class="case-summary">
-          <span class="label">病理号</span>
-          <strong>{{ workspace.caseSummary.pathologyNo }}</strong>
-          <span class="summary-meta"
-            >{{ workspace.caseSummary.businessTypeCode }} ·
-            {{ workspace.caseSummary.lifecycle }}</span
-          >
+      <div v-else class="workspace-panel compact-table" role="table" aria-label="公共病例池">
+        <div class="table-head diagnosis-pool-row" role="row">
+          <span role="columnheader">病理号</span><span role="columnheader">业务类型</span
+          ><span role="columnheader">操作</span>
         </div>
-        <dl class="snapshot-list">
-          <div>
-            <dt>患者引用</dt>
-            <dd>{{ workspace.patient.patientReference }}</dd>
-          </div>
-          <div>
-            <dt>就诊引用</dt>
-            <dd>{{ workspace.patient.visitReference || '未提供' }}</dd>
-          </div>
-          <div>
-            <dt>申请项目</dt>
-            <dd>{{ workspace.application.applicationItemCode }}</dd>
-          </div>
-        </dl>
-
-        <div class="section-heading">
-          <h3>Material Tree</h3>
-          <span
-            >{{ workspace.materialTree.initialCompletedCount }}/{{
-              workspace.materialTree.initialRequiredCount
-            }}
-            初始切片完成</span
-          >
-        </div>
-        <p class="tree-status" :class="{ ready: workspace.materialTree.initialProductionComplete }">
-          {{
-            workspace.materialTree.initialProductionComplete ? '初始材料已就绪' : '初始材料尚未完成'
-          }}
-        </p>
-        <ul class="material-tree" aria-label="标本蜡块切片树">
-          <li v-for="specimen in workspace.materialTree.specimens" :key="specimen.specimenId">
+        <div
+          v-for="item in publicPool"
+          :key="item.caseId"
+          class="table-row diagnosis-pool-row"
+          role="row"
+        >
+          <strong role="cell">{{ item.pathologyNo }}</strong>
+          <span role="cell">{{ businessTypeName(item.businessTypeCode) }}</span>
+          <span role="cell">
             <button
+              class="text-button"
               type="button"
-              class="tree-node specimen-node"
-              :aria-label="`标本 ${specimen.specimenCode}`"
+              @click="emit('navigate', `/v2/diagnosis/${item.caseId}`)"
             >
-              <span class="node-type">S</span>{{ specimen.specimenCode }} ·
-              {{ specimen.specimenNo }}
+              进入诊断
             </button>
-            <ul>
-              <li v-for="block in specimen.blocks" :key="block.blockId">
-                <span class="tree-node"
-                  ><span class="node-type">B</span>{{ block.blockCode }} ·
-                  {{ block.blockType }}</span
-                >
-                <ul>
-                  <li v-for="slide in block.slides" :key="slide.slideId">
-                    <span class="tree-node slide-node" :class="{ complete: slide.completed }">
-                      <span class="node-type">L</span>{{ slide.slideCode }} ·
-                      {{ slide.completed ? '已完成' : '待完成' }}
-                    </span>
-                  </li>
-                </ul>
-              </li>
-              <li v-for="slide in specimen.directSlides" :key="slide.slideId">
-                <span class="tree-node slide-node" :class="{ complete: slide.completed }">
-                  <span class="node-type">L</span>{{ slide.slideCode }} · 直接来源
-                </span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <template v-else>
+      <header class="diagnosis-context-bar" aria-label="病例固定上下文">
+        <span
+          ><small>病理号</small><strong>{{ workspace.caseSummary.pathologyNo }}</strong></span
+        >
+        <span
+          ><small>患者</small><strong>{{ workspace.patient.patientReference }}</strong></span
+        >
+        <span
+          ><small>就诊</small
+          ><strong>{{ workspace.patient.visitReference || '未提供' }}</strong></span
+        >
+        <span
+          ><small>业务类型</small
+          ><strong>{{ businessTypeName(workspace.caseSummary.businessTypeCode) }}</strong></span
+        >
+        <span
+          ><small>申请项目</small
+          ><strong>{{ workspace.application.applicationItemCode }}</strong></span
+        >
+        <span
+          ><small>当前责任</small><strong>{{ responsibilitySummary }}</strong></span
+        >
+        <span
+          ><small>报告</small><strong>{{ reportStatus }}</strong></span
+        >
+      </header>
+
+      <p v-if="error" class="feedback error diagnosis-feedback" role="alert">{{ error }}</p>
+      <p v-if="notice" class="feedback success diagnosis-feedback" role="status">{{ notice }}</p>
+
+      <div class="diagnosis-layout">
+        <aside class="diagnosis-context-nav" aria-label="病例上下文">
+          <p class="section-kicker">病例上下文</p>
+          <nav class="context-nav-list" aria-label="病例材料导航">
+            <button
+              v-for="item in contextItems"
+              :key="item.id"
+              type="button"
+              :class="{ active: activeContext === item.id }"
+              @click="activeContext = item.id"
+            >
+              <span>{{ item.label }}</span
+              ><span v-if="item.count !== ''" class="count-pill">{{ item.count }}</span>
+            </button>
+          </nav>
+
+          <section class="context-detail">
+            <dl v-if="activeContext === 'application'" class="context-definition-list">
+              <div>
+                <dt>申请号</dt>
+                <dd>{{ workspace.application.externalApplicationId }}</dd>
+              </div>
+              <div>
+                <dt>来源</dt>
+                <dd>
+                  {{
+                    workspace.application.sourceSystemCode === 'MANUAL'
+                      ? '手工登记'
+                      : workspace.application.sourceSystemCode
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>申请项目</dt>
+                <dd>{{ workspace.application.applicationItemCode }}</dd>
+              </div>
+            </dl>
+            <ul v-else-if="activeContext === 'specimens'" class="context-material-list">
+              <li v-for="specimen in workspace.materialTree.specimens" :key="specimen.specimenId">
+                <strong>标本 {{ specimen.specimenCode }}</strong
+                ><span>{{ specimen.specimenNo }}</span>
               </li>
             </ul>
-          </li>
-        </ul>
-      </section>
-
-      <section class="diagnosis-editor" aria-label="Diagnosis 编辑区">
-        <div class="editor-heading">
-          <div>
-            <span class="label">当前责任</span>
-            <strong>{{
-              currentResponsibility
-                ? `${currentResponsibility.role} · ${currentResponsibility.doctorId}`
-                : '尚未建立责任'
-            }}</strong>
-          </div>
-          <span v-if="workspace.diagnosis" class="version-chip"
-            >Diagnosis v{{ workspace.diagnosis.version }}</span
-          >
-          <span v-if="workspace.actions.readyForSignOut" class="ready-chip"
-            >READY_FOR_SIGN_OUT · 待正式签发</span
-          >
-        </div>
-        <div v-if="workspace.diagnosis" class="template-strip">
-          <span>DiagnosisTemplateVersion</span>
-          <strong>V{{ workspace.templateVersion?.versionNo }}</strong>
-          <span>{{
-            workspace.templateVersion?.status === 'PUBLISHED' ? '已发布快照' : '草稿'
-          }}</span>
-        </div>
-        <p v-else class="empty-editor">
-          病例尚未建立 Diagnosis。材料完成后可从公开池认领或由授权人员分配。
-        </p>
-
-        <fieldset v-if="workspace.diagnosis" :disabled="!canEdit || submitting">
-          <legend>诊断内容</legend>
-          <div v-if="templateComponents.length" class="structured-fields">
-            <p class="field-hint">
-              字段由当前 DiagnosisTemplateVersion 动态提供，复杂组件保留结构化数据兼容性。
-            </p>
-            <template v-for="component in templateComponents" :key="component.code">
-              <label v-if="['TEXT', 'TEXTAREA'].includes(componentType(component))">
-                {{ component.label || component.code }}
-                <textarea
-                  v-if="componentType(component) === 'TEXTAREA'"
-                  :value="stringValue(component)"
-                  :required="component.required"
-                  :readonly="component.readOnly"
-                  rows="3"
-                  @input="updateStructuredValue(component.code, eventValue($event))"
-                />
-                <input
-                  v-else
-                  :value="stringValue(component)"
-                  :required="component.required"
-                  :readonly="component.readOnly"
-                  type="text"
-                  @input="updateStructuredValue(component.code, eventValue($event))"
-                />
-              </label>
-              <label v-else-if="componentType(component) === 'NUMBER'">
-                {{ component.label || component.code }}
-                <input
-                  :value="numberValue(component)"
-                  :required="component.required"
-                  :readonly="component.readOnly"
-                  type="number"
-                  @input="updateStructuredValue(component.code, eventNumberValue($event))"
-                />
-              </label>
-              <label v-else-if="['SINGLE_SELECT', 'DICTIONARY'].includes(componentType(component))">
-                {{ component.label || component.code }}
-                <select
-                  :value="stringValue(component)"
-                  :required="component.required"
-                  :disabled="component.readOnly"
-                  @change="updateStructuredValue(component.code, eventValue($event))"
-                >
-                  <option value="">请选择</option>
-                  <option
-                    v-for="option in templateOptions(component)"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label v-else-if="componentType(component) === 'MULTI_SELECT'">
-                {{ component.label || component.code }}
-                <select
-                  multiple
-                  :value="multiSelectValue(component)"
-                  :disabled="component.readOnly"
-                  @change="updateStructuredValue(component.code, eventMultiSelectValue($event))"
-                >
-                  <option
-                    v-for="option in templateOptions(component)"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label v-else-if="componentType(component) === 'BOOLEAN'" class="checkbox-field">
-                <input
-                  type="checkbox"
-                  :checked="Boolean(structuredValue(component))"
-                  :disabled="component.readOnly"
-                  @change="updateStructuredValue(component.code, eventCheckedValue($event))"
-                />
-                {{ component.label || component.code }}
-              </label>
-              <div
-                v-else-if="['GROUP', 'TITLE'].includes(componentType(component))"
-                class="structured-group"
+            <ul v-else-if="activeContext === 'blocks'" class="context-material-list">
+              <li v-for="block in allBlocks" :key="block.blockId">
+                <strong>{{ block.blockCode }}</strong
+                ><span>{{ block.slides.length }} 张玻片</span>
+              </li>
+            </ul>
+            <ul v-else-if="activeContext === 'slides'" class="context-material-list">
+              <li v-for="slide in allSlides" :key="slide.slideId">
+                <strong>{{ slide.slideCode }}</strong
+                ><span :class="slide.completed ? 'success-text' : 'warning-text'">{{
+                  slide.completed ? '已完成' : '待完成'
+                }}</span>
+              </li>
+            </ul>
+            <div v-else-if="activeContext === 'digital'" class="context-material-list">
+              <button
+                v-for="digital in workspace.digitalSlides ?? []"
+                :key="digital.digitalSlideId"
+                class="digital-slide-link"
+                type="button"
+                @click="openViewer(digital.viewerReference)"
               >
-                <strong>{{ component.label || component.code }}</strong>
-              </div>
-              <p v-else class="field-hint">
-                {{ component.label || component.code }}（{{
-                  component.type
-                }}）暂使用结构化数据模型保留，专用编辑器待后续增强。
-              </p>
-            </template>
-          </div>
-          <label v-if="!templateComponents.length"
-            >结构化诊断数据（JSON）<textarea v-model="structuredData" rows="4" spellcheck="false" />
-          </label>
-          <label v-if="!hasTemplateComponent('microscopicDescription')"
-            >镜下所见<textarea v-model="microscopicDescription" rows="5" />
-          </label>
-          <label v-if="!hasTemplateComponent('diagnosisText')"
-            >诊断意见<textarea v-model="diagnosisText" rows="5" />
-          </label>
-          <label v-if="!hasTemplateComponent('comment')"
-            >备注<textarea v-model="comment" rows="3" />
-          </label>
-        </fieldset>
-        <button
-          v-if="workspace.diagnosis"
-          class="primary-action"
-          type="button"
-          :disabled="!canEdit || submitting"
-          @click="save"
-        >
-          保存 Diagnosis 草稿
-        </button>
-
-        <section class="technical-order-panel" aria-label="TechnicalOrder technical order loop">
-          <div class="section-heading">
-            <div>
-              <h3>TechnicalOrder Loop</h3>
-              <span>Diagnosis → TechnicalProject → official material/result outputs</span>
+                <span
+                  ><strong>数字切片</strong><small>{{ digital.sourcePlatform }}</small></span
+                ><span>打开 →</span>
+              </button>
+              <p v-if="!(workspace.digitalSlides ?? []).length" class="muted">当前没有数字切片。</p>
             </div>
-            <strong v-if="workspace.blockingTechnicalOrderCount">
-              {{ workspace.blockingTechnicalOrderCount }} blocking
-            </strong>
-          </div>
-          <p v-if="!workspace.diagnosis" class="field-hint">
-            先建立 Diagnosis 后才可以开立 TechnicalOrder。
-          </p>
-          <template v-else>
-            <div v-if="workspace.actions.canCreateTechnicalOrder" class="technical-order-form">
-              <label class="checkbox-field">
-                <input v-model="technicalRequiredBeforeSignOut" type="checkbox" />
-                Required before sign-out
-              </label>
-              <article
-                v-for="(draft, index) in technicalDrafts"
-                :key="index"
-                class="technical-draft"
+            <div v-else class="empty-state compact">
+              <strong>暂无历史病理记录</strong><span>患者历史接入后显示在这里。</span>
+            </div>
+          </section>
+        </aside>
+
+        <main class="diagnosis-editor-stage">
+          <section class="diagnosis-editor-card" aria-label="诊断编辑器">
+            <header class="panel-title-row">
+              <div>
+                <p class="section-kicker">诊断内容</p>
+                <h2>{{ editorTitle }}</h2>
+              </div>
+              <span v-if="workspace.diagnosis" class="status-pill"
+                >最近保存 {{ formatDateTime(workspace.diagnosis.updatedAt) }}</span
               >
-                <label>
-                  Project
-                  <select v-model="draft.projectId" required @change="syncDraftTargetType(index)">
-                    <option value="" disabled>选择 TechnicalProject</option>
-                    <option
-                      v-for="project in technicalProjects"
-                      :key="project.projectId"
-                      :value="project.projectId"
-                    >
-                      {{ project.projectCode }} · {{ project.projectName }}
-                    </option>
-                  </select>
-                </label>
-                <label>
-                  Target type
-                  <select v-model="draft.targetType" required>
-                    <option
-                      v-for="targetType in projectForDraft(draft.projectId)?.allowedTargetTypes ??
-                      []"
-                      :key="targetType"
-                      :value="targetType"
-                    >
-                      {{ targetType }}
-                    </option>
-                  </select>
-                </label>
-                <label>
-                  Target ID
+            </header>
+
+            <div v-if="!workspace.diagnosis" class="empty-state">
+              <strong>病例尚未接诊</strong><span>接诊后会建立初诊责任并打开诊断编辑器。</span>
+            </div>
+            <fieldset v-else :disabled="!canEdit || submitting" class="diagnosis-fields">
+              <legend class="visually-hidden">诊断内容</legend>
+              <template v-for="component in templateComponents" :key="component.code">
+                <label v-if="['TEXT', 'TEXTAREA'].includes(componentType(component))">
+                  {{ component.label || component.code }}
+                  <textarea
+                    v-if="componentType(component) === 'TEXTAREA'"
+                    :value="stringValue(component)"
+                    :required="component.required"
+                    :readonly="component.readOnly"
+                    rows="3"
+                    @input="updateStructuredValue(component.code, eventValue($event))"
+                  ></textarea>
                   <input
-                    v-model="draft.targetId"
-                    required
-                    placeholder="CASE / SPECIMEN / BLOCK / SLIDE ID"
+                    v-else
+                    :value="stringValue(component)"
+                    :required="component.required"
+                    :readonly="component.readOnly"
+                    @input="updateStructuredValue(component.code, eventValue($event))"
                   />
                 </label>
-                <label>
-                  Quantity
-                  <input v-model.number="draft.quantity" min="1" type="number" />
-                </label>
-                <label>
-                  Parameters JSON
-                  <input v-model="draft.parameters" placeholder="{}" />
-                </label>
-                <button
-                  type="button"
-                  :disabled="technicalDrafts.length === 1"
-                  @click="removeTechnicalDraft(index)"
+                <label
+                  v-else-if="['SINGLE_SELECT', 'DICTIONARY'].includes(componentType(component))"
                 >
-                  Remove item
-                </button>
-              </article>
-              <div class="technical-form-actions">
-                <button type="button" @click="addTechnicalDraft">Add item</button>
-                <button
-                  class="primary-action"
-                  type="button"
-                  :disabled="submitting"
-                  @click="createTechnicalOrder"
-                >
-                  Create TechnicalOrder
-                </button>
-              </div>
-            </div>
-            <p v-else class="field-hint">当前责任人或权限不足，TechnicalOrder 只读。</p>
-          </template>
-          <div v-if="workspace.technicalOrders.length" class="technical-order-list">
-            <article
-              v-for="order in workspace.technicalOrders"
-              :key="order.orderId"
-              class="technical-order-card"
-            >
-              <div class="technical-order-card-heading">
-                <strong>{{ order.orderNo }}</strong>
-                <span :class="{ 'blocking-chip': order.blocking }">{{ order.status }}</span>
-              </div>
-              <small
-                >{{ order.items.length }} items ·
-                {{ order.requiredBeforeSignOut ? 'blocking configured' : 'not blocking' }}</small
-              >
-              <ul>
-                <li v-for="item in order.items" :key="item.itemId">
-                  {{ item.projectCode }} · {{ item.status }} · {{ item.completedCount }}/{{
-                    item.expectedCount
-                  }}
-                  <span v-if="item.outputs.length">
-                    · {{ item.outputs.map((output) => output.outputKind).join(', ') }}</span
+                  {{ component.label || component.code }}
+                  <select
+                    :value="stringValue(component)"
+                    :disabled="component.readOnly"
+                    @change="updateStructuredValue(component.code, eventValue($event))"
                   >
-                  <span v-if="item.result"> · result v{{ item.result.version }}</span>
-                </li>
-              </ul>
-            </article>
-          </div>
-          <p v-else class="field-hint">当前 Diagnosis 尚无 TechnicalOrder。</p>
-        </section>
+                    <option value="">请选择</option>
+                    <option
+                      v-for="option in templateOptions(component)"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <label v-else-if="componentType(component) === 'BOOLEAN'" class="checkbox-label">
+                  <input
+                    type="checkbox"
+                    :checked="Boolean(structuredValue(component))"
+                    :disabled="component.readOnly"
+                    @change="updateStructuredValue(component.code, eventCheckedValue($event))"
+                  />
+                  {{ component.label || component.code }}
+                </label>
+              </template>
+              <label v-if="!hasTemplateComponent('microscopicDescription')">
+                镜下所见
+                <textarea
+                  v-model="microscopicDescription"
+                  class="microscopic-text"
+                  placeholder="记录镜下形态、结构及必要的阴性所见"
+                ></textarea>
+              </label>
+              <label v-if="!hasTemplateComponent('diagnosisText')">
+                病理诊断
+                <textarea
+                  v-model="diagnosisText"
+                  class="diagnosis-text"
+                  placeholder="输入正式病理诊断"
+                ></textarea>
+              </label>
+              <label v-if="!hasTemplateComponent('comment')">
+                备注
+                <textarea
+                  v-model="comment"
+                  rows="2"
+                  placeholder="可选：建议、说明或备注"
+                ></textarea>
+              </label>
+            </fieldset>
+          </section>
+        </main>
 
-        <section class="report-panel" aria-label="V2 报告预览与签发">
-          <div class="section-heading">
-            <div>
-              <h3>报告预览 / 签发</h3>
-              <span>预览可重新生成；每次签发都会创建新的不可变 Report。</span>
+        <aside class="diagnosis-inspector" aria-label="责任、医嘱与报告">
+          <section class="inspector-section">
+            <h3>责任链</h3>
+            <div class="responsibility-timeline">
+              <div
+                v-for="role in ['INITIAL', 'REVIEW', 'AUDIT'] as const"
+                :key="role"
+                class="responsibility-step"
+              >
+                <span
+                  class="semantic-dot"
+                  :class="
+                    workspace.responsibilityChain.some((item) => item.role === role && item.current)
+                      ? 'current'
+                      : workspace.responsibilityChain.some(
+                            (item) => item.role === role && item.completedAt,
+                          )
+                        ? 'success'
+                        : 'neutral'
+                  "
+                ></span>
+                <span>
+                  <strong>{{ responsibilityName(role) }}</strong>
+                  <small>{{
+                    doctorName(
+                      workspace.responsibilityChain.find((item) => item.role === role)?.doctorId,
+                    )
+                  }}</small>
+                </span>
+                <span>{{
+                  workspace.responsibilityChain.some(
+                    (item) => item.role === role && item.completedAt,
+                  )
+                    ? '✓'
+                    : workspace.responsibilityChain.some(
+                          (item) => item.role === role && item.current,
+                        )
+                      ? '当前'
+                      : '待分配'
+                }}</span>
+              </div>
             </div>
-            <strong v-if="(workspace.blockingReasons ?? []).length" class="blocking-chip">
-              {{ (workspace.blockingReasons ?? []).length }} 个阻断原因
-            </strong>
-          </div>
-          <ul v-if="(workspace.blockingReasons ?? []).length" class="blocking-reasons">
-            <li v-for="reason in workspace.blockingReasons ?? []" :key="reason">{{ reason }}</li>
-          </ul>
-          <div class="report-actions">
+
+            <div
+              v-if="currentRole && currentRole !== 'AUDIT' && canEdit"
+              class="next-responsibility-form"
+            >
+              <label>
+                下一步
+                <select v-model="nextRole">
+                  <option v-if="currentRole === 'INITIAL'" value="REVIEW">提交复诊</option>
+                  <option value="AUDIT">提交审核</option>
+                </select>
+              </label>
+              <label>
+                {{ responsibilityName(nextRole) }}医生
+                <select v-model="nextDoctorId">
+                  <option value="" disabled>请选择医生</option>
+                  <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+                    {{ doctor.displayName }} · {{ doctor.title || '医生' }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div v-if="workspace.actions.canReassign" class="reassignment-form">
+              <label>
+                改派给
+                <select v-model="assignmentDoctor">
+                  <option value="" disabled>请选择医生</option>
+                  <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+                    {{ doctor.displayName }}
+                  </option>
+                </select>
+              </label>
+              <label>改派原因 <input v-model="assignmentReason" placeholder="必填" /></label>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="!assignmentDoctor || !assignmentReason.trim() || submitting"
+                @click="reassign"
+              >
+                确认改派
+              </button>
+            </div>
+          </section>
+
+          <section v-if="molecularResults.length" class="inspector-section">
+            <header class="panel-title-row">
+              <h3>分子结果</h3>
+              <span class="status-pill success">{{ molecularResults.length }} 项已返回</span>
+            </header>
+            <div class="technical-result-list">
+              <div
+                v-for="result in molecularResults"
+                :key="result.resultId"
+                class="technical-result-item"
+              >
+                <span class="semantic-dot success"></span>
+                <span>
+                  <strong>{{ result.resultCode }}</strong>
+                  <small>{{ molecularResultSummary(result.resultData) }}</small>
+                </span>
+                <span>{{ result.statusCode === 'COMPLETED' ? '已完成' : '处理中' }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="inspector-section">
+            <header class="panel-title-row">
+              <h3>技术医嘱</h3>
+              <span v-if="technicalReturnedCount" class="status-pill success"
+                >{{ technicalReturnedCount }} 项结果已返回</span
+              >
+            </header>
+            <div v-if="workspace.technicalOrders.length" class="technical-result-list">
+              <div
+                v-for="order in workspace.technicalOrders"
+                :key="order.orderId"
+                class="technical-result-item"
+              >
+                <span
+                  class="semantic-dot"
+                  :class="
+                    order.status === 'COMPLETED'
+                      ? 'success'
+                      : order.blocking
+                        ? 'warning'
+                        : 'neutral'
+                  "
+                ></span>
+                <span
+                  ><strong>{{ order.items.map((item) => item.projectName).join('、') }}</strong
+                  ><small
+                    >{{ order.items.reduce((sum, item) => sum + item.completedCount, 0) }}/{{
+                      order.items.reduce((sum, item) => sum + item.expectedCount, 0)
+                    }}
+                    完成</small
+                  ></span
+                >
+                <span>{{ statusName(order.status) }}</span>
+              </div>
+            </div>
+            <p v-else class="muted">当前没有技术医嘱。</p>
+          </section>
+
+          <section class="inspector-section">
+            <h3>报告</h3>
+            <div class="report-status-list">
+              <span
+                ><small>当前状态</small><strong>{{ reportStatus }}</strong></span
+              >
+              <span
+                ><small>制片</small><strong>{{ productionSummary }}</strong></span
+              >
+              <span v-if="workspace.blockingReasons.length"
+                ><small>暂不能签发</small
+                ><strong>{{ workspace.blockingReasons.length }} 项待处理</strong></span
+              >
+            </div>
+            <ul v-if="workspace.blockingReasons.length" class="plain-warning-list">
+              <li v-for="reason in workspace.blockingReasons" :key="reason">
+                {{ blockerText(reason) }}
+              </li>
+            </ul>
+          </section>
+
+          <section v-if="workspace.reports.length" class="inspector-section">
+            <h3>报告历史</h3>
+            <div class="report-history-list">
+              <article v-for="report in workspace.reports" :key="report.reportId">
+                <span
+                  ><strong>{{ report.reportNo }}</strong
+                  ><small
+                    >{{ report.supplemental ? '补充报告' : '正式报告' }} ·
+                    {{ report.status === 'EFFECTIVE' ? '生效' : '已撤回' }}</small
+                  ></span
+                >
+                <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
+                  >PDF</a
+                >
+              </article>
+            </div>
+            <div class="inline-actions">
+              <button
+                v-if="workspace.actions.canWithdraw"
+                class="text-button"
+                type="button"
+                @click="withdrawalOpen = !withdrawalOpen"
+              >
+                撤回
+              </button>
+              <button
+                v-if="workspace.actions.canSupplement"
+                class="text-button"
+                type="button"
+                @click="supplementalOpen = !supplementalOpen"
+              >
+                补充报告
+              </button>
+            </div>
+            <div v-if="withdrawalOpen" class="report-inline-form">
+              <label>撤回原因 <input v-model="withdrawalReason" /></label>
+              <button
+                v-for="report in workspace.reports.filter((item) => item.status === 'EFFECTIVE')"
+                :key="report.reportId"
+                class="danger-button"
+                type="button"
+                :disabled="!withdrawalReason.trim() || submitting"
+                @click="withdrawReport(report.reportId)"
+              >
+                确认撤回 {{ report.reportNo }}
+              </button>
+            </div>
+            <div v-if="supplementalOpen" class="report-inline-form">
+              <label>补充内容 <textarea v-model="supplementalContent" rows="3"></textarea></label>
+              <button
+                class="primary-button"
+                type="button"
+                :disabled="!supplementalContent.trim() || submitting"
+                @click="supplementReport"
+              >
+                签发补充报告
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <footer class="workspace-action-bar" aria-label="诊断主要操作">
+        <span class="muted"
+          >Ctrl + S 保存 · 当前身份：{{ props.authUser?.displayName ?? '当前用户' }}</span
+        >
+        <div class="action-group">
+          <template v-if="!workspace.diagnosis">
             <button
+              v-if="workspace.actions.canClaim"
+              class="primary-button"
+              type="button"
+              :disabled="submitting"
+              @click="claim"
+            >
+              接诊
+            </button>
+            <template v-if="workspace.actions.canAssign">
+              <select v-model="assignmentDoctor" aria-label="分配医生">
+                <option value="" disabled>选择初诊医生</option>
+                <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+                  {{ doctor.displayName }}
+                </option>
+              </select>
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="!assignmentDoctor || submitting"
+                @click="assign"
+              >
+                分配
+              </button>
+            </template>
+          </template>
+          <template v-else>
+            <button
+              class="secondary-button"
+              type="button"
+              :disabled="!canEdit || submitting"
+              @click="save"
+            >
+              保存
+            </button>
+            <button
+              v-if="workspace.actions.canCreateTechnicalOrder"
+              class="secondary-button"
+              type="button"
+              @click="technicalPanelOpen = true"
+            >
+              技术医嘱
+            </button>
+            <button
+              v-if="completionAllowed"
+              class="primary-button"
+              type="button"
+              :disabled="submitting || (currentRole !== 'AUDIT' && !nextDoctorId)"
+              @click="complete"
+            >
+              {{ responsibilityActionLabel }}
+            </button>
+            <button
+              class="secondary-button"
               type="button"
               :disabled="!workspace.actions.canPreview || submitting"
               @click="previewReport"
             >
-              预览报告
+              报告预览
             </button>
             <button
-              class="primary-action"
+              class="primary-button"
               type="button"
               :disabled="!workspace.actions.canSignOut || submitting"
               @click="signOutReport"
             >
-              签发报告
+              签发
             </button>
-          </div>
-          <pre v-if="reportPreview" class="report-preview">{{ reportPreview.renderedContent }}</pre>
-          <div v-if="workspace.actions.canWithdraw" class="report-withdrawal">
-            <input v-model="withdrawalReason" placeholder="撤回原因" />
-            <button
-              v-for="report in (workspace.reports ?? []).filter(
-                (item) => item.status === 'EFFECTIVE',
-              )"
-              :key="report.reportId"
-              type="button"
-              :disabled="submitting || !withdrawalReason.trim()"
-              @click="withdrawReport(report.reportId)"
-            >
-              撤回 {{ report.reportNo }}
-            </button>
-          </div>
-          <div v-if="workspace.actions.canSupplement" class="report-supplement">
-            <textarea v-model="supplementalContent" rows="3" placeholder="补充诊断或技术结果" />
-            <button
-              type="button"
-              :disabled="submitting || !supplementalContent.trim()"
-              @click="supplementReport"
-            >
-              签发补充报告
-            </button>
-          </div>
-          <div class="report-history" aria-label="Report history">
-            <h4>报告历史</h4>
-            <p v-if="!(workspace.reports ?? []).length" class="field-hint">尚无已签发报告。</p>
-            <article
-              v-for="report in workspace.reports ?? []"
-              :key="report.reportId"
-              class="report-history-card"
-            >
-              <strong>{{ report.reportNo }}</strong>
-              <span>{{ report.nature }} / {{ report.status }}</span>
-              <small>{{ report.signedBy }} · {{ report.signedAt }}</small>
-              <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
-                >打开 PDF</a
-              >
-              <p v-if="report.withdrawalReason">{{ report.withdrawalReason }}</p>
-            </article>
-          </div>
-        </section>
-
-        <div class="responsibility-history" aria-label="责任链历史">
-          <div class="section-heading">
-            <h3>Responsibility Chain</h3>
-            <span>{{ workspace.responsibilityChain.length }} 个节点</span>
-          </div>
-          <ol>
-            <li
-              v-for="item in workspace.responsibilityChain"
-              :key="item.responsibilityId"
-              :class="{ current: item.current }"
-            >
-              <strong>{{ item.sequence }} · {{ item.role }}</strong>
-              <span>{{ item.doctorId }}</span>
-              <em>{{ item.current ? '当前' : item.completedAt ? '已完成' : '已结束' }}</em>
-            </li>
-          </ol>
+          </template>
         </div>
-      </section>
+      </footer>
+    </template>
+
+    <div v-if="technicalPanelOpen" class="drawer-backdrop" @click.self="technicalPanelOpen = false">
+      <aside
+        class="technical-order-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="开立技术医嘱"
+      >
+        <header class="drawer-header">
+          <div>
+            <p class="section-kicker">诊断辅助</p>
+            <h2>开立技术医嘱</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="关闭技术医嘱"
+            @click="technicalPanelOpen = false"
+          >
+            ×
+          </button>
+        </header>
+        <label class="checkbox-label"
+          ><input
+            v-model="technicalRequiredBeforeSignOut"
+            type="checkbox"
+          />这些结果返回前暂不签发</label
+        >
+        <article
+          v-for="(draft, index) in technicalDrafts"
+          :key="index"
+          class="technical-order-draft"
+        >
+          <header>
+            <strong>项目 {{ index + 1 }}</strong
+            ><button
+              class="text-button"
+              type="button"
+              :disabled="technicalDrafts.length === 1"
+              @click="removeTechnicalDraft(index)"
+            >
+              删除
+            </button>
+          </header>
+          <label
+            >项目
+            <select v-model="draft.projectId" @change="syncDraftProject(index)">
+              <option value="" disabled>请选择项目</option>
+              <option
+                v-for="project in technicalProjects"
+                :key="project.projectId"
+                :value="project.projectId"
+              >
+                {{ project.projectName }}
+              </option>
+            </select></label
+          >
+          <div class="field-grid">
+            <label
+              >材料类型
+              <select v-model="draft.targetType" @change="syncDraftTarget(index)">
+                <option
+                  v-for="type in projectForDraft(draft.projectId)?.allowedTargetTypes ?? []"
+                  :key="type"
+                  :value="type"
+                >
+                  {{
+                    type === 'CASE'
+                      ? '病例'
+                      : type === 'SPECIMEN'
+                        ? '标本'
+                        : type === 'BLOCK'
+                          ? '蜡块'
+                          : '玻片'
+                  }}
+                </option>
+              </select></label
+            >
+            <label
+              >目标材料
+              <select v-model="draft.targetId">
+                <option value="" disabled>请选择</option>
+                <option
+                  v-for="target in targetOptions[draft.targetType]"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ target.label }}
+                </option>
+              </select></label
+            >
+          </div>
+          <div class="field-grid">
+            <label>数量 <input v-model.number="draft.quantity" min="1" type="number" /></label
+            ><label>备注 <input v-model="draft.note" /></label>
+          </div>
+        </article>
+        <button class="secondary-button" type="button" @click="addTechnicalDraft">
+          + 添加项目
+        </button>
+        <div class="sticky-form-actions">
+          <span class="muted">共 {{ technicalDrafts.length }} 个项目</span
+          ><button
+            class="primary-button"
+            type="button"
+            :disabled="
+              submitting || technicalDrafts.some((item) => !item.projectId || !item.targetId)
+            "
+            @click="createTechnicalOrderCommand"
+          >
+            确认开立
+          </button>
+        </div>
+      </aside>
     </div>
 
-    <footer v-if="workspace" class="command-bar" aria-label="诊断命令区">
-      <div class="command-group">
-        <button
-          v-if="workspace.actions.canClaim"
-          type="button"
-          :disabled="submitting"
-          @click="claim"
-        >
-          公开池自主认领
+    <div
+      v-if="previewOpen && reportPreview"
+      class="report-preview-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="报告预览"
+    >
+      <article v-if="previewDocument" class="report-preview-paper" aria-label="报告内容">
+        <header class="report-document-header">
+          <p>病理诊断报告</p>
+          <h2>{{ previewDocument.case?.pathologyNo ?? workspace?.caseSummary.pathologyNo }}</h2>
+          <div>
+            <span
+              >患者：{{
+                previewDocument.case?.patientReference ?? workspace?.patient.patientReference
+              }}</span
+            >
+            <span
+              >就诊：{{
+                previewDocument.case?.visitReference ?? workspace?.patient.visitReference
+              }}</span
+            >
+            <span>业务类型：{{ businessTypeName(previewDocument.case?.businessTypeCode) }}</span>
+          </div>
+        </header>
+        <section>
+          <h3>镜下所见</h3>
+          <p>{{ previewDocument.diagnosis?.microscopicDescription || '未填写' }}</p>
+        </section>
+        <section class="report-diagnosis-section">
+          <h3>病理诊断</h3>
+          <p>{{ previewDocument.diagnosis?.diagnosisText || '未填写' }}</p>
+        </section>
+        <section v-if="previewSlides.length">
+          <h3>材料</h3>
+          <p>
+            {{
+              previewSlides
+                .map((item) => [item.slideCode, item.slideType].filter(Boolean).join(' · '))
+                .join('、')
+            }}
+          </p>
+        </section>
+        <section v-if="previewDocument.technicalResults?.length">
+          <h3>技术结果</h3>
+          <ul>
+            <li v-for="order in previewDocument.technicalResults" :key="order.orderNo">
+              {{
+                order.items
+                  ?.map(
+                    (item) =>
+                      `${technicalProjectName(item.projectCode)} ${item.completedCount ?? 0}/${item.expectedCount ?? 0}`,
+                  )
+                  .join('、')
+              }}
+            </li>
+          </ul>
+        </section>
+        <footer class="report-signature-row">
+          <span
+            v-for="item in previewDocument.responsibility"
+            :key="`${item.role}-${item.doctorId}`"
+          >
+            <small>{{ responsibilityName(item.role) }}</small>
+            <strong>{{ doctorName(item.doctorId) }}</strong>
+            <small>{{ formatDateTime(item.completedAt) }}</small>
+          </span>
+        </footer>
+      </article>
+      <article v-else class="report-preview-paper report-preview-unavailable">
+        <strong>暂时无法显示报告版式</strong>
+        <span>请返回诊断后重新生成预览。</span>
+      </article>
+      <aside class="report-preview-actions">
+        <header>
+          <p class="section-kicker">报告预览</p>
+          <h2>签发前确认</h2>
+        </header>
+        <p v-if="reportPreview.valid" class="feedback success">预览有效，可以签发。</p>
+        <div v-else class="feedback warning">
+          <span
+            ><strong>暂不能签发：</strong><br /><template
+              v-for="reason in reportPreview.blockingReasons"
+              :key="reason"
+              >{{ blockerText(reason) }}<br /></template
+          ></span>
+        </div>
+        <button class="secondary-button" type="button" @click="previewOpen = false">
+          返回诊断
         </button>
         <button
-          v-if="workspace.actions.canAssign"
+          class="primary-button"
           type="button"
-          :disabled="submitting || !assignmentDoctor || !assignmentReason"
-          @click="assign"
+          :disabled="!workspace?.actions.canSignOut || submitting"
+          @click="signOutReport"
         >
-          手工分配
+          确认签发
         </button>
-        <button
-          v-if="workspace.actions.canReassign"
-          type="button"
-          :disabled="submitting || !assignmentDoctor || !assignmentReason"
-          @click="reassign"
-        >
-          重分配
-        </button>
-        <input v-model="assignmentDoctor" aria-label="目标责任医生" placeholder="目标医生 ID" />
-        <input
-          v-model="assignmentReason"
-          aria-label="分配或重分配原因"
-          placeholder="责任变更原因"
-        />
-      </div>
-      <div v-if="currentResponsibility" class="command-group completion-group">
-        <label v-if="currentRole !== 'AUDIT'"
-          >下一责任
-          <select v-model="nextRole" aria-label="选择下一责任">
-            <option value="">完成本节点</option>
-            <option value="REVIEW">REVIEW</option>
-            <option value="AUDIT">AUDIT</option>
-          </select>
-        </label>
-        <input
-          v-if="nextRole && currentRole !== 'AUDIT'"
-          v-model="nextDoctorId"
-          aria-label="下一责任医生"
-          placeholder="下一医生 ID"
-        />
-        <button
-          class="primary-action"
-          type="button"
-          :disabled="!completionAllowed || submitting"
-          @click="complete"
-        >
-          完成 {{ currentRole }} 责任
-        </button>
-      </div>
-      <div class="future-actions">
-        <span>TechnicalOrder：{{ workspace.technicalOrder.status }}</span>
-        <span>Report：{{ workspace.report.status }}</span>
-      </div>
-    </footer>
+      </aside>
+    </div>
   </section>
-  <!-- eslint-enable vue/html-indent, vue/html-closing-bracket-newline, vue/max-attributes-per-line -->
 </template>
-
-<style scoped>
-.v2-diagnosis-workspace {
-  background: #f8faf8;
-  border: 1px solid #cbd9d2;
-  border-radius: 24px;
-  color: #17322b;
-  margin-top: 28px;
-  overflow: hidden;
-}
-.diagnosis-header {
-  align-items: end;
-  background: linear-gradient(120deg, #103e36, #1f6656);
-  color: #f5fbf7;
-  display: flex;
-  justify-content: space-between;
-  padding: 30px 34px;
-}
-.workspace-kicker {
-  color: #99d6b5;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  margin: 0 0 9px;
-}
-h2,
-h3,
-p {
-  margin-top: 0;
-}
-h2 {
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
-  letter-spacing: -0.05em;
-  margin-bottom: 6px;
-}
-.workspace-caption {
-  color: #d7ece0;
-  margin-bottom: 0;
-}
-.case-entry,
-fieldset label {
-  display: grid;
-  gap: 7px;
-}
-.case-entry span,
-.label {
-  color: #a7c6b7;
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-input,
-textarea,
-select {
-  background: #fff;
-  border: 1px solid #b9ccc2;
-  border-radius: 9px;
-  color: #17322b;
-  font: inherit;
-  padding: 10px 12px;
-}
-.case-entry input {
-  min-width: 280px;
-}
-.state-message {
-  margin: 0;
-  padding: 14px 24px;
-}
-.state-message.error {
-  background: #fff0ee;
-  color: #a33d35;
-}
-.state-message.success {
-  background: #e9f8ed;
-  color: #1c7143;
-}
-.workspace-body {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.5fr);
-}
-.case-context,
-.diagnosis-editor {
-  min-width: 0;
-  padding: 26px;
-}
-.case-context {
-  background: #edf4f0;
-  border-right: 1px solid #d2dfd8;
-}
-.case-summary {
-  display: grid;
-  gap: 5px;
-}
-.case-summary strong {
-  font-size: 1.5rem;
-}
-.summary-meta {
-  color: #60786d;
-  font-size: 0.9rem;
-}
-.snapshot-list {
-  display: grid;
-  gap: 10px;
-  margin: 22px 0;
-}
-.snapshot-list div {
-  border-bottom: 1px solid #d4e0da;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  padding-bottom: 8px;
-}
-dt {
-  color: #667f73;
-  font-size: 0.85rem;
-}
-dd {
-  font-weight: 700;
-  margin: 0;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-.section-heading,
-.editor-heading {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.section-heading h3 {
-  font-size: 1rem;
-  margin-bottom: 0;
-}
-.section-heading span {
-  color: #698276;
-  font-size: 0.82rem;
-}
-.tree-status {
-  color: #9b5a1c;
-  font-size: 0.85rem;
-  margin: 12px 0;
-}
-.tree-status.ready {
-  color: #1e7a4a;
-}
-.material-tree,
-.material-tree ul {
-  list-style: none;
-  margin: 0;
-  padding-left: 0;
-}
-.material-tree ul {
-  border-left: 1px solid #b9ccc2;
-  margin-left: 13px;
-  padding-left: 12px;
-}
-.material-tree li {
-  margin: 8px 0;
-}
-.tree-node {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  color: #29483c;
-  display: inline-flex;
-  font-size: 0.9rem;
-  gap: 7px;
-  padding: 4px 0;
-  text-align: left;
-}
-.specimen-node {
-  font-weight: 800;
-}
-.node-type {
-  align-items: center;
-  background: #bcd8c9;
-  border-radius: 5px;
-  color: #215441;
-  display: inline-flex;
-  font-size: 0.68rem;
-  font-weight: 900;
-  height: 22px;
-  justify-content: center;
-  width: 22px;
-}
-.slide-node.complete {
-  color: #24784c;
-}
-.slide-node.complete .node-type {
-  background: #a9dfbc;
-}
-.editor-heading strong {
-  font-size: 1.05rem;
-}
-.version-chip {
-  background: #e1f2e6;
-  border-radius: 999px;
-  color: #24784c;
-  font-size: 0.82rem;
-  padding: 6px 10px;
-}
-.ready-chip {
-  background: #fff2cb;
-  border-radius: 999px;
-  color: #7b5310;
-  font-size: 0.75rem;
-  font-weight: 800;
-  padding: 7px 11px;
-}
-.template-strip {
-  align-items: center;
-  background: #f1f6f2;
-  border: 1px solid #d5e3db;
-  border-radius: 10px;
-  display: flex;
-  gap: 10px;
-  margin: 20px 0;
-  padding: 10px 12px;
-}
-.template-strip span {
-  color: #698276;
-  font-size: 0.82rem;
-}
-fieldset {
-  border: 0;
-  display: grid;
-  gap: 14px;
-  margin: 0;
-  padding: 0;
-}
-.structured-fields {
-  display: grid;
-  gap: 12px;
-}
-.field-hint {
-  color: #698276;
-  font-size: 0.82rem;
-  line-height: 1.5;
-  margin: 0;
-}
-.structured-group {
-  border-bottom: 1px solid #d8e5dd;
-  color: #1d5b45;
-  padding: 6px 0;
-}
-.checkbox-field {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-}
-.checkbox-field input {
-  accent-color: #24784c;
-}
-legend {
-  font-size: 1.05rem;
-  font-weight: 800;
-  margin-bottom: 12px;
-}
-textarea {
-  min-height: 76px;
-  resize: vertical;
-}
-fieldset:disabled {
-  opacity: 0.62;
-}
-button {
-  background: #fff;
-  border: 1px solid #aac3b5;
-  border-radius: 9px;
-  color: #205440;
-  cursor: pointer;
-  font-weight: 750;
-  min-height: 42px;
-  padding: 9px 14px;
-}
-button:hover:not(:disabled) {
-  background: #e9f5ed;
-}
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 3px solid #f1ad54;
-  outline-offset: 2px;
-}
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.primary-action {
-  background: #1e6a52;
-  border-color: #1e6a52;
-  color: #fff;
-}
-.diagnosis-editor > .primary-action {
-  margin-top: 16px;
-  width: 100%;
-}
-.technical-order-panel {
-  border-top: 1px solid #d5e3db;
-  margin-top: 28px;
-  padding-top: 20px;
-}
-.technical-order-form,
-.technical-order-list {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-}
-.technical-draft {
-  align-items: end;
-  background: #f1f6f2;
-  border: 1px solid #d5e3db;
-  border-radius: 12px;
-  display: grid;
-  gap: 10px;
-  grid-template-columns: 1.3fr 0.8fr 1.4fr 0.55fr 1.2fr auto;
-  padding: 12px;
-}
-.technical-draft label {
-  display: grid;
-  gap: 6px;
-  font-size: 0.78rem;
-  font-weight: 750;
-}
-.technical-draft input,
-.technical-draft select {
-  min-width: 0;
-  padding: 8px 9px;
-}
-.technical-form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.technical-order-card {
-  background: #fff;
-  border: 1px solid #cbd9d2;
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.technical-order-card-heading {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-.technical-order-card small,
-.technical-order-card li {
-  color: #60786d;
-  font-size: 0.82rem;
-}
-.technical-order-card ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
-.technical-order-card span {
-  color: #24784c;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-.technical-order-card .blocking-chip {
-  color: #9b5a1c;
-}
-.report-panel {
-  border-top: 1px solid #d5e3db;
-  margin-top: 28px;
-  padding-top: 20px;
-}
-.report-actions,
-.report-withdrawal,
-.report-supplement {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-.blocking-reasons {
-  color: #9b5a1c;
-  font-size: 0.82rem;
-  margin: 12px 0 0;
-}
-.report-preview {
-  background: #10211c;
-  border-radius: 12px;
-  color: #d7f3df;
-  max-height: 260px;
-  overflow: auto;
-  padding: 14px;
-  white-space: pre-wrap;
-  margin-top: 14px;
-}
-.report-history {
-  display: grid;
-  gap: 8px;
-  margin-top: 18px;
-}
-.report-history h4 {
-  margin: 0;
-}
-.report-history-card {
-  background: #fff;
-  border: 1px solid #cbd9d2;
-  border-radius: 12px;
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-}
-.report-history-card span,
-.report-history-card small {
-  color: #60786d;
-  font-size: 0.8rem;
-}
-.report-history-card a {
-  color: #1e6a52;
-  font-weight: 750;
-}
-.empty-editor {
-  background: #f3f7f3;
-  border: 1px dashed #b8cec0;
-  border-radius: 12px;
-  color: #60786d;
-  padding: 22px;
-}
-.responsibility-history {
-  border-top: 1px solid #d5e3db;
-  margin-top: 26px;
-  padding-top: 20px;
-}
-.responsibility-history ol {
-  display: grid;
-  gap: 8px;
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 0;
-}
-.responsibility-history li {
-  align-items: center;
-  border-left: 3px solid #c6d7cd;
-  display: grid;
-  gap: 2px;
-  grid-template-columns: 1fr 1fr auto;
-  padding: 9px 12px;
-}
-.responsibility-history li.current {
-  background: #e8f6ec;
-  border-left-color: #2f8a57;
-}
-.responsibility-history span,
-.responsibility-history em {
-  color: #6b8377;
-  font-size: 0.82rem;
-  font-style: normal;
-}
-.command-bar {
-  align-items: center;
-  background: #e5f0e9;
-  border-top: 1px solid #cbd9d2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: space-between;
-  padding: 18px 26px;
-}
-.command-group {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.command-group input {
-  min-width: 150px;
-}
-.completion-group label {
-  align-items: center;
-  color: #567166;
-  display: flex;
-  font-size: 0.82rem;
-  gap: 7px;
-}
-.future-actions {
-  color: #6b8377;
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 0.8rem;
-  gap: 12px;
-}
-@media (max-width: 860px) {
-  .diagnosis-header {
-    align-items: start;
-    flex-direction: column;
-    gap: 20px;
-  }
-  .case-entry,
-  .case-entry input {
-    width: 100%;
-  }
-  .workspace-body {
-    grid-template-columns: 1fr;
-  }
-  .case-context {
-    border-bottom: 1px solid #d2dfd8;
-    border-right: 0;
-  }
-  .technical-draft {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 560px) {
-  .diagnosis-header,
-  .case-context,
-  .diagnosis-editor,
-  .command-bar {
-    padding: 20px;
-  }
-  .responsibility-history li {
-    align-items: start;
-    grid-template-columns: 1fr;
-  }
-  .future-actions {
-    width: 100%;
-  }
-  .technical-draft {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

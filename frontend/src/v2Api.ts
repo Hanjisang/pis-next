@@ -2,6 +2,9 @@ export type V2CaseResult = {
   caseId: string;
   caseNo: string;
   businessTypeCode: string;
+  patientReference: string;
+  visitReference: string | null;
+  applicationNo: string;
   lifecycleStateCode: string;
   numberBindingActive: boolean;
   concurrencyVersion: number;

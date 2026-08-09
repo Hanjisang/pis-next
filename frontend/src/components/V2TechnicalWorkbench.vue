@@ -1,125 +1,122 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 
+import { getV2Case, type V2CaseResult } from '../v2Api';
+import { completeV2MolecularResult, type V2MolecularResult } from '../v2BusinessApi';
+import { friendlyError, idempotencyKey, statusName } from '../uiText';
 import {
   cancelV2TechnicalOrder,
-  createV2TechnicalProject,
   enterV2TechnicalResult,
   executeV2TechnicalOrder,
-  getV2TechnicalProjects,
   getV2TechnicalWorkbench,
   type V2TechnicalItem,
   type V2TechnicalOrder,
-  type V2TechnicalProject,
 } from '../v2DiagnosisApi';
-import { completeV2Slides } from '../v2MaterialApi';
+import { completeV2Slides, getV2MaterialTree } from '../v2MaterialApi';
 
-const projects = ref<V2TechnicalProject[]>([]);
+type QueueTab = 'PENDING' | 'EXECUTING' | 'RESULT' | 'COMPLETED';
+type ResultDraft = { conclusion: string; value: string };
+
+const emit = defineEmits<{ navigate: [path: string] }>();
+const caseId = defineModel<string>('caseId', { default: '' });
 const orders = ref<V2TechnicalOrder[]>([]);
+const activeTab = ref<QueueTab>('PENDING');
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
-const resultDrafts = reactive<Record<string, string>>({});
-const projectDraft = reactive({
-  businessTypeId: '',
-  projectCode: '',
-  projectName: '',
-  enabled: true,
-  allowedTargetTypes: 'BLOCK,SLIDE',
-  producesSlide: true,
-  producesBlock: false,
-  producesStructuredResult: false,
-  defaultSlideType: 'IHC',
-  parametersSchema: '{}',
-  resultSchema: '{}',
-  feeMapping: '{}',
-  displayConfiguration: '{}',
-  requiredBeforeSignOutDefault: true,
-  configurationVersion: 1,
-});
+const resultDrafts = reactive<Record<string, ResultDraft>>({});
+const cancellationReasons = reactive<Record<string, string>>({});
+const molecularCase = ref<V2CaseResult | null>(null);
+const molecularSpecimenId = ref('');
+const molecularProject = ref('常用分子检测');
+const molecularConclusion = ref('');
+const molecularResult = ref<V2MolecularResult | null>(null);
+const molecularLoading = ref(false);
 
-onMounted(() => void refresh());
+const tabCounts = computed(() => ({
+  PENDING: orders.value.filter((order) => order.status === 'PENDING').length,
+  EXECUTING: orders.value.filter((order) => order.status === 'EXECUTING' && !requiresResult(order))
+    .length,
+  RESULT: orders.value.filter((order) => order.status === 'EXECUTING' && requiresResult(order))
+    .length,
+  COMPLETED: orders.value.filter((order) => order.status === 'COMPLETED').length,
+}));
+const visibleOrders = computed(() =>
+  orders.value.filter((order) => {
+    if (activeTab.value === 'PENDING') return order.status === 'PENDING';
+    if (activeTab.value === 'COMPLETED') return order.status === 'COMPLETED';
+    if (activeTab.value === 'RESULT') return order.status === 'EXECUTING' && requiresResult(order);
+    return order.status === 'EXECUTING' && !requiresResult(order);
+  }),
+);
 
-function key(prefix: string) {
-  return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+watch(caseId, () => void loadMolecularCase(), { immediate: true });
+
+function requiresResult(order: V2TechnicalOrder) {
+  return order.items.some((item) => item.projectCode.includes('MOLECULAR') && !item.result);
+}
+
+function progress(order: V2TechnicalOrder) {
+  const expected = order.items.reduce((sum, item) => sum + item.expectedCount, 0);
+  const completed = order.items.reduce((sum, item) => sum + item.completedCount, 0);
+  return { expected, completed, percent: expected ? Math.round((completed / expected) * 100) : 0 };
 }
 
 async function refresh() {
   loading.value = true;
   error.value = '';
   try {
-    [projects.value, { orders: orders.value }] = await Promise.all([
-      getV2TechnicalProjects(),
-      getV2TechnicalWorkbench(),
-    ]);
-    if (!projectDraft.businessTypeId && projects.value[0]) {
-      projectDraft.businessTypeId = projects.value[0].businessTypeId;
+    ({ orders: orders.value } = await getV2TechnicalWorkbench());
+    for (const order of orders.value) {
+      for (const item of order.items) {
+        resultDrafts[item.itemId] ??= { conclusion: '', value: '' };
+      }
     }
   } catch (requestError) {
-    error.value =
-      requestError instanceof Error ? requestError.message : 'Technical Workbench 加载失败';
+    error.value = friendlyError(requestError, '技术医嘱队列暂时无法加载，请稍后重试。');
   } finally {
     loading.value = false;
   }
 }
 
-async function execute(order: V2TechnicalOrder) {
-  await submit(async () => {
-    await executeV2TechnicalOrder(order.orderId, key(`v2-technical-execute-${order.orderId}`));
-    await refresh();
-    notice.value = `${order.orderNo} 已触发实际输出。`;
-  });
+async function loadMolecularCase() {
+  molecularCase.value = null;
+  molecularSpecimenId.value = '';
+  molecularResult.value = null;
+  if (!caseId.value) return;
+  molecularLoading.value = true;
+  error.value = '';
+  try {
+    const [pathologyCase, materials] = await Promise.all([
+      getV2Case(caseId.value),
+      getV2MaterialTree(caseId.value),
+    ]);
+    if (pathologyCase.businessTypeCode !== 'MOLECULAR') {
+      error.value = '该病例不是独立分子病例，请从技术医嘱队列处理原病例中的分子项目。';
+      return;
+    }
+    molecularCase.value = pathologyCase;
+    molecularSpecimenId.value = materials.specimens[0]?.specimenId ?? '';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '独立分子病例暂时无法加载，请从全局查询重新打开。');
+  } finally {
+    molecularLoading.value = false;
+  }
 }
 
-async function cancel(order: V2TechnicalOrder) {
-  await submit(async () => {
-    await cancelV2TechnicalOrder({
-      orderId: order.orderId,
-      expectedVersion: order.version,
-      reason: 'synthetic operator cancellation',
-      idempotencyKey: key(`v2-technical-cancel-${order.orderId}`),
+function completeIndependentMolecularResult() {
+  if (!molecularCase.value || !molecularProject.value.trim() || !molecularConclusion.value.trim())
+    return;
+  void submit(async () => {
+    molecularResult.value = await completeV2MolecularResult({
+      caseId: molecularCase.value!.caseId,
+      specimenId: molecularSpecimenId.value || undefined,
+      resultCode: molecularProject.value.trim(),
+      resultData: JSON.stringify({ conclusion: molecularConclusion.value.trim() }),
+      idempotencyKey: idempotencyKey('ux01-independent-molecular-result'),
     });
-    await refresh();
-    notice.value = `${order.orderNo} 已取消，已生成事实不会被删除。`;
-  });
-}
-
-async function enterResult(itemId: string) {
-  await submit(async () => {
-    await enterV2TechnicalResult({
-      itemId,
-      resultData: resultDrafts[itemId] || '{}',
-      expectedVersion: 0,
-      idempotencyKey: key(`v2-technical-result-${itemId}`),
-    });
-    await refresh();
-    notice.value = '结构化结果已保存为可追溯版本。';
-  });
-}
-
-async function completeProducedSlides(order: V2TechnicalOrder, item: V2TechnicalItem) {
-  const slides = item.outputs
-    .filter((output) => output.outputKind === 'SLIDE')
-    .map((output) => ({ slideId: output.outputId, expectedVersion: 0 }));
-  if (!slides.length) return;
-  await submit(async () => {
-    await completeV2Slides({
-      slides,
-      idempotencyKey: key(`v2-technical-slides-complete-${order.orderId}-${item.itemId}`),
-    });
-    await refresh();
-    notice.value = `${order.orderNo} 的技术切片已完成，可返回诊断工作区。`;
-  });
-}
-
-async function createProject() {
-  await submit(async () => {
-    await createV2TechnicalProject({ ...projectDraft });
-    await refresh();
-    notice.value = `${projectDraft.projectCode} 配置已创建。`;
-    projectDraft.projectCode = '';
-    projectDraft.projectName = '';
+    notice.value = `${molecularCase.value!.caseNo} 的分子结果已完成，病例已进入待诊池。`;
   });
 }
 
@@ -130,374 +127,313 @@ async function submit(operation: () => Promise<void>) {
   try {
     await operation();
   } catch (requestError) {
-    error.value =
-      requestError instanceof Error ? requestError.message : 'Technical Workbench 操作失败';
+    error.value = friendlyError(requestError, '技术医嘱操作未完成，请刷新后重试。');
   } finally {
     submitting.value = false;
   }
 }
+
+function execute(order: V2TechnicalOrder) {
+  void submit(async () => {
+    await executeV2TechnicalOrder(order.orderId, idempotencyKey('ux01-technical-execute'));
+    await refresh();
+    notice.value = `${order.orderNo} 已开始处理，所需玻片或结果记录已生成。`;
+  });
+}
+
+function cancel(order: V2TechnicalOrder) {
+  const reason = cancellationReasons[order.orderId]?.trim();
+  if (!reason) return;
+  void submit(async () => {
+    await cancelV2TechnicalOrder({
+      orderId: order.orderId,
+      expectedVersion: order.version,
+      reason,
+      idempotencyKey: idempotencyKey('ux01-technical-cancel'),
+    });
+    await refresh();
+    notice.value = `${order.orderNo} 已取消；已经产生的材料和结果记录仍保留。`;
+  });
+}
+
+function enterResult(item: V2TechnicalItem) {
+  const draft = resultDrafts[item.itemId];
+  if (!draft?.conclusion.trim()) return;
+  void submit(async () => {
+    await enterV2TechnicalResult({
+      itemId: item.itemId,
+      resultData: JSON.stringify({
+        conclusion: draft.conclusion.trim(),
+        value: draft.value.trim(),
+      }),
+      expectedVersion: item.result?.version ?? 0,
+      idempotencyKey: idempotencyKey('ux01-technical-result'),
+    });
+    await refresh();
+    notice.value = `${item.projectName} 结果已返回诊断工作区。`;
+  });
+}
+
+function completeProducedSlides(order: V2TechnicalOrder, item: V2TechnicalItem) {
+  const slides = item.outputs
+    .filter((output) => output.outputKind === 'SLIDE')
+    .map((output) => ({ slideId: output.outputId, expectedVersion: 0 }));
+  if (!slides.length) return;
+  void submit(async () => {
+    await completeV2Slides({
+      slides,
+      idempotencyKey: idempotencyKey('ux01-technical-slides-complete'),
+    });
+    await refresh();
+    notice.value = `${order.orderNo} 的 ${slides.length} 张技术玻片已完成，诊断医生现在可以查看。`;
+  });
+}
+
+function targetLabel(item: V2TechnicalItem) {
+  return item.targets.map((target) => target.displayCode).join(' / ') || '病例';
+}
+
+function displayResult(item: V2TechnicalItem) {
+  if (!item.result) return '';
+  try {
+    const parsed = JSON.parse(item.result.resultData) as { conclusion?: string; value?: string };
+    return [parsed.conclusion, parsed.value].filter(Boolean).join(' · ');
+  } catch {
+    return item.result.resultData;
+  }
+}
+
+onMounted(() => void refresh());
 </script>
 
 <template>
-  <section class="v2-technical-workbench" aria-label="V2 Technical Workbench">
-    <header class="technical-header">
+  <section class="technical-workbench-page" aria-label="技术医嘱工作台">
+    <header class="page-heading compact-heading">
       <div>
-        <p class="eyebrow">V2 · I04 · TECHNICAL LOOP</p>
-        <h2>Technical Workbench</h2>
-        <p>TechnicalProject 配置、TechnicalOrder 执行、正式材料输出与结构化结果。</p>
+        <p class="section-kicker">技术医嘱</p>
+        <h2>技术执行工作台</h2>
+        <p>按待处理、处理中、待录结果和已完成组织，不展示配置和内部数据结构。</p>
       </div>
-      <button type="button" :disabled="loading || submitting" @click="refresh">Refresh</button>
+      <button class="secondary-button" type="button" :disabled="loading" @click="refresh">
+        {{ loading ? '刷新中…' : '刷新队列' }}
+      </button>
     </header>
 
-    <p v-if="loading" class="state-message" role="status">Loading Technical Workbench…</p>
-    <p v-if="error" class="state-message error" role="alert">{{ error }}</p>
-    <p v-if="notice" class="state-message success" role="status">{{ notice }}</p>
+    <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
+    <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
 
-    <div class="technical-grid">
-      <section class="technical-card" aria-label="TechnicalProject configuration">
-        <div class="card-heading">
+    <section
+      v-if="molecularLoading || molecularCase"
+      class="workspace-panel independent-molecular-panel"
+      aria-labelledby="independent-molecular-heading"
+    >
+      <div v-if="molecularLoading" class="list-skeleton" aria-label="正在读取分子病例">
+        <span></span><span></span>
+      </div>
+      <template v-else-if="molecularCase">
+        <header class="panel-title-row">
           <div>
-            <h3>TechnicalProject Configuration</h3>
-            <p>配置版本快照进入订单 item，核心输出类型显式声明。</p>
+            <p class="section-kicker">独立分子病例</p>
+            <h3 id="independent-molecular-heading">{{ molecularCase.caseNo }} · 录入结果</h3>
+            <p>{{ molecularCase.patientReference }} · 不经过虚构的取材、蜡块或玻片。</p>
           </div>
-        </div>
-        <form class="project-form" @submit.prevent="createProject">
-          <label>Business type ID<input v-model="projectDraft.businessTypeId" required /></label>
-          <!-- eslint-disable vue/max-attributes-per-line -->
-          <label
-            >Project code<input v-model="projectDraft.projectCode" required placeholder="IHC-KI67"
-          /></label>
-          <!-- eslint-enable vue/max-attributes-per-line -->
-          <label>Project name<input v-model="projectDraft.projectName" required /></label>
-          <label>Allowed targets<input v-model="projectDraft.allowedTargetTypes" required /></label>
-          <label>Default slide type<input v-model="projectDraft.defaultSlideType" /></label>
-          <label
-            >Parameters schema<textarea v-model="projectDraft.parametersSchema" rows="2" />
+          <span class="status-pill" :class="{ success: molecularResult }">{{
+            molecularResult ? '结果已完成' : '待录结果'
+          }}</span>
+        </header>
+        <div class="field-grid">
+          <label>
+            检测项目
+            <input v-model="molecularProject" :readonly="Boolean(molecularResult)" />
           </label>
-          <label>Result schema<textarea v-model="projectDraft.resultSchema" rows="2" /></label>
-          <div class="check-row">
-            <label><input v-model="projectDraft.enabled" type="checkbox" /> Enabled</label>
-            <label><input v-model="projectDraft.producesSlide" type="checkbox" /> Slide</label>
-            <label><input v-model="projectDraft.producesBlock" type="checkbox" /> Block</label>
-            <label
-              ><input v-model="projectDraft.producesStructuredResult" type="checkbox" />
-              Result</label
-            >
-            <label
-              ><input v-model="projectDraft.requiredBeforeSignOutDefault" type="checkbox" />
-              Blocking default</label
-            >
-          </div>
-          <button class="primary-action" type="submit" :disabled="submitting">
-            Create project
-          </button>
-        </form>
-        <ul class="project-list">
-          <li v-for="project in projects" :key="project.projectId">
-            <strong>{{ project.projectCode }}</strong>
-            <span>{{ project.projectName }} · {{ project.allowedTargetTypes.join(', ') }}</span>
-            <small
-              >{{ project.producesSlide ? 'SLIDE ' : '' }}{{ project.producesBlock ? 'BLOCK ' : ''
-              }}{{ project.producesStructuredResult ? 'RESULT' : '' }}</small
-            >
-          </li>
-        </ul>
-      </section>
-
-      <section class="technical-card orders-card" aria-label="TechnicalOrder execution">
-        <div class="card-heading">
-          <div>
-            <h3>TechnicalOrder Queue</h3>
-            <p>状态由实际 output/result fact 投影，取消不删除已产生事实。</p>
-          </div>
-          <strong>{{ orders.length }} active</strong>
+          <label class="span-two">
+            结果结论
+            <textarea
+              v-model="molecularConclusion"
+              rows="3"
+              :readonly="Boolean(molecularResult)"
+              placeholder="录入可供诊断医生查看的结构化结论"
+            ></textarea>
+          </label>
         </div>
-        <p v-if="!orders.length" class="empty-state">当前没有待处理 TechnicalOrder。</p>
-        <article v-for="order in orders" :key="order.orderId" class="order-card">
-          <div class="order-heading">
-            <strong>{{ order.orderNo }}</strong>
-            <span :class="{ blocking: order.blocking }"
-              >{{ order.status }}{{ order.blocking ? ' · BLOCKING' : '' }}</span
-            >
-          </div>
-          <small>case {{ order.caseId }} · {{ order.items.length }} items</small>
-          <ul>
-            <li v-for="item in order.items" :key="item.itemId">
-              <div class="item-heading">
-                <span
-                  >{{ item.projectCode }} · {{ item.status }} · {{ item.completedCount }}/{{
+        <div class="panel-footer-actions">
+          <button
+            v-if="!molecularResult"
+            class="primary-button"
+            type="button"
+            :disabled="submitting || !molecularProject.trim() || !molecularConclusion.trim()"
+            @click="completeIndependentMolecularResult"
+          >
+            {{ submitting ? '正在保存…' : '完成分子结果' }}
+          </button>
+          <button
+            v-else
+            class="primary-button"
+            type="button"
+            @click="emit('navigate', `/v2/diagnosis/${molecularCase.caseId}`)"
+          >
+            查看待诊病例
+          </button>
+        </div>
+      </template>
+    </section>
+
+    <div class="workspace-tabs technical-queue-tabs" role="tablist" aria-label="技术医嘱状态">
+      <button
+        v-for="tab in ['PENDING', 'EXECUTING', 'RESULT', 'COMPLETED'] as const"
+        :key="tab"
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === tab"
+        :class="{ active: activeTab === tab }"
+        @click="activeTab = tab"
+      >
+        {{
+          tab === 'PENDING'
+            ? '待处理'
+            : tab === 'EXECUTING'
+              ? '处理中'
+              : tab === 'RESULT'
+                ? '待录结果'
+                : '已完成'
+        }}
+        <span class="count-pill">{{ tabCounts[tab] }}</span>
+      </button>
+    </div>
+
+    <div v-if="loading" class="list-skeleton"><span></span><span></span><span></span></div>
+    <div v-else-if="!visibleOrders.length" class="empty-state workspace-panel">
+      <strong>{{
+        activeTab === 'PENDING'
+          ? '当前没有待处理技术医嘱'
+          : activeTab === 'RESULT'
+            ? '当前没有待录结果项目'
+            : '当前状态下没有技术医嘱'
+      }}</strong>
+      <span>新医嘱或状态变化会显示在对应标签中。</span>
+    </div>
+    <div v-else class="technical-order-queue">
+      <article
+        v-for="order in visibleOrders"
+        :key="order.orderId"
+        class="workspace-panel technical-order-card"
+      >
+        <header class="technical-order-heading">
+          <span
+            ><strong>{{ order.caseNo ?? order.orderNo }}</strong
+            ><small>{{ order.patientReference ?? order.orderNo }}</small></span
+          >
+          <span
+            class="status-pill"
+            :class="{ warning: order.blocking, success: order.status === 'COMPLETED' }"
+            >{{ statusName(order.status) }}{{ order.blocking ? ' · 签发前需完成' : '' }}</span
+          >
+        </header>
+        <div class="technical-order-summary">
+          <span
+            ><small>项目</small
+            ><strong>{{ order.items.map((item) => item.projectName).join('、') }}</strong></span
+          >
+          <span
+            ><small>目标</small><strong>{{ order.items.map(targetLabel).join('、') }}</strong></span
+          >
+          <span
+            ><small>进度</small
+            ><span class="technical-progress"
+              ><span class="progress-track"
+                ><span :style="{ width: `${progress(order).percent}%` }"></span></span
+              ><strong>{{ progress(order).completed }}/{{ progress(order).expected }}</strong></span
+            ></span
+          >
+        </div>
+
+        <div class="technical-item-list">
+          <section v-for="item in order.items" :key="item.itemId" class="technical-item-row">
+            <header>
+              <span
+                ><strong>{{ item.projectName }}</strong
+                ><small
+                  >{{ targetLabel(item) }} · {{ item.completedCount }}/{{
                     item.expectedCount
-                  }}</span
-                >
-                <span v-if="item.outputs.length">{{
-                  item.outputs.map((output) => output.outputKind).join(', ')
-                }}</span>
-              </div>
-              <div v-if="item.result" class="result-chip">
-                Result v{{ item.result.version }} · {{ item.result.resultData }}
-              </div>
-              <div v-else-if="item.projectCode.includes('MOLECULAR')" class="result-entry">
-                <input
-                  v-model="resultDrafts[item.itemId]"
-                  placeholder="{}"
-                  aria-label="结构化结果 JSON"
-                />
-                <button type="button" :disabled="submitting" @click="enterResult(item.itemId)">
-                  Enter result
-                </button>
-              </div>
+                  }}</small
+                ></span
+              ><span class="status-pill">{{ statusName(item.status) }}</span>
+            </header>
+            <p v-if="item.result" class="feedback success compact-feedback">
+              结果：{{ displayResult(item) }}
+            </p>
+            <div
+              v-else-if="item.projectCode.includes('MOLECULAR') && order.status === 'EXECUTING'"
+              class="result-entry-form"
+            >
+              <label
+                >结论
+                <input v-model="resultDrafts[item.itemId].conclusion" placeholder="输入结构化结论"
+              /></label>
+              <label
+                >结果值 <input v-model="resultDrafts[item.itemId].value" placeholder="可选"
+              /></label>
               <button
-                v-if="
-                  item.outputs.some((output) => output.outputKind === 'SLIDE') &&
-                  item.status !== 'COMPLETED'
-                "
+                class="primary-button"
                 type="button"
-                :disabled="submitting"
-                @click="completeProducedSlides(order, item)"
+                :disabled="submitting || !resultDrafts[item.itemId].conclusion.trim()"
+                @click="enterResult(item)"
               >
-                Complete produced slides
+                保存并返回诊断
               </button>
-            </li>
-          </ul>
-          <div class="order-actions">
+            </div>
             <button
+              v-if="
+                item.outputs.some((output) => output.outputKind === 'SLIDE') &&
+                item.status !== 'COMPLETED'
+              "
+              class="secondary-button"
               type="button"
-              :disabled="submitting || order.status === 'COMPLETED'"
+              :disabled="submitting"
+              @click="completeProducedSlides(order, item)"
+            >
+              完成
+              {{ item.outputs.filter((output) => output.outputKind === 'SLIDE').length }} 张技术玻片
+            </button>
+          </section>
+        </div>
+
+        <footer class="technical-order-actions">
+          <button
+            class="text-button"
+            type="button"
+            @click="emit('navigate', `/v2/diagnosis/${order.caseId}`)"
+          >
+            打开诊断工作区
+          </button>
+          <div class="action-group">
+            <button
+              v-if="order.status === 'PENDING'"
+              class="primary-button"
+              type="button"
+              :disabled="submitting"
               @click="execute(order)"
             >
-              Execute order
+              开始处理
             </button>
-            <button
-              type="button"
-              :disabled="submitting || order.status === 'COMPLETED'"
-              @click="cancel(order)"
-            >
-              Cancel order
-            </button>
+            <template v-if="order.status !== 'COMPLETED'">
+              <input
+                v-model="cancellationReasons[order.orderId]"
+                aria-label="取消原因"
+                placeholder="取消原因"
+              />
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="submitting || !cancellationReasons[order.orderId]?.trim()"
+                @click="cancel(order)"
+              >
+                取消医嘱
+              </button>
+            </template>
           </div>
-        </article>
-      </section>
+        </footer>
+      </article>
     </div>
   </section>
 </template>
-
-<style scoped>
-.v2-technical-workbench {
-  background: #f7faf8;
-  border: 1px solid #cadbd2;
-  border-radius: 24px;
-  color: #193a30;
-  margin-top: 28px;
-  overflow: hidden;
-}
-.technical-header {
-  align-items: end;
-  background: linear-gradient(120deg, #172f4c, #2d6570);
-  color: #f5fbf7;
-  display: flex;
-  justify-content: space-between;
-  padding: 30px 34px;
-}
-.technical-header h2 {
-  margin: 0 0 8px;
-}
-.technical-header p {
-  color: #d4edf0;
-  margin: 0;
-}
-.eyebrow {
-  color: #9be0d1 !important;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  margin-bottom: 9px !important;
-}
-.technical-header button {
-  background: #f3fbf8;
-}
-.state-message {
-  margin: 0;
-  padding: 14px 24px;
-}
-.state-message.error {
-  background: #fff0ee;
-  color: #a33d35;
-}
-.state-message.success {
-  background: #e9f8ed;
-  color: #1c7143;
-}
-.technical-grid {
-  display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.35fr);
-  padding: 24px;
-}
-.technical-card {
-  background: #fff;
-  border: 1px solid #d4e2dc;
-  border-radius: 16px;
-  padding: 20px;
-}
-.card-heading,
-.order-heading,
-.item-heading {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-.card-heading h3 {
-  margin: 0;
-}
-.card-heading p {
-  color: #698276;
-  font-size: 0.86rem;
-  margin: 6px 0 0;
-}
-.project-form {
-  display: grid;
-  gap: 10px;
-  margin-top: 18px;
-}
-.project-form label {
-  display: grid;
-  font-size: 0.8rem;
-  font-weight: 750;
-  gap: 6px;
-}
-input,
-textarea {
-  background: #fff;
-  border: 1px solid #b9ccc2;
-  border-radius: 9px;
-  color: #17322b;
-  font: inherit;
-  padding: 9px 10px;
-}
-.check-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.check-row label {
-  align-items: center;
-  display: flex;
-  gap: 5px;
-}
-button {
-  background: #fff;
-  border: 1px solid #aac3b5;
-  border-radius: 9px;
-  color: #205440;
-  cursor: pointer;
-  font-weight: 750;
-  min-height: 40px;
-  padding: 8px 12px;
-}
-button:hover:not(:disabled) {
-  background: #e9f5ed;
-}
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.primary-action {
-  background: #1e6a52;
-  border-color: #1e6a52;
-  color: #fff;
-}
-.project-list,
-.order-card ul {
-  list-style: none;
-  margin: 18px 0 0;
-  padding: 0;
-}
-.project-list li {
-  border-top: 1px solid #e1ebe5;
-  display: grid;
-  gap: 3px;
-  padding: 10px 0;
-}
-.project-list span,
-.project-list small,
-.order-card small {
-  color: #698276;
-  font-size: 0.8rem;
-}
-.orders-card {
-  min-width: 0;
-}
-.empty-state {
-  color: #698276;
-  margin-top: 22px;
-}
-.order-card {
-  border: 1px solid #cbd9d2;
-  border-radius: 12px;
-  margin-top: 14px;
-  padding: 14px;
-}
-.order-heading span {
-  color: #24784c;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-.order-heading span.blocking {
-  color: #a36120;
-}
-.order-card ul {
-  display: grid;
-  gap: 10px;
-}
-.order-card li {
-  background: #f2f7f3;
-  border-radius: 9px;
-  padding: 9px;
-}
-.item-heading {
-  color: #31594a;
-  font-size: 0.84rem;
-}
-.item-heading span:last-child {
-  color: #24784c;
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-.result-chip {
-  color: #60786d;
-  font-size: 0.78rem;
-  margin-top: 6px;
-  overflow-wrap: anywhere;
-}
-.result-entry {
-  display: flex;
-  gap: 7px;
-  margin-top: 7px;
-}
-.result-entry input {
-  flex: 1;
-  min-width: 0;
-}
-.order-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-@media (max-width: 900px) {
-  .technical-grid {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 560px) {
-  .technical-header {
-    align-items: start;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .technical-grid {
-    padding: 16px;
-  }
-}
-</style>

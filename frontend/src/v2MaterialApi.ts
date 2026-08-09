@@ -46,6 +46,7 @@ export type V2MaterialTree = {
       blockId: string;
       blockCode: string;
       blockType: string;
+      concurrencyVersion: number;
       slides: V2SlideNode[];
     }>;
     directSlides: V2SlideNode[];
@@ -65,6 +66,45 @@ export type V2SlideResult = {
   completedAt: string | null;
   concurrencyVersion: number;
   duplicate: boolean;
+};
+
+export type V2GrossingWorkspace = {
+  caseId: string;
+  caseNo: string;
+  businessTypeCode: string;
+  patientReference: string;
+  visitReference: string | null;
+  applicationNo: string;
+  specimens: V2MaterialTree['specimens'];
+  grossing: null | {
+    grossingId: string;
+    grossingNo: string;
+    sourceType: string;
+    sourceReferenceId: string | null;
+    grossDescription: string;
+    grossingInstruction: string | null;
+    grossingDoctorId: string;
+    recorderId: string;
+    startedAt: string;
+    completedAt: string | null;
+    concurrencyVersion: number;
+  };
+};
+
+export type V2ProductionSlide = {
+  slideId: string;
+  caseId: string;
+  caseNo: string;
+  patientReference: string;
+  businessTypeCode: string;
+  specimenCode: string | null;
+  blockCode: string | null;
+  slideCode: string;
+  slideType: string;
+  sourceContextType: string;
+  completedAt: string | null;
+  concurrencyVersion: number;
+  printCount: number;
 };
 
 async function materialRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -261,4 +301,18 @@ export function printV2Slide(input: {
 
 export function getV2MaterialTree(caseId: string): Promise<V2MaterialTree> {
   return materialRequest(`/cases/${caseId}/materials`);
+}
+
+export function getV2GrossingWorkspace(
+  caseId: string,
+  sourceType = 'INITIAL',
+  sourceReferenceId?: string,
+): Promise<V2GrossingWorkspace> {
+  const query = new URLSearchParams({ sourceType });
+  if (sourceReferenceId) query.set('sourceReferenceId', sourceReferenceId);
+  return materialRequest(`/cases/${caseId}/grossing-workspace?${query.toString()}`);
+}
+
+export function getV2ProductionWorkbench(): Promise<{ slides: V2ProductionSlide[] }> {
+  return materialRequest('/slides/production-workbench');
 }

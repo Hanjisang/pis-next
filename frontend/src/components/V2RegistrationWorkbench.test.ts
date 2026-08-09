@@ -4,17 +4,29 @@ import { describe, expect, it } from 'vitest';
 import V2RegistrationWorkbench from './V2RegistrationWorkbench.vue';
 
 describe('V2RegistrationWorkbench', () => {
-  it('exposes mutable specimen facts without workflow-state controls', () => {
+  it('keeps registration and multi-specimen maintenance in one workspace', async () => {
     const wrapper = mount(V2RegistrationWorkbench);
-    const text = wrapper.text();
 
-    expect(text).toContain('按申请项目建立 ACTIVE 病例');
-    expect(text).toContain('建立可修改的独立标本');
-    expect(text).toContain('修改/软删除');
-    expect(text).toContain('不维护病例/标本流程状态机');
-    expect(text).toContain('不使用 RECEIVED、PROCESSING、COMPLETED 等标本流程状态');
-    expect(text).not.toContain('记录实物到达');
-    expect(text).not.toContain('核对身份、来源并接收');
-    expect(wrapper.findAll('input[placeholder*="UUID"]').length).toBe(0);
+    expect(wrapper.text()).toContain('核对申请并登记');
+    expect(wrapper.text()).toContain('患者 / 就诊');
+    expect(wrapper.text()).toContain('业务类型与编号');
+    expect(wrapper.text()).toContain('标本信息');
+    expect(wrapper.text()).not.toContain('BusinessType');
+    expect(wrapper.text()).not.toContain('Specimen');
+
+    const addButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('新增标本'));
+    await addButton?.trigger('click');
+    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(2);
+
+    const copyButton = wrapper.findAll('button').find((button) => button.text() === '复制');
+    await copyButton?.trigger('click');
+    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(3);
+    expect(wrapper.text()).toContain('3 个标本');
+
+    await wrapper.get('[aria-label="业务类型"]').setValue('CONSULTATION');
+    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(0);
+    expect(wrapper.text()).toContain('会诊病例可在后续登记外院玻片或蜡块');
   });
 });

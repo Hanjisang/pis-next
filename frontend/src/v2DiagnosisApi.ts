@@ -83,12 +83,28 @@ export type V2DiagnosisWorkspace = {
     canWithdraw: boolean;
     canSupplement: boolean;
   };
+  molecularResults?: Array<{
+    resultId: string;
+    resultCode: string;
+    resultData: string;
+    statusCode: string;
+    completedAt: string;
+    completedBy: string;
+  }>;
   technicalOrders: V2TechnicalOrder[];
   blockingTechnicalOrderCount: number;
   technicalOrder: { kind: string; status: string };
   report: { kind: string; status: string };
   reports: V2Report[];
   blockingReasons: string[];
+  digitalSlides: Array<{
+    digitalSlideId: string;
+    blockId?: string | null;
+    slideId?: string | null;
+    statusCode: string;
+    viewerReference: string;
+    sourcePlatform: string;
+  }>;
   refreshedAt: string;
 };
 
@@ -130,6 +146,8 @@ export type V2TechnicalOrder = {
   orderNo: string;
   diagnosisId: string;
   caseId: string;
+  caseNo?: string;
+  patientReference?: string;
   status: 'PENDING' | 'EXECUTING' | 'COMPLETED' | 'CANCELLED';
   requiredBeforeSignOut: boolean;
   blocking: boolean;
