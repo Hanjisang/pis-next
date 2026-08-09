@@ -113,6 +113,9 @@ async function loadWorkspace() {
       diagnosis?.comment?.trim() || stringStructuredValue('comment', structuredValues.value);
     if (workspace.value.currentResponsibility) {
       nextDoctorId.value = workspace.value.currentResponsibility.doctorId;
+      if (workspace.value.currentResponsibility.role === 'AUDIT') {
+        nextRole.value = '';
+      }
     }
     technicalProjects.value = [];
     if (workspace.value.actions.canCreateTechnicalOrder) {
@@ -330,7 +333,8 @@ async function save() {
 
 async function complete() {
   if (!workspace.value?.diagnosis || !currentResponsibility.value || !currentRole.value) return;
-  const followingRole = nextRole.value || undefined;
+  const followingRole =
+    currentRole.value?.trim() === 'AUDIT' ? undefined : nextRole.value || undefined;
   await submit(async () => {
     await completeV2Responsibility({
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,

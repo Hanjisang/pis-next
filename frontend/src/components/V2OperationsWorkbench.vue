@@ -56,7 +56,7 @@ function openFrozenMaterials() {
   window.location.href = `?workspace=v2&caseId=${encodeURIComponent(caseId.value.trim())}&roundId=${encodeURIComponent(selectedRoundId.value)}`;
 }
 
-function openFrozenDiagnosis() {
+function openRoundDiagnosis() {
   const round = frozenWorkspace.value?.rounds.find(
     (item) => item.roundId === selectedRoundId.value,
   );
@@ -147,7 +147,7 @@ async function registerFrozenSpecimen() {
   });
 }
 
-async function createFrozenDiagnosis() {
+async function createRoundDiagnosis() {
   if (!selectedRoundId.value) return;
   await submit(async () => {
     await request(`/frozen/rounds/${selectedRoundId.value}/diagnosis`, {
@@ -420,7 +420,7 @@ type StatisticsSummary = {
           <button
             type="button"
             :disabled="submitting || !selectedRoundId"
-            @click="createFrozenDiagnosis"
+            @click="createRoundDiagnosis"
           >
             建立快速诊断
           </button>
@@ -432,7 +432,7 @@ type StatisticsSummary = {
               !frozenWorkspace?.rounds.find((round) => round.roundId === selectedRoundId)
                 ?.diagnosisId
             "
-            @click="openFrozenDiagnosis"
+            @click="openRoundDiagnosis"
           >
             进入快速诊断与签发
           </button>

@@ -22,6 +22,8 @@ services:
       PIS_DB_NAME: ${PIS_DB_NAME:-pis}
       PIS_DB_USER: ${PIS_DB_USER:-pis}
       PIS_DB_PASSWORD: ${PIS_DB_PASSWORD:?PIS_DB_PASSWORD must be set}
+      PIS_REQUIRE_AUTH: ${PIS_REQUIRE_AUTH:-true}
+      PIS_AUTH_TEST_PASSWORD: ${PIS_AUTH_TEST_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy

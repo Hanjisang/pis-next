@@ -180,11 +180,11 @@ public class V2TechnicalOrderApplicationService {
                         recordOutput(itemSnapshot.item().id(), targetSnapshot.target().id(), TechnicalOutputType.BLOCK,
                                 material.blockId(), occurrence, actor);
                         if (project.producesSlide()) {
-                            createTechnicalSlide(itemSnapshot, targetSnapshot, material.blockId(), null, occurrence,
+                            createSlideOutput(itemSnapshot, targetSnapshot, material.blockId(), null, occurrence,
                                     actor);
                         }
                     } else if (project.producesSlide()) {
-                        createTechnicalSlide(itemSnapshot, targetSnapshot, null, null, occurrence, actor);
+                        createSlideOutput(itemSnapshot, targetSnapshot, null, null, occurrence, actor);
                     }
                 }
             }
@@ -403,7 +403,7 @@ public class V2TechnicalOrderApplicationService {
         return new MaterialOutput(grossingId, block.id());
     }
 
-    private void createTechnicalSlide(ItemSnapshot itemSnapshot, TargetSnapshot targetSnapshot, UUID forcedBlockId,
+    private void createSlideOutput(ItemSnapshot itemSnapshot, TargetSnapshot targetSnapshot, UUID forcedBlockId,
             UUID ignored, int occurrence, ActorContext actor) {
         TechnicalOrderItem item = itemSnapshot.item();
         Block block = forcedBlockId == null && targetSnapshot.target().targetType() == TechnicalTargetType.BLOCK

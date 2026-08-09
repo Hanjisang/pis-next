@@ -42,7 +42,7 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
                 String.class)).isEqualTo("V2-I06-C");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("19");
+                String.class)).isEqualTo("20");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
@@ -59,6 +59,8 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_version", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2' AND table_name IN ('auth_user', 'auth_user_permission', 'doctor_identity')", Integer.class))
+                .isEqualTo(3);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.tables

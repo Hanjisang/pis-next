@@ -1,75 +1,80 @@
 # PIS V2 最终实施报告
 
-## 1. 报告范围
+## 1. 结论
 
-本报告记录 `013bbc1 feat: implement V2-I05 report sign-out loop` 之后的 V2 收官实施。业务基线仍为 `31c4793 + P00–P09`，本轮不把 Legacy 领域模型重新引入 V2。
+本报告记录 Final Readiness Closure 的收口结果。实施基线仍为 `31c4793 + P00–P09`，V2-I01–I05 及收官阶段的领域决定保持不变；本轮只补齐运行时验证、认证身份映射、浏览器闭环和文档。
 
-## 2. Gate 结论
+## 2. Final Gate
 
 | Gate | 结论 | 证据摘要 |
 |---|---|---|
-| Gate A Frozen | CONDITIONAL | FrozenRound、Frozen 材料上下文、Round 制片完成、快速诊断、独立 Report 签发和 Frozen End → 唯一 Routine Case 的后端测试通过；浏览器已完成一轮从材料、诊断、预览、签发到 Frozen End 的闭环；多轮浏览器场景仍待补齐。 |
-| Gate B Other Business Types | CONDITIONAL | ROUTINE、CYTOLOGY、FROZEN、MOLECULAR、Consultation、Send-out 的 V2 API/领域测试通过；四类业务的统一模型适配已落地，但 Cytology/Molecular/Consultation 的完整浏览器签发链尚未完成。 |
-| Gate C Digital / Archive / Search / QC | PASS | 数字切片绑定/改绑、全局搜索、归档位置、批量归档、借阅/归还、QC 事实评估和基础统计均有 V2 API、前端工作区和合成数据浏览器验证。 |
-| Gate D V2 Integration | CONDITIONAL | V2 已成为默认首页和主要业务入口，常规病例及技术医嘱循环已通过真实浏览器；登录和按真实角色的身份系统尚未接入。 |
-| Gate E Full E2E | CONDITIONAL | 常规、技术循环、撤回/重签、单轮 Frozen 签发/转常规、数字切片、归档/借阅已通过浏览器；Frozen Round 2+、Cytology、Molecular、Consultation 和 Supplemental 的浏览器场景仍待补齐。 |
-| Gate F Legacy Retirement | PASS（历史迁移保留） | Legacy 生产 Controller、Service、Domain、DTO/API、前端旧工作台、Legacy-only 测试和旧 smoke 脚本已删除；V1–V9 迁移历史及可能承载历史数据的表未物理删除，应用层已无其生产写入口。 |
+| Gate A Frozen | PASS | 单轮、双轮；签发前新增材料留在当前轮；签发后新增材料创建下一轮；每轮独立 Diagnosis/Report；Frozen End 创建唯一 Routine Case 且重复执行幂等。 |
+| Gate B Business Types | PASS | Routine、Frozen、Cytology、独立 Molecular、TechnicalOrder Molecular、Consultation/External Block→Local Slide、Supplemental Report 均完成浏览器闭环。 |
+| Gate C Digital / Archive / Search / QC | PASS | DigitalSlide 绑定/改绑、归档、借阅归还、全局搜索、QC 事实评估和基础统计均完成浏览器验证。 |
+| Gate D V2 Integration | PASS | V2 为主要入口；真实登录用户映射 DoctorIdentity；DOC-A/DOC-B/DOC-C 责任链正确；登记员/技术员不能签发。 |
+| Gate E Full E2E | PASS | 15 个浏览器回归场景完成，业务结果、PDF、责任链、材料关系和去向均有断言。 |
+| Gate F Legacy Retirement | PASS | Legacy 业务生产路由和 V2 生产依赖为 0；历史 Flyway 和历史数据来源保留，不做破坏性删除。 |
 
-## 3. 已实现的核心能力
+## 3. 核心业务闭环
 
-### 3.1 领域对象
+### 3.1 已实现 BusinessType
 
-当前活动业务 Source of Truth 为 `pis_v2`，核心对象包括：
+- `ROUTINE`
+- `FROZEN`
+- `CYTOLOGY`
+- `MOLECULAR`
+- `REFERRAL`/Consultation 和 Send-out 基础能力作为配置和材料来源适配，不建立平行病例模型。
 
-1. Case、BusinessType、ApplicationItemMapping、PathologyNo。
-2. Specimen、Grossing、Block、Slide、SlideRule。
-3. FrozenRound、FrozenRoundSpecimen、Frozen End 关系。
-4. Diagnosis、DiagnosisTemplate、Responsibility、Assignment。
-5. TechnicalProject、TechnicalOrder、TechnicalOrderItem、TechnicalResult。
-6. ReportTemplate、ReportTemplateVersion、Report、Report PDF、撤回/补充/重签关系。
-7. MolecularResult、Consultation 外部材料、SendOut。
-8. DigitalSlide、ArchiveLocation、ArchiveHistory、Loan、LoanItem、Destruction。
-9. QCRule、QCEvaluation、统计 Projection、报表扩展注册点。
+### 3.2 核心领域对象
 
-### 3.2 V2 API 能力
+Case、BusinessType、Application、PathologyNo、Specimen、Grossing、Block、Slide、SlideRule、FrozenRound、FrozenRoundSpecimen、Frozen End 关系、Diagnosis、DiagnosisTemplate、Responsibility、Assignment、TechnicalProject、TechnicalOrder、TechnicalOrderItem、TechnicalOrderTarget、TechnicalOrderOutput、TechnicalOrderItemResult、ReportTemplate、ReportTemplateVersion、Report、Report PDF、MolecularResult、外部材料、SendOut、DigitalSlide、ArchiveLocation、ArchiveHistory、Loan、LoanItem、Destruction、QCRule、QCEvaluation、Statistics，以及 `auth_user`、`auth_user_permission`、`doctor_identity`。
 
-V2 已提供登记、标本、取材、蜡块、切片、冻结、诊断责任、技术医嘱、报告签发、分子结果、会诊材料、外送结果、数字切片、材料去向、搜索、QC、统计和扩展点的命令/查询边界。关键写操作沿用幂等键、审计、Outbox 和并发版本控制。
+V2 生产业务的 Source of Truth 为 `pis_v2`。Case 生命周期仍只有 `ACTIVE/CANCELLED`；病例展示状态由下级业务事实投影得出。
 
-### 3.3 前端工作区
+### 3.3 命令、查询和工作台
 
-正式入口为 V2 首页，一级导航已接入：工作台、登记、取材/制片、诊断、冰冻、技术医嘱、报告、归档借阅、数字切片、查询、质控统计、配置和系统管理。
+命令边界覆盖：登记建案/标本、Grossing/Block/Slide、制片完成、FrozenRound/Frozen End、Diagnosis 认领/分配/完成、TechnicalOrder 创建/执行/结果录入、Report Preview/Sign-out/Withdraw/Re-sign/Supplemental、Molecular Result、Consultation External Block/Local Slide、DigitalSlide bind/rebind、Archive/Loan/Return/Destruction、QC 评估和认证登录。
 
-用户界面使用待诊病例、初诊医生、审核医生、技术医嘱、切片、蜡块和冰冻轮次等业务语言，不要求用户理解 Projection、Aggregate 或 Outbox。
+查询边界覆盖：Case/Specimen/Material Tree、Diagnosis Workspace、Technical Workbench、Report History/PDF、Frozen Workspace、DigitalSlide、Custody、Global Search、QC/Statistics 和认证当前身份。
 
-## 4. 统计
+前端工作台覆盖：工作台、登记、取材/制片、诊断、冰冻、技术医嘱、报告、归档借阅、数字切片、查询、质控统计，以及配置/系统管理入口。
 
-- BusinessType：ROUTINE、CYTOLOGY、FROZEN、MOLECULAR，另有 Consultation/Send-out 基础适配。
-- 主要 V2 工作区：登记、材料生产、诊断、技术医嘱、冻结、数字切片、归档借阅、QC/统计、首页搜索。
-- QC 规则：Routine TAT、Frozen TAT、Report Withdraw Rate、Slide Reprint Rate。
-- 内置统计：登记、业务类型、Grossing、Block、Slide、INITIAL/REVIEW/AUDIT 责任事实、签发、Frozen、TechnicalOrder、TAT。
-- Legacy 生产业务对象删除：已删除 Legacy accession/specimen/technical/diagnosis Java 生产包及旧 P15–P19 前端工作台。
-- Legacy 路由删除：`/api/p15`、`/api/p16`、`/api/p17`、`/api/p18`、`/api/p19` Controller 已删除。
-- Legacy 表物理退役：0；原因是 V1–V9 属于已发布迁移历史，不能在未知历史数据状态下 DROP。
+## 4. 运行时治理
 
-## 5. Domain Deviations
+`Authenticated User → DoctorIdentityResolver → DoctorIdentity` 已成为统一边界。真实合成账号 `doctor-a`、`doctor-b`、`doctor-c` 映射为 `DOC-A`、`DOC-B`、`DOC-C`；责任节点、审核、签发和审计均使用该医疗人员引用。认证账号只通过环境变量注入合成密码，Flyway 不保存密码明文。
 
-1. 原设计要求每一类核心业务均完成浏览器级完整签发链；当前实现已完成 Routine/Technical/Report 主链和 Gate C 浏览器链，其他业务类型仍以 API/领域测试为主。原因是本轮尚未完成各业务类型的专用浏览器操作面板。影响：Gate B/E 为 CONDITIONAL。
-2. Frozen 专用诊断和 Report 已通过 FrozenRound context workspace 进入统一诊断/报告工作区，单轮浏览器签发和 Frozen End 已验证；尚未在浏览器中完成多轮材料在签发前/后的自动分流场景。影响：Gate A/E 仍为 CONDITIONAL。
-3. Current Auth User → Doctor Identity 的正式认证边界尚未接入，合成环境仍使用配置 actor `p15-local-registration-actor`。影响：权限和责任事实已验证，真实登录/组织身份尚未验证。
-4. V1–V9 Legacy Flyway migration 保留为历史迁移链，不作为活动 V2 业务依赖。影响：历史 schema 名称仍可在迁移文件和数据库历史中出现，但无 Legacy 生产写入口。
+QC 只评价事实并产生 `NORMAL/WARNING/OVERDUE/ABNORMAL` 结果；浏览器已验证 QC 提醒默认不阻断签发。
 
-## 6. 剩余问题
+## 5. 业务闭环统计
 
-### P1
+- BusinessType：4 个核心类型，另有 Consultation/Send-out 基础适配。
+- QC 规则：Routine TAT、Frozen TAT、Report Withdraw Rate、Slide Reprint Rate，共 4 类。
+- 内置统计：registration、specimen、grossing、block、slide、Diagnosis INITIAL/REVIEW/AUDIT、Report sign-out、Frozen、TechnicalOrder 等责任事实指标。
+- 浏览器 E2E：15 个场景。
+- Frontend unit：6 个测试文件、8 个测试。
+- Backend：32 个测试。
+- Legacy 业务生产路由：0。
+- V2 → Legacy 业务依赖：0。
 
-1. 在浏览器中补齐 Frozen Round 2+ 场景，验证签发前材料留在当前轮、签发后材料创建新轮，以及多轮独立签发。
-2. 为 Cytology、Molecular 独立 Case、Molecular TechnicalOrder、Consultation/External Material、Send-out 和 Supplemental Report 增加完整浏览器 E2E。
-3. 接入真实认证用户到 Doctor Identity 的映射，并在浏览器中验证角色菜单与责任授权。
+## 6. Domain Deviations
+
+None。没有重新引入 `CaseStatus`、`BusinessRecord`、Legacy Task Workflow、`ReportVersion`、Frozen 平行材料实体、`TechnicalSlide` 或 `DiagnosisTask`。
+
+## 7. 剩余问题分级
+
+### P0 Core Runtime
+
+0。
+
+### P1 Core Runtime
+
+0。
+
+### P1 Site Integration
+
+以下项目属于下一阶段 Site Integration / Production Readiness，不阻断 Core Completion：真实 HIS/LIS/EMR 接口、真实打印机、真实扫描仪/WSI 平台、CA/电子签章、生产部署、真实组织目录/LDAP/OIDC、历史医疗数据正式迁移和医院 Pilot/Cutover。
 
 ### P2
 
-1. 将配置、系统管理和外挂报表扩展点补成专用前端页面。
-2. 增加搜索结果的更细粒度落点和 QC 统计筛选；不改变 QC 默认不阻断签发规则。
-3. 评估 Flyway 对 PostgreSQL 18.4 的正式兼容版本；当前仅有工具版本提示。
-
-P0 = 0。由于仍存在 P1，当前不得宣告 `PIS V2 CORE IMPLEMENTATION COMPLETE`。
+不扩展本轮核心范围的个性化报表、绩效、科研、AI、高级 WSI 阅片器和医院特殊接口。
+<!-- End of report -->

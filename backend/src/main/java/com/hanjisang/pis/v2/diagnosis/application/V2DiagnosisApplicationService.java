@@ -49,7 +49,7 @@ public class V2DiagnosisApplicationService {
     public static final String DIAGNOSIS_VIEW = "P14-PERM-055";
     public static final String DIAGNOSIS_INITIAL = "P14-PERM-034";
     public static final String DIAGNOSIS_REVIEW = "P14-PERM-034";
-    public static final String DIAGNOSIS_AUDIT = "P14-PERM-034";
+    public static final String DIAGNOSIS_AUDIT = "P14-PERM-035";
     public static final String DIAGNOSIS_ASSIGN = "P14-PERM-034";
     public static final String DIAGNOSIS_REASSIGN = "P14-PERM-034";
     public static final String TEMPLATE_MANAGE = "P14-PERM-042";
@@ -322,7 +322,7 @@ public class V2DiagnosisApplicationService {
             ActorContext actor) {
         UUID caseId = pathologyCase.id();
         List<MaterialTreeRow> rows = materialRepository.findMaterialTree(caseId, actor.hospitalScope());
-        MaterialTreeResult materialTree = materialTree(pathologyCase, rows);
+        MaterialTreeResult materialTree = materialTree(pathologyCase, rows, actor.hospitalScope());
         List<DigitalSlideView> digitalSlides = digitalSlideRepository.findByCase(caseId, actor.hospitalScope()).stream()
                 .map(item -> new DigitalSlideView(item.id(), item.blockId(), item.slideId(), item.statusCode(),
                         item.viewerReference(), item.sourcePlatform())).toList();
@@ -333,6 +333,8 @@ public class V2DiagnosisApplicationService {
         ResponsibilityUnit current = responsibilities.stream().filter(ResponsibilityUnit::isCurrent)
                 .max(java.util.Comparator.comparingInt(ResponsibilityUnit::sequence)).orElse(null);
         boolean materialReady = diagnosis != null && diagnosis.contextType() == DiagnosisContextType.FROZEN_ROUND
+                || ("MOLECULAR".equals(pathologyCase.businessTypeCode())
+                        && molecularResultRepository.hasCompletedResult(caseId, actor.hospitalScope()))
                 || materialTree.initialProductionComplete();
         boolean active = Case.ACTIVE.equals(pathologyCase.lifecycleStateCode());
         boolean hasInitialHistory = responsibilities.stream().anyMatch(item -> item.role() == ResponsibilityRole.INITIAL);
@@ -687,7 +689,8 @@ public class V2DiagnosisApplicationService {
                 responsibility.endReason(), responsibility.version(), responsibility.isCurrent());
     }
 
-    private MaterialTreeResult materialTree(Case pathologyCase, List<MaterialTreeRow> rows) {
+    private MaterialTreeResult materialTree(Case pathologyCase, List<MaterialTreeRow> rows,
+            String organizationReference) {
         Map<UUID, SpecimenNodeBuilder> specimens = new LinkedHashMap<>();
         for (MaterialTreeRow row : rows) {
             SpecimenNodeBuilder specimen = specimens.computeIfAbsent(row.specimenId(), ignored ->
@@ -708,19 +711,36 @@ public class V2DiagnosisApplicationService {
         for (SpecimenNode specimen : specimenNodes) {
             for (BlockNode block : specimen.blocks()) {
                 for (SlideNode slide : block.slides()) {
-                    if ("INITIAL".equals(slide.sourceContextType()) && slide.required()) {
+                    if (isInitialMaterial(pathologyCase, slide) && slide.required()) {
                         required++; if (slide.completed()) completed++;
                     }
                 }
             }
             for (SlideNode slide : specimen.directSlides()) {
-                if ("INITIAL".equals(slide.sourceContextType()) && slide.required()) {
+                if (isInitialMaterial(pathologyCase, slide) && slide.required()) {
                     required++; if (slide.completed()) completed++;
                 }
             }
         }
         return new MaterialTreeResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
-                specimenNodes, required, completed, required > 0 && required == completed);
+                specimenNodes, required, completed,
+                initialProductionComplete(pathologyCase, required, completed, organizationReference));
+    }
+
+    private boolean isInitialMaterial(Case pathologyCase, SlideNode slide) {
+        return "INITIAL".equals(slide.sourceContextType())
+                || (pathologyCase.businessTypeCode().startsWith("CYTOLOGY_")
+                        && "CYTOLOGY".equals(slide.sourceContextType()))
+                || ("REFERRAL".equals(pathologyCase.businessTypeCode())
+                        && "EXTERNAL".equals(slide.sourceContextType()));
+    }
+
+    private boolean initialProductionComplete(Case pathologyCase, int required, int completed,
+            String organizationReference) {
+        if ("MOLECULAR".equals(pathologyCase.businessTypeCode())) {
+            return molecularResultRepository.hasCompletedResult(pathologyCase.id(), organizationReference);
+        }
+        return required > 0 && required == completed;
     }
 
     private static SlideNode slideNode(MaterialTreeRow row) {

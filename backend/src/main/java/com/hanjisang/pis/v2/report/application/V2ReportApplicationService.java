@@ -44,7 +44,7 @@ import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderReposit
 @Service
 public class V2ReportApplicationService {
 
-    public static final String REPORT_SIGN_OUT = "P14-PERM-034";
+    public static final String REPORT_SIGN_OUT = "P14-PERM-036";
     public static final String REPORT_QUERY = "P14-PERM-055";
     public static final String REPORT_TEMPLATE_MANAGE = "P14-PERM-042";
 
@@ -251,7 +251,10 @@ public class V2ReportApplicationService {
                 organizationReference).orElse(null);
         List<String> reasons = validationReasons(pathologyCase, diagnosis, responsibilities, technicalOrders, template,
                 actorId, organizationReference);
-        List<Report> reports = repository.findReportsByCase(caseId, organizationReference);
+        // A Frozen Case can contain multiple independently signed round diagnoses.
+        // Report actions and history for a diagnosis must therefore be scoped to
+        // that diagnosis; case-wide history remains available through history().
+        List<Report> reports = repository.findReportsByDiagnosis(diagnosis.id(), organizationReference);
         boolean effectiveOriginal = reports.stream().anyMatch(item -> item.nature() == ReportNature.ORIGINAL
                 && item.status() == ReportStatus.EFFECTIVE);
         boolean canWithdraw = reports.stream().anyMatch(item -> item.status() == ReportStatus.EFFECTIVE);

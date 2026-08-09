@@ -33,6 +33,8 @@ info:
 
 pis:
   runtime-environment: ${PIS_RUNTIME_ENV:local}
+  require-auth: ${PIS_REQUIRE_AUTH:false}
+  auth-test-password: ${PIS_AUTH_TEST_PASSWORD:}
   actor-id: ${PIS_ACTOR_ID:p15-local-registration-actor}
   subject-type-code: ${PIS_ACTOR_SUBJECT_TYPE:HUMAN_USER}
   actor-task-scope: ${PIS_ACTOR_TASK_SCOPE:P15-REGISTRATION-RECEIVING,P16-GROSSING-BLOCK-LABELING,P17-TECHNICAL-PROCESSING-EMBEDDING,P18-TECHNICAL-ORDER,P19-DIAGNOSIS-REPORT}

@@ -4,6 +4,7 @@ import { computed, ref } from 'vue';
 import {
   completeV2Slide,
   completeV2Slides,
+  createV2DirectCytologySlide,
   getV2MaterialTree,
   printV2Slide,
   type V2MaterialTree,
@@ -16,6 +17,9 @@ const selectedSlideIds = ref<string[]>([]);
 const busy = ref(false);
 const errorMessage = ref('');
 const notice = ref('');
+const directSpecimenId = ref('');
+const directSlideCode = ref('DIRECT-1');
+const directSlideType = ref('CYTOLOGY');
 
 const allSlides = computed<V2SlideNode[]>(() => {
   if (!tree.value) return [];
@@ -49,6 +53,7 @@ function toggleSlide(slideId: string) {
 
 async function refreshTree() {
   tree.value = await getV2MaterialTree(caseId.value);
+  directSpecimenId.value ||= tree.value.specimens[0]?.specimenId ?? '';
   selectedSlideIds.value = [];
 }
 
@@ -100,6 +105,21 @@ function printOne(slide: V2SlideNode) {
     notice.value = `${slide.slideCode} 打印结果：${result.resultCode}；材料实体保持不变。`;
   });
 }
+
+function createDirectSlide() {
+  if (!caseId.value.trim() || !directSpecimenId.value) return;
+  void run(async () => {
+    await createV2DirectCytologySlide({
+      caseId: caseId.value.trim(),
+      specimenId: directSpecimenId.value,
+      slideCode: directSlideCode.value,
+      slideType: directSlideType.value,
+      idempotencyKey: `v2-direct-slide-${caseId.value.trim()}-${directSlideCode.value}`,
+    });
+    await refreshTree();
+    notice.value = '直接切片已创建；Material Tree 保持 Specimen → Slide 关系，未创建 Block。';
+  });
+}
 </script>
 
 <template>
@@ -135,6 +155,26 @@ function printOne(slide: V2SlideNode) {
         </button>
         <span class="muted">待完成 INITIAL：{{ pendingInitialSlides.length }}</span>
       </div>
+      <div v-if="tree" class="direct-slide-form" aria-label="直接切片登记">
+        <strong>Specimen → 直接 Slide</strong>
+        <label>
+          标本
+          <select v-model="directSpecimenId" required>
+            <option
+              v-for="specimen in tree?.specimens ?? []"
+              :key="specimen.specimenId"
+              :value="specimen.specimenId"
+            >
+              {{ specimen.specimenCode }} · {{ specimen.specimenId }}
+            </option>
+          </select>
+        </label>
+        <label>切片编号<input v-model="directSlideCode" required /></label>
+        <label>切片类型<input v-model="directSlideType" required /></label>
+        <button :disabled="busy || !directSpecimenId" type="button" @click="createDirectSlide">
+          创建直接切片
+        </button>
+      </div>
     </div>
 
     <div v-if="tree" class="material-tree" aria-label="真实材料关系树">
@@ -165,9 +205,25 @@ function printOne(slide: V2SlideNode) {
           </label>
         </div>
         <p v-if="specimen.directSlides.length" class="muted">Direct Slide</p>
-        <span v-for="slide in specimen.directSlides" :key="slide.slideId">{{
-          slide.slideCode
-        }}</span>
+        <label v-for="slide in specimen.directSlides" :key="slide.slideId" class="tree-slide">
+          <input
+            type="checkbox"
+            :checked="selectedSlideIds.includes(slide.slideId)"
+            :disabled="slide.completed"
+            @change="toggleSlide(slide.slideId)"
+          />
+          <span
+            >{{ slide.slideCode }} · {{ slide.sourceContextType }} · v{{
+              slide.concurrencyVersion
+            }}</span
+          >
+          <span class="tree-slide-actions">
+            <button :disabled="busy || slide.completed" type="button" @click="completeOne(slide)">
+              完成
+            </button>
+            <button :disabled="busy" type="button" @click="printOne(slide)">打印/重打</button>
+          </span>
+        </label>
       </article>
     </div>
   </section>

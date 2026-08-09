@@ -135,6 +135,14 @@ class V2FrozenWebTest {
                 .content("{\"idempotencyKey\":\"frozen-end-1\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(replay.get("duplicate").asBoolean()).isTrue();
+        JsonNode replayWithNewTransportKey = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/finish".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"frozen-end-browser-retry-after-refresh\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(replayWithNewTransportKey.get("duplicate").asBoolean()).isTrue();
+        assertThat(replayWithNewTransportKey.get("routineCaseId").asText()).isEqualTo(routineCaseId.toString());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.pathology_case WHERE frozen_source_case_id = ?",
+                Integer.class, UUID.fromString(caseId))).isEqualTo(1);
         assertThat(initial.get("nextResponsibilityId").asText()).isNotBlank();
     }
 

@@ -2,6 +2,7 @@ package com.hanjisang.pis.v2.business;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
@@ -62,6 +63,10 @@ class V2BusinessTypeWebTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"expectedVersion\":0,\"idempotencyKey\":\"cytology-slide-complete\"}"))
                 .andExpect(status().isOk());
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
+        assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
         JsonNode diagnosis = claim(caseId, "cytology-claim-key");
         assertThat(diagnosis.get("diagnosisId").asText()).isNotBlank();
     }
@@ -82,6 +87,10 @@ class V2BusinessTypeWebTest {
         assertThat(result.get("caseId").asText()).isEqualTo(caseId);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.molecular_result WHERE case_id = ?",
                 Integer.class, UUID.fromString(caseId))).isEqualTo(1);
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
+        assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
         assertThat(claim(caseId, "molecular-claim-after-result").get("diagnosisId").asText()).isNotBlank();
         JsonNode sendOut = json(mockMvc.perform(post("/api/v2/send-outs/cases/%s".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -117,6 +126,10 @@ class V2BusinessTypeWebTest {
         mockMvc.perform(post("/api/v2/slides/%s/complete".formatted(slideId)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"expectedVersion\":0,\"idempotencyKey\":\"consultation-slide-complete\"}"))
                 .andExpect(status().isOk());
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
+        assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
         assertThat(claim(caseId, "consultation-claim-key").get("diagnosisId").asText()).isNotBlank();
     }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 
 import V2Home from './components/V2Home.vue';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
@@ -7,6 +7,45 @@ import V2MaterialProductionWorkbench from './components/V2MaterialProductionWork
 import V2OperationsWorkbench from './components/V2OperationsWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
+import V2Login from './components/V2Login.vue';
+
+type AuthUser = {
+  displayName: string;
+  username: string;
+  roleCode: string;
+  doctor?: { doctorCode: string; displayName: string } | null;
+};
+
+const authLoading = ref(false);
+const authRequired = ref(false);
+const authUser = ref<AuthUser | null>(null);
+const authError = ref('');
+
+async function loadAuthentication() {
+  try {
+    const configResponse = await fetch('/api/v2/auth/config');
+    const config = (await configResponse.json()) as { required?: boolean };
+    authRequired.value = Boolean(config.required);
+    if (!authRequired.value) return;
+    const response = await fetch('/api/v2/auth/me');
+    if (response.ok) authUser.value = (await response.json()) as AuthUser;
+  } catch (requestError) {
+    authError.value = requestError instanceof Error ? requestError.message : '认证服务不可用';
+  } finally {
+    authLoading.value = false;
+  }
+}
+
+async function logout() {
+  await fetch('/api/v2/auth/logout', { method: 'POST' });
+  window.location.reload();
+}
+
+function reloadAfterLogin() {
+  window.location.reload();
+}
+
+onMounted(() => void loadAuthentication());
 
 const workspaceQuery = new URLSearchParams(window.location.search);
 const workspace = workspaceQuery.get('workspace') ?? 'v2-home';
@@ -33,7 +72,15 @@ const title = showRegistration
 </script>
 
 <template>
-  <main class="shell">
+  <V2Login v-if="!authLoading && authRequired && !authUser" @authenticated="reloadAfterLogin" />
+  <main v-else-if="!authLoading" class="shell">
+    <section v-if="authUser" class="auth-bar" aria-label="当前登录身份">
+      <span>{{ authUser.displayName }} · {{ authUser.roleCode }}</span>
+      <span v-if="authUser.doctor"
+        >医疗人员：{{ authUser.doctor.displayName }}（{{ authUser.doctor.doctorCode }}）</span
+      >
+      <button type="button" @click="logout">退出登录</button>
+    </section>
     <section class="hero">
       <div>
         <p class="eyebrow">PATHOLOGY INFORMATION SYSTEM · V2</p>
@@ -64,4 +111,5 @@ const title = showRegistration
       ><a href="?workspace=v2-home">返回 V2 工作台</a>
     </footer>
   </main>
+  <p v-else-if="authError" class="error-banner" role="alert">{{ authError }}</p>
 </template>

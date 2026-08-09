@@ -156,9 +156,9 @@ public class V2FrozenApplicationService {
         Case frozenCase = frozenCase(caseId, actor);
         var existing = repository.findEnd(caseId, actor.hospitalScope());
         if (existing.isPresent()) {
-            if (!existing.get().idempotencyKey().equals(command.idempotencyKey())) {
-                throw reject("V2-FROZEN-END-IDEMPOTENCY-CONFLICT", "冰冻结束幂等键与既有结束事实不一致");
-            }
+            // Frozen End is a case-level fact. A browser retry after refresh can
+            // carry a new transport idempotency key, but it must still replay the
+            // existing Routine Case instead of creating or rejecting another one.
             return new EndResult(existing.get().routineCaseId(), true);
         }
         List<FrozenRound> rounds = repository.findByCase(caseId, actor.hospitalScope());

@@ -139,6 +139,34 @@ export function createV2Block(input: {
   });
 }
 
+export function createV2DirectCytologySlide(input: {
+  caseId: string;
+  specimenId: string;
+  slideCode: string;
+  slideType: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { caseId, specimenId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/specimens/${specimenId}/slides`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2DirectExternalSlide(input: {
+  caseId: string;
+  blockId: string;
+  slideCode: string;
+  slideType: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { caseId, blockId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/external-blocks/${blockId}/slides`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export function updateV2Block(input: {
   blockId: string;
   blockCode: string;

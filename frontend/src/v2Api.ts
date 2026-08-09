@@ -51,6 +51,10 @@ export function createV2Case(input: {
   return v2RegistrationRequest('/cases', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function getV2Case(caseId: string): Promise<V2CaseResult> {
+  return v2RegistrationRequest(`/cases/${caseId}`, { method: 'GET' });
+}
+
 export function registerV2Specimen(input: {
   caseId: string;
   specimenCode: string;
@@ -63,6 +67,10 @@ export function registerV2Specimen(input: {
   idempotencyKey: string;
 }): Promise<V2SpecimenResult> {
   return v2RegistrationRequest('/specimens', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function getV2Specimen(specimenId: string): Promise<V2SpecimenResult> {
+  return v2RegistrationRequest(`/specimens/${specimenId}`, { method: 'GET' });
 }
 
 export function updateV2Specimen(input: {
