@@ -16,6 +16,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.hanjisang.pis.v2.diagnosis.domain.Diagnosis;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
+import com.hanjisang.pis.presentation.configuration.HospitalProfileApplicationService;
+import com.hanjisang.pis.presentation.configuration.JdbcHospitalProfileRepository;
 
 @Testcontainers
 class V2RegistrationPostgresIntegrationTest {
@@ -40,14 +42,14 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("V2-I06-C");
+                String.class)).isEqualTo("S01-HOSPITAL-PROFILE");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("20");
+                String.class)).isEqualTo("21");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.pathology_number_rule", Integer.class))
-                .isEqualTo(16);
+                .isEqualTo(36);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.slide_rule", Integer.class)).isEqualTo(10);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.print_rule", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template", Integer.class)).isEqualTo(8);
@@ -61,6 +63,27 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2' AND table_name IN ('auth_user', 'auth_user_permission', 'doctor_identity')", Integer.class))
                 .isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'pis_v2' AND table_name IN
+                    ('hospital_profile', 'hospital_campus', 'hospital_department',
+                     'hospital_business_type_configuration', 'hospital_workflow_configuration',
+                     'label_template', 'printer_mapping', 'print_strategy',
+                     'hospital_report_configuration', 'device_configuration', 'integration_configuration')
+                """, Integer.class)).isEqualTo(11);
+
+        HospitalProfileApplicationService hospitalProfiles = new HospitalProfileApplicationService(
+                new JdbcHospitalProfileRepository(jdbc));
+        var hospitalARoutine = hospitalProfiles.registrationConfiguration("HOSPITAL_A", "ROUTINE");
+        var hospitalBRoutine = hospitalProfiles.registrationConfiguration("HOSPITAL_B", "ROUTINE");
+        var hospitalAMolecular = hospitalProfiles.registrationConfiguration("HOSPITAL_A", "MOLECULAR");
+        var hospitalBMolecular = hospitalProfiles.registrationConfiguration("HOSPITAL_B", "MOLECULAR");
+        assertThat(hospitalARoutine.caseNumberPrefix()).isEqualTo("A-P-");
+        assertThat(hospitalBRoutine.caseNumberPrefix()).isEqualTo("B-P-");
+        assertThat(hospitalAMolecular.enabled()).isTrue();
+        assertThat(hospitalBMolecular.enabled()).isFalse();
+        assertThat(hospitalProfiles.requireProfile("HOSPITAL_A").printStrategies().getFirst().copies()).isEqualTo(1);
+        assertThat(hospitalProfiles.requireProfile("HOSPITAL_B").printStrategies().getFirst().copies()).isEqualTo(2);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                 FROM information_schema.tables
