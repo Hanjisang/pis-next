@@ -96,6 +96,22 @@ public class JdbcV2MaterialRepository {
                 organizationReference);
     }
 
+    public Optional<Grossing> findLatestActiveGrossing(UUID caseId, String sourceType, UUID sourceReferenceId,
+            String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, case_id, grossing_no, source_type, source_reference_id, gross_description,
+                       grossing_instruction, grossing_doctor_id, recorder_id, started_at, completed_at,
+                       completed_by_ref, deleted_at, deletion_reason, concurrency_version
+                FROM pis_v2.grossing
+                WHERE case_id = ? AND source_type = ? AND organization_reference = ? AND deleted_at IS NULL
+                  AND ((CAST(? AS UUID) IS NULL AND source_reference_id IS NULL)
+                       OR source_reference_id = CAST(? AS UUID))
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """, rs -> rs.next() ? Optional.of(toGrossing(rs)) : Optional.empty(), caseId, sourceType,
+                organizationReference, sourceReferenceId, sourceReferenceId);
+    }
+
     public void lockGrossing(UUID grossingId, String organizationReference) {
         jdbcTemplate.query("""
                 SELECT id FROM pis_v2.grossing
@@ -339,16 +355,45 @@ public class JdbcV2MaterialRepository {
                 organizationReference);
     }
 
+    public List<UUID> findFrozenRoundSpecimenIds(UUID roundId, UUID caseId, String organizationReference) {
+        return jdbcTemplate.queryForList("""
+                SELECT frs.specimen_id
+                  FROM pis_v2.frozen_round_specimen frs
+                  JOIN pis_v2.frozen_round fr ON fr.id = frs.frozen_round_id
+                  JOIN pis_v2.specimen s ON s.id = frs.specimen_id
+                 WHERE frs.frozen_round_id = ?
+                   AND fr.case_id = ?
+                   AND fr.organization_reference = ?
+                   AND s.case_id = fr.case_id
+                   AND s.deleted_at IS NULL
+                 ORDER BY frs.sequence_no
+                """, UUID.class, roundId, caseId, organizationReference);
+    }
+
+    public boolean isSpecimenInFrozenRound(UUID roundId, UUID specimenId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                  FROM pis_v2.frozen_round_specimen frs
+                  JOIN pis_v2.frozen_round fr ON fr.id = frs.frozen_round_id
+                 WHERE frs.frozen_round_id = ?
+                   AND frs.specimen_id = ?
+                   AND fr.organization_reference = ?
+                """, Integer.class, roundId, specimenId, organizationReference);
+        return count != null && count == 1;
+    }
+
     public List<MaterialTreeRow> findMaterialTree(UUID caseId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT material.specimen_id, material.specimen_no, material.specimen_code,
                        material.specimen_kind_code, material.block_id, material.block_code,
-                       material.block_type, material.slide_id, material.slide_code, material.slide_type,
+                       material.block_type, material.block_concurrency_version, material.slide_id,
+                       material.slide_code, material.slide_type,
                        material.source_context_type, material.completed_at, material.completed_by_ref,
                        material.required, material.concurrency_version
                 FROM (
                     SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_kind_code,
                            b.id AS block_id, b.block_code, b.block_type,
+                           b.concurrency_version AS block_concurrency_version,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
                     FROM pis_v2.specimen s
@@ -358,6 +403,7 @@ public class JdbcV2MaterialRepository {
                     UNION ALL
                     SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_kind_code,
                            NULL AS block_id, NULL AS block_code, NULL AS block_type,
+                           NULL AS block_concurrency_version,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
                     FROM pis_v2.specimen s
@@ -369,10 +415,37 @@ public class JdbcV2MaterialRepository {
                 """, (rs, rowNum) -> new MaterialTreeRow(rs.getObject("specimen_id", UUID.class),
                 rs.getString("specimen_no"), rs.getString("specimen_code"), rs.getString("specimen_kind_code"),
                 rs.getObject("block_id", UUID.class), rs.getString("block_code"), rs.getString("block_type"),
-                rs.getObject("slide_id", UUID.class), rs.getString("slide_code"), rs.getString("slide_type"),
+                rs.getObject("block_concurrency_version", Long.class), rs.getObject("slide_id", UUID.class),
+                rs.getString("slide_code"), rs.getString("slide_type"),
                 rs.getString("source_context_type"), instant(rs, "completed_at"), rs.getString("completed_by_ref"),
                 rs.getObject("required", Boolean.class), rs.getLong("concurrency_version")), caseId,
                 organizationReference, caseId, organizationReference);
+    }
+
+    public List<ProductionSlideRow> findProductionSlides(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT sl.id AS slide_id, c.id AS case_id, c.case_no, context.patient_reference,
+                       bt.business_type_code, s.specimen_code, b.block_code, sl.slide_code, sl.slide_type,
+                       sl.source_context_type, sl.completed_at, sl.concurrency_version,
+                       (SELECT COUNT(*) FROM pis_v2.print_log pl
+                         WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS print_count
+                FROM pis_v2.slide sl
+                JOIN pis_v2.pathology_case c ON c.id = sl.case_id
+                JOIN pis_v2.case_context_snapshot context
+                  ON context.case_id = c.id AND context.snapshot_version_no = 1
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.block b ON b.id = sl.block_id
+                LEFT JOIN pis_v2.specimen s ON s.id = COALESCE(sl.specimen_id, b.specimen_id)
+                WHERE sl.organization_reference = ? AND sl.deleted_at IS NULL
+                  AND c.lifecycle_state_code = 'ACTIVE'
+                ORDER BY CASE WHEN sl.completed_at IS NULL THEN 0 ELSE 1 END,
+                         c.case_no, sl.slide_code, sl.id
+                """, (rs, rowNum) -> new ProductionSlideRow(rs.getObject("slide_id", UUID.class),
+                rs.getObject("case_id", UUID.class), rs.getString("case_no"), rs.getString("patient_reference"),
+                rs.getString("business_type_code"), rs.getString("specimen_code"), rs.getString("block_code"),
+                rs.getString("slide_code"), rs.getString("slide_type"), rs.getString("source_context_type"),
+                instant(rs, "completed_at"), rs.getLong("concurrency_version"), rs.getInt("print_count")),
+                organizationReference);
     }
 
     public boolean insertMaterialIdempotency(String operationCode, String idempotencyKey, String payloadDigest,
@@ -427,9 +500,14 @@ public class JdbcV2MaterialRepository {
             Integer resultCount) { }
 
     public record MaterialTreeRow(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
-            UUID blockId, String blockCode, String blockType, UUID slideId, String slideCode, String slideType,
+            UUID blockId, String blockCode, String blockType, Long blockConcurrencyVersion, UUID slideId,
+            String slideCode, String slideType,
             String sourceContextType, Instant completedAt, String completedByRef, Boolean required,
             long concurrencyVersion) { }
+
+    public record ProductionSlideRow(UUID slideId, UUID caseId, String caseNo, String patientReference,
+            String businessTypeCode, String specimenCode, String blockCode, String slideCode, String slideType,
+            String sourceContextType, Instant completedAt, long concurrencyVersion, int printCount) { }
 
     public record PrintServiceResult(String resultCode, String failureReason) { }
 

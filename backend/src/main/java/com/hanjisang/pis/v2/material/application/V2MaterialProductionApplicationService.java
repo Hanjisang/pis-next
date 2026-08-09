@@ -32,6 +32,7 @@ import com.hanjisang.pis.v2.material.domain.SlideRule;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialIdempotencyResult;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
+import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.ProductionSlideRow;
 
 @Service
 public class V2MaterialProductionApplicationService {
@@ -39,6 +40,7 @@ public class V2MaterialProductionApplicationService {
     private static final String GROSSING_PERMISSION = "P14-PERM-013";
     private static final String MATERIAL_PERMISSION = "P14-PERM-014";
     private static final String QUERY_PERMISSION = "P14-PERM-048";
+    private static final String RECEIVING_PERMISSION = "P14-PERM-008";
 
     private final JdbcV2MaterialRepository repository;
     private final JdbcV2RegistrationRepository registrationRepository;
@@ -60,13 +62,15 @@ public class V2MaterialProductionApplicationService {
 
     @Transactional
     public GrossingResult createGrossing(CreateGrossingCommand command) {
-        ActorContext actor = authorization.require(GROSSING_PERMISSION);
         validate(command.caseId(), "病例内部ID不能为空");
         validate(command.grossDescription(), "取材描述不能为空");
         validate(command.grossingDoctorId(), "取材医生不能为空");
         validate(command.recorderId(), "取材记录人不能为空");
         validate(command.sourceType(), "取材来源类型不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
+        MaterialAuthorization access = authorizeCaseScoped(command.caseId(), GROSSING_PERMISSION,
+                "OTHER".equals(command.sourceType()));
+        ActorContext actor = access.actor();
         Case pathologyCase = activeCase(command.caseId(), actor);
         String operation = "PIS-V2-I02-GROSSING-CREATE";
         String digest = digest(command.caseId(), command.sourceType(), command.sourceReferenceId(),
@@ -85,7 +89,7 @@ public class V2MaterialProductionApplicationService {
                 command.grossingDoctorId(), command.recorderId(), now);
         repository.insertGrossing(grossing, actor.hospitalScope(), actor.actorId(), now);
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 0);
-        audit.append(operation, GROSSING_PERMISSION, actor, "ALLOWED", "COMPLETED", grossing.id(), "V2-GROSSING",
+        audit.append(operation, access.permissionCode(), actor, "ALLOWED", "COMPLETED", grossing.id(), "V2-GROSSING",
                 UUID.randomUUID().toString(), "V2取材已建立");
         outbox.append("PIS-V2-I02-GROSSING-CREATED", grossing.id(), "V2-GROSSING", grossing.concurrencyVersion(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
@@ -127,10 +131,11 @@ public class V2MaterialProductionApplicationService {
 
     @Transactional
     public GrossingResult associateSpecimen(UUID grossingId, AssociateSpecimenCommand command) {
-        ActorContext actor = authorization.require(GROSSING_PERMISSION);
         validate(grossingId, "取材内部ID不能为空");
         validate(command.specimenId(), "标本内部ID不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
+        MaterialAuthorization access = authorizeGrossingScoped(grossingId, GROSSING_PERMISSION);
+        ActorContext actor = access.actor();
         Grossing grossing = findGrossing(grossingId, actor);
         String operation = "PIS-V2-I02-GROSSING-SPECIMEN-ASSOCIATE";
         String digest = digest(grossingId, command.specimenId(), command.materialDescription());
@@ -147,24 +152,29 @@ public class V2MaterialProductionApplicationService {
         if (!specimen.caseId().equals(grossing.caseId()) || specimen.deleted()) {
             throw reject("V2-SOURCE-NOT-FOUND", "标本不属于当前病例或已软删除");
         }
+        if (Grossing.FROZEN_CONTEXT.equals(grossing.sourceType())
+                && !repository.isSpecimenInFrozenRound(grossing.sourceReferenceId(), specimen.id(), actor.hospitalScope())) {
+            throw reject("V2-FROZEN-ROUND-SPECIMEN-MISMATCH", "该标本不属于当前冰冻轮次，请返回冰冻工作区核对轮次");
+        }
         if (!repository.hasGrossingSpecimen(grossingId, specimen.id())) {
             repository.insertGrossingSpecimen(grossingId, specimen.id(),
                     repository.nextGrossingSpecimenSequence(grossingId), command.materialDescription());
         }
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
-        audit.append(operation, GROSSING_PERMISSION, actor, "ALLOWED", "COMPLETED", grossingId, "V2-GROSSING",
+        audit.append(operation, access.permissionCode(), actor, "ALLOWED", "COMPLETED", grossingId, "V2-GROSSING",
                 UUID.randomUUID().toString(), "V2取材已关联标本");
         return GrossingResult.of(grossing, false, 1, false);
     }
 
     @Transactional
     public BlockResult createBlock(UUID grossingId, CreateBlockCommand command) {
-        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         validate(grossingId, "取材内部ID不能为空");
         validate(command.specimenId(), "标本内部ID不能为空");
         validate(command.blockCode(), "蜡块编号不能为空");
         validate(command.blockType(), "蜡块类型不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
+        MaterialAuthorization access = authorizeGrossingScoped(grossingId, MATERIAL_PERMISSION);
+        ActorContext actor = access.actor();
         Grossing grossing = findGrossing(grossingId, actor);
         String operation = "PIS-V2-I02-BLOCK-CREATE";
         String digest = digest(grossingId, command.specimenId(), command.blockCode(), command.blockType());
@@ -196,7 +206,7 @@ public class V2MaterialProductionApplicationService {
         Instant now = Instant.now();
         repository.insertBlock(block, actor.hospitalScope(), actor.actorId(), now);
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
-        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", block.id(), "V2-BLOCK",
+        audit.append(operation, access.permissionCode(), actor, "ALLOWED", "COMPLETED", block.id(), "V2-BLOCK",
                 UUID.randomUUID().toString(), "V2蜡块已建立");
         outbox.append("PIS-V2-I02-BLOCK-CREATED", block.id(), "V2-BLOCK", block.concurrencyVersion(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
@@ -243,12 +253,13 @@ public class V2MaterialProductionApplicationService {
 
     @Transactional
     public SlideResult createDirectExternalSlide(UUID caseId, UUID blockId, CreateDirectSlideCommand command) {
-        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         validate(caseId, "病例内部ID不能为空");
         validate(blockId, "蜡块内部ID不能为空");
         validate(command.slideCode(), "切片编号不能为空");
         validate(command.slideType(), "切片类型不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
+        MaterialAuthorization access = authorizeCaseScoped(caseId, MATERIAL_PERMISSION, true);
+        ActorContext actor = access.actor();
         activeCase(caseId, actor);
         Block block = findBlock(blockId, actor);
         if (!caseId.equals(block.caseId()) || !block.externalSource() || block.isDeleted()) {
@@ -270,7 +281,7 @@ public class V2MaterialProductionApplicationService {
         Instant now = Instant.now();
         repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
-        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+        audit.append(operation, access.permissionCode(), actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
                 UUID.randomUUID().toString(), "外部蜡块的本院切片已创建");
         outbox.append("V2-I06-EXTERNAL-SLIDE-CREATED", slide.id(), "V2-SLIDE", slide.concurrencyVersion(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
@@ -565,7 +576,8 @@ public class V2MaterialProductionApplicationService {
                             row.specimenKindCode()));
             if (row.blockId() != null) {
                 BlockNodeBuilder block = specimen.blocks.computeIfAbsent(row.blockId(), ignored ->
-                        new BlockNodeBuilder(row.blockId(), row.blockCode(), row.blockType()));
+                        new BlockNodeBuilder(row.blockId(), row.blockCode(), row.blockType(),
+                                row.blockConcurrencyVersion() == null ? 0L : row.blockConcurrencyVersion()));
                 if (row.slideId() != null) {
                     block.slides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
                             row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
@@ -592,6 +604,39 @@ public class V2MaterialProductionApplicationService {
         }
         return new MaterialTreeResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
                 specimenNodes, required, completed, required > 0 && required == completed);
+    }
+
+    @Transactional(readOnly = true)
+    public GrossingWorkspaceResult grossingWorkspace(UUID caseId, String sourceType, UUID sourceReferenceId) {
+        ActorContext actor = authorization.require(QUERY_PERMISSION);
+        validate(sourceType, "取材来源类型不能为空");
+        Case pathologyCase = activeCase(caseId, actor);
+        MaterialTreeResult materials = materialTree(caseId);
+        List<SpecimenNode> workspaceSpecimens = materials.specimens();
+        if (Grossing.FROZEN_CONTEXT.equals(sourceType)) {
+            validate(sourceReferenceId, "冰冻取材必须指定轮次");
+            var roundSpecimenIds = repository.findFrozenRoundSpecimenIds(sourceReferenceId, caseId,
+                    actor.hospitalScope());
+            workspaceSpecimens = materials.specimens().stream()
+                    .filter(specimen -> roundSpecimenIds.contains(specimen.specimenId()))
+                    .toList();
+        }
+        GrossingWorkspaceRecord grossing = repository.findLatestActiveGrossing(caseId, sourceType,
+                        sourceReferenceId, actor.hospitalScope())
+                .map(GrossingWorkspaceRecord::from)
+                .orElse(null);
+        return new GrossingWorkspaceResult(pathologyCase.id(), pathologyCase.caseNo(),
+                pathologyCase.businessTypeCode(), pathologyCase.patientReference(), pathologyCase.visitReference(),
+                pathologyCase.externalApplicationId(), workspaceSpecimens, grossing);
+    }
+
+    @Transactional(readOnly = true)
+    public ProductionWorkbenchResult productionWorkbench() {
+        ActorContext actor = authorization.require(QUERY_PERMISSION);
+        List<ProductionSlideItem> slides = repository.findProductionSlides(actor.hospitalScope()).stream()
+                .map(ProductionSlideItem::from)
+                .toList();
+        return new ProductionWorkbenchResult(slides);
     }
 
     private PrintResult recordPrint(UUID caseId, String entityKind, UUID entityId, String businessCode,
@@ -687,6 +732,30 @@ public class V2MaterialProductionApplicationService {
         return pathologyCase;
     }
 
+    private MaterialAuthorization authorizeCaseScoped(UUID caseId, String requiredPermission,
+            boolean allowReferralReceiving) {
+        var direct = authorization.decide(requiredPermission);
+        if (direct.allowed()) {
+            return new MaterialAuthorization(direct.actor(), requiredPermission);
+        }
+        ActorContext receivingActor = authorization.require(RECEIVING_PERMISSION);
+        Case pathologyCase = activeCase(caseId, receivingActor);
+        if (!allowReferralReceiving || !"REFERRAL".equals(pathologyCase.businessTypeCode())) {
+            throw new P15BusinessException("P12-ERR-075", "当前身份无权处理该病例的材料", 403);
+        }
+        return new MaterialAuthorization(receivingActor, RECEIVING_PERMISSION);
+    }
+
+    private MaterialAuthorization authorizeGrossingScoped(UUID grossingId, String requiredPermission) {
+        var direct = authorization.decide(requiredPermission);
+        if (direct.allowed()) {
+            return new MaterialAuthorization(direct.actor(), requiredPermission);
+        }
+        ActorContext receivingActor = authorization.require(RECEIVING_PERMISSION);
+        Grossing grossing = findGrossing(grossingId, receivingActor);
+        return authorizeCaseScoped(grossing.caseId(), requiredPermission, true);
+    }
+
     private MaterialIdempotencyResult existing(String operation, String key, String digest) {
         MaterialIdempotencyResult existing = repository.findMaterialIdempotency(operation, key).orElse(null);
         if (existing != null && !existing.payloadDigest().equals(digest)) {
@@ -763,13 +832,16 @@ public class V2MaterialProductionApplicationService {
         }
     }
 
-    private record BlockNodeBuilder(UUID id, String blockCode, String blockType, List<SlideNode> slides) {
-        private BlockNodeBuilder(UUID id, String blockCode, String blockType) {
-            this(id, blockCode, blockType, new ArrayList<>());
+    private record BlockNodeBuilder(UUID id, String blockCode, String blockType, long concurrencyVersion,
+            List<SlideNode> slides) {
+        private BlockNodeBuilder(UUID id, String blockCode, String blockType, long concurrencyVersion) {
+            this(id, blockCode, blockType, concurrencyVersion, new ArrayList<>());
         }
 
-        private BlockNode build() { return new BlockNode(id, blockCode, blockType, slides); }
+        private BlockNode build() { return new BlockNode(id, blockCode, blockType, concurrencyVersion, slides); }
     }
+
+    private record MaterialAuthorization(ActorContext actor, String permissionCode) { }
 
     public record CreateGrossingCommand(UUID caseId, String sourceType, UUID sourceReferenceId,
             String grossDescription, String grossingInstruction, String grossingDoctorId, String recorderId,
@@ -847,10 +919,38 @@ public class V2MaterialProductionApplicationService {
             List<SpecimenNode> specimens, int initialRequiredCount, int initialCompletedCount,
             boolean initialProductionComplete) { }
 
+    public record GrossingWorkspaceResult(UUID caseId, String caseNo, String businessTypeCode,
+            String patientReference, String visitReference, String applicationNo, List<SpecimenNode> specimens,
+            GrossingWorkspaceRecord grossing) { }
+
+    public record GrossingWorkspaceRecord(UUID grossingId, String grossingNo, String sourceType,
+            UUID sourceReferenceId, String grossDescription, String grossingInstruction, String grossingDoctorId,
+            String recorderId, Instant startedAt, Instant completedAt, long concurrencyVersion) {
+        static GrossingWorkspaceRecord from(Grossing grossing) {
+            return new GrossingWorkspaceRecord(grossing.id(), grossing.grossingNo(), grossing.sourceType(),
+                    grossing.sourceReferenceId(), grossing.grossDescription(), grossing.grossingInstruction(),
+                    grossing.grossingDoctorId(), grossing.recorderId(), grossing.startedAt(), grossing.completedAt(),
+                    grossing.concurrencyVersion());
+        }
+    }
+
+    public record ProductionWorkbenchResult(List<ProductionSlideItem> slides) { }
+
+    public record ProductionSlideItem(UUID slideId, UUID caseId, String caseNo, String patientReference,
+            String businessTypeCode, String specimenCode, String blockCode, String slideCode, String slideType,
+            String sourceContextType, Instant completedAt, long concurrencyVersion, int printCount) {
+        static ProductionSlideItem from(ProductionSlideRow row) {
+            return new ProductionSlideItem(row.slideId(), row.caseId(), row.caseNo(), row.patientReference(),
+                    row.businessTypeCode(), row.specimenCode(), row.blockCode(), row.slideCode(), row.slideType(),
+                    row.sourceContextType(), row.completedAt(), row.concurrencyVersion(), row.printCount());
+        }
+    }
+
     public record SpecimenNode(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
             List<BlockNode> blocks, List<SlideNode> directSlides) { }
 
-    public record BlockNode(UUID blockId, String blockCode, String blockType, List<SlideNode> slides) { }
+    public record BlockNode(UUID blockId, String blockCode, String blockType, long concurrencyVersion,
+            List<SlideNode> slides) { }
 
     public record SlideNode(UUID slideId, String slideCode, String slideType, String sourceContextType,
             Instant completedAt, boolean completed, boolean required, long concurrencyVersion) { }

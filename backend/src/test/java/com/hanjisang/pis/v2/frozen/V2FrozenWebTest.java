@@ -114,10 +114,30 @@ class V2FrozenWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(report.get("reportNo").asText()).startsWith("R");
 
+        JsonNode secondRound = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenCode":"F-B","specimenKindCode":"TISSUE","collectionSite":"synthetic frozen round two",
+                         "collectionMethodCode":"FROZEN","idempotencyKey":"frozen-specimen-2"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String secondRoundId = secondRound.get("roundId").asText();
+        String secondSpecimenId = secondRound.get("specimenIds").get(0).asText();
+        JsonNode secondReport = completeFrozenRound(caseId, secondRoundId, secondSpecimenId, "F-B1", "2");
+        JsonNode secondDiagnosisWorkspace = json(mockMvc.perform(
+                get("/api/v2/diagnosis-workspaces/frozen-rounds/%s".formatted(secondRoundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(secondDiagnosisWorkspace.at("/materialTree/specimens")).hasSize(1);
+        assertThat(secondDiagnosisWorkspace.at("/materialTree/specimens/0/specimenCode").asText()).isEqualTo("F-B");
+        assertThat(secondReport.get("renderedContent").asText()).contains("\"specimenCode\":\"F-B\"")
+                .doesNotContain("\"specimenCode\":\"F-A\"");
+
         JsonNode workspace = json(mockMvc.perform(get("/api/v2/frozen/cases/%s/workspace".formatted(caseId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(workspace.get("rounds").get(0).get("status").asText()).isEqualTo("SIGNED");
         assertThat(workspace.get("rounds").get(0).get("productionComplete").asBoolean()).isTrue();
+        assertThat(workspace.get("rounds")).hasSize(2);
+        assertThat(workspace.at("/rounds/1/status").asText()).isEqualTo("SIGNED");
 
         JsonNode ended = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/finish".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -146,6 +166,78 @@ class V2FrozenWebTest {
         assertThat(initial.get("nextResponsibilityId").asText()).isNotBlank();
     }
 
+    @Test
+    void firstRoundIncludesSpecimensCapturedDuringFrozenRegistration() throws Exception {
+        String caseId = createFrozenCase();
+        String specimenId = json(mockMvc.perform(post("/api/v2/registration/specimens")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"caseId":"%s","specimenCode":"A","specimenKindCode":"TISSUE",
+                         "sourceKindCode":"LOCAL","sourceReference":"SYNTH-FROZEN-INITIAL",
+                         "collectionSite":"synthetic frozen initial site","collectionMethodCode":"FRESH",
+                         "idempotencyKey":"frozen-initial-specimen"}
+                        """.formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("specimenId").asText();
+
+        JsonNode opened = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/rounds".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"frozen-round-with-initial-specimen\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+
+        assertThat(opened.get("specimenIds")).extracting(JsonNode::asText).containsExactly(specimenId);
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/frozen/cases/%s/workspace".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.at("/rounds/0/specimens/0/specimenId").asText()).isEqualTo(specimenId);
+    }
+
+    @Test
+    void frozenGrossingWorkspaceAndAssociationAreRestrictedToSelectedRound() throws Exception {
+        String caseId = createFrozenCase();
+        JsonNode first = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenCode":"A","specimenKindCode":"TISSUE","collectionSite":"synthetic round one",
+                         "collectionMethodCode":"FROZEN","idempotencyKey":"round-one-specimen"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String firstRoundId = first.get("roundId").asText();
+        String firstSpecimenId = first.get("specimenIds").get(0).asText();
+        jdbcTemplate.update("UPDATE pis_v2.frozen_round SET status_code = 'SIGNED', diagnosis_signed_time = CURRENT_TIMESTAMP WHERE id = ?",
+                UUID.fromString(firstRoundId));
+
+        JsonNode second = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenCode":"B","specimenKindCode":"TISSUE","collectionSite":"synthetic round two",
+                         "collectionMethodCode":"FROZEN","idempotencyKey":"round-two-specimen"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String secondRoundId = second.get("roundId").asText();
+        String secondSpecimenId = second.get("specimenIds").get(0).asText();
+
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/cases/%s/grossing-workspace".formatted(caseId))
+                .param("sourceType", "FROZEN_CONTEXT").param("sourceReferenceId", secondRoundId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.get("specimens")).hasSize(1);
+        assertThat(workspace.at("/specimens/0/specimenId").asText()).isEqualTo(secondSpecimenId);
+
+        String grossingId = json(mockMvc.perform(post("/api/v2/cases/%s/grossings".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"sourceType":"FROZEN_CONTEXT","sourceReferenceId":"%s","grossDescription":"synthetic",
+                         "grossingDoctorId":"p15-local-registration-actor","recorderId":"p15-local-registration-actor",
+                         "idempotencyKey":"round-two-grossing"}
+                        """.formatted(secondRoundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("grossingId").asText();
+        mockMvc.perform(post("/api/v2/grossings/%s/specimens".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenId":"%s","materialDescription":"wrong round",
+                         "idempotencyKey":"wrong-round-association"}
+                        """.formatted(firstSpecimenId)))
+                .andExpect(status().isUnprocessableContent());
+    }
+
     private JsonNode complete(String diagnosisId, String path, String nextRole, String key) throws Exception {
         String body = """
                 {"responsibilityId":null,"responsibilityExpectedVersion":0,"structuredData":"{}",
@@ -154,17 +246,60 @@ class V2FrozenWebTest {
                 .formatted(nextRole == null ? "null" : "\"" + nextRole + "\"", key);
         if ("/complete-initial".equals(path)) {
             body = body.replace("\"responsibilityId\":null", "\"responsibilityId\":\""
-                    + jdbcTemplate.queryForObject("SELECT id FROM pis_v2.responsibility_unit WHERE role_code = 'INITIAL'",
-                            UUID.class) + "\"");
+                    + jdbcTemplate.queryForObject("SELECT id FROM pis_v2.responsibility_unit WHERE diagnosis_id = ? AND role_code = 'INITIAL'",
+                            UUID.class, UUID.fromString(diagnosisId)) + "\"");
         } else {
             body = body.replace("\"responsibilityId\":null", "\"responsibilityId\":\""
-                    + jdbcTemplate.queryForObject("SELECT id FROM pis_v2.responsibility_unit WHERE role_code = 'AUDIT'",
-                            UUID.class) + "\"");
+                    + jdbcTemplate.queryForObject("SELECT id FROM pis_v2.responsibility_unit WHERE diagnosis_id = ? AND role_code = 'AUDIT'",
+                            UUID.class, UUID.fromString(diagnosisId)) + "\"");
             body = body.replace("\"diagnosisExpectedVersion\":1", "\"diagnosisExpectedVersion\":2");
         }
         MvcResult result = mockMvc.perform(post("/api/v2/diagnoses/%s%s".formatted(diagnosisId, path))
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private JsonNode completeFrozenRound(String caseId, String roundId, String specimenId, String blockCode,
+            String suffix) throws Exception {
+        String grossingId = json(mockMvc.perform(post("/api/v2/cases/%s/grossings".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"sourceType":"FROZEN_CONTEXT","sourceReferenceId":"%s","grossDescription":"synthetic round %s",
+                         "grossingDoctorId":"p15-local-registration-actor","recorderId":"p15-local-registration-actor",
+                         "idempotencyKey":"frozen-grossing-%s"}
+                        """.formatted(roundId, suffix, suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("grossingId").asText();
+        mockMvc.perform(post("/api/v2/grossings/%s/specimens".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"materialDescription\":\"synthetic\",\"idempotencyKey\":\"frozen-associate-%s\"}"
+                        .formatted(specimenId, suffix))).andExpect(status().isOk());
+        String blockId = json(mockMvc.perform(post("/api/v2/grossings/%s/blocks".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"blockCode\":\"%s\",\"blockType\":\"FROZEN\",\"idempotencyKey\":\"frozen-block-%s\"}"
+                        .formatted(specimenId, blockCode, suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("blockId").asText();
+        mockMvc.perform(post("/api/v2/grossings/%s/complete".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"idempotencyKey\":\"frozen-grossing-complete-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk());
+        String slideId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?", String.class,
+                UUID.fromString(blockId));
+        mockMvc.perform(post("/api/v2/slides/%s/complete".formatted(slideId)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"idempotencyKey\":\"frozen-slide-complete-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk());
+        String diagnosisId = json(mockMvc.perform(post("/api/v2/frozen/rounds/%s/diagnosis".formatted(roundId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"frozen-diagnosis-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("diagnosisId").asText();
+        mockMvc.perform(put("/api/v2/diagnoses/%s/content".formatted(diagnosisId)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"structuredData\":\"{}\",\"diagnosisText\":\"synthetic frozen diagnosis %s\",\"expectedVersion\":0,\"idempotencyKey\":\"frozen-diagnosis-save-%s\"}"
+                        .formatted(suffix, suffix))).andExpect(status().isOk());
+        complete(diagnosisId, "/complete-initial", "AUDIT", "frozen-complete-initial-" + suffix);
+        complete(diagnosisId, "/complete-audit", null, "frozen-complete-audit-" + suffix);
+        return json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"frozen-sign-out-%s\"}".formatted(suffix)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
 
     private String createFrozenCase() throws Exception {

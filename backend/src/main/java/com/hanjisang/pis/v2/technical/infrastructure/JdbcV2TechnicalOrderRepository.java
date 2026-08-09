@@ -296,15 +296,16 @@ public class JdbcV2TechnicalOrderRepository {
     public List<OrderSnapshot> findWorkbenchSnapshots(String organizationReference) {
         return findAllOrderIds(organizationReference).stream()
                 .map(id -> findOrderSnapshot(id, organizationReference).orElseThrow())
-                .filter(snapshot -> snapshot.derivedStatus() != TechnicalOrderStatus.COMPLETED
-                        && snapshot.derivedStatus() != TechnicalOrderStatus.CANCELLED)
+                .filter(snapshot -> snapshot.derivedStatus() != TechnicalOrderStatus.CANCELLED)
                 .toList();
     }
 
     private List<UUID> findAllOrderIds(String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id FROM pis_v2.technical_order
-                WHERE organization_reference = ? ORDER BY created_at, id
+                WHERE organization_reference = ?
+                ORDER BY created_at DESC, id
+                FETCH FIRST 100 ROWS ONLY
                 """, (rs, rowNum) -> rs.getObject(1, UUID.class), organizationReference);
     }
 

@@ -110,6 +110,23 @@ public class JdbcV2FrozenRoundRepository {
                 """, UUID.class, roundId);
     }
 
+    public List<UUID> findUnlinkedCaseSpecimenIds(UUID caseId, String organizationReference) {
+        return jdbc.queryForList("""
+                SELECT s.id
+                  FROM pis_v2.specimen s
+                  JOIN pis_v2.pathology_case c ON c.id = s.case_id
+                 WHERE s.case_id = ?
+                   AND c.organization_reference = ?
+                   AND s.deleted_at IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM pis_v2.frozen_round_specimen frs
+                        WHERE frs.specimen_id = s.id
+                   )
+                 ORDER BY s.created_at, s.id
+                """, UUID.class, caseId, organizationReference);
+    }
+
     public Production production(UUID roundId) {
         return jdbc.query("""
                 SELECT COUNT(*) AS total_count,

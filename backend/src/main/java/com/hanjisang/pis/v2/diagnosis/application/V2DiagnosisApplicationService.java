@@ -305,7 +305,7 @@ public class V2DiagnosisApplicationService {
         Case pathologyCase = registrationRepository.findCase(caseId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
         Diagnosis diagnosis = repository.findDiagnosisByCase(caseId, actor.hospitalScope()).orElse(null);
-        return workspaceForDiagnosis(pathologyCase, diagnosis, actor);
+        return workspaceForDiagnosis(pathologyCase, diagnosis, actor, null);
     }
 
     @Transactional(readOnly = true)
@@ -315,15 +315,25 @@ public class V2DiagnosisApplicationService {
                 actor.hospitalScope()).orElseThrow(() -> reject("V2-FROZEN-DIAGNOSIS-NOT-FOUND", "冰冻轮次诊断不存在"));
         Case pathologyCase = registrationRepository.findCase(diagnosis.caseId(), actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
-        return workspaceForDiagnosis(pathologyCase, diagnosis, actor);
+        return workspaceForDiagnosis(pathologyCase, diagnosis, actor, roundId);
     }
 
     private DiagnosisWorkspaceResult workspaceForDiagnosis(Case pathologyCase, Diagnosis diagnosis,
-            ActorContext actor) {
+            ActorContext actor, UUID frozenRoundId) {
         UUID caseId = pathologyCase.id();
         List<MaterialTreeRow> rows = materialRepository.findMaterialTree(caseId, actor.hospitalScope());
+        if (frozenRoundId != null) {
+            var roundSpecimenIds = materialRepository.findFrozenRoundSpecimenIds(frozenRoundId, caseId,
+                    actor.hospitalScope());
+            rows = rows.stream().filter(row -> roundSpecimenIds.contains(row.specimenId())).toList();
+        }
         MaterialTreeResult materialTree = materialTree(pathologyCase, rows, actor.hospitalScope());
+        var materialBlockIds = rows.stream().map(MaterialTreeRow::blockId).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        var materialSlideIds = rows.stream().map(MaterialTreeRow::slideId).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
         List<DigitalSlideView> digitalSlides = digitalSlideRepository.findByCase(caseId, actor.hospitalScope()).stream()
+                .filter(item -> frozenRoundId == null
+                        || item.blockId() != null && materialBlockIds.contains(item.blockId())
+                        || item.slideId() != null && materialSlideIds.contains(item.slideId()))
                 .map(item -> new DigitalSlideView(item.id(), item.blockId(), item.slideId(), item.statusCode(),
                         item.viewerReference(), item.sourcePlatform())).toList();
         DiagnosisTemplateVersion templateVersion = diagnosis == null ? null
@@ -351,6 +361,11 @@ public class V2DiagnosisApplicationService {
         List<OrderSnapshot> technicalOrderSnapshots = diagnosis == null ? List.of()
                 : technicalRepository.findOrderSnapshotsByDiagnosis(diagnosis.id(), actor.hospitalScope());
         List<TechnicalOrderView> technicalOrders = technicalOrderSnapshots.stream().map(this::technicalOrderView).toList();
+        List<MolecularResultView> molecularResults = molecularResultRepository
+                .findByCase(caseId, actor.hospitalScope()).stream()
+                .map(result -> new MolecularResultView(result.id(), result.resultCode(), result.resultData(),
+                        result.statusCode(), result.completedAt(), result.completedBy()))
+                .toList();
         int blockingTechnicalOrderCount = (int) technicalOrders.stream().filter(TechnicalOrderView::blocking).count();
         WorkspaceReport reportWorkspace = reportService.workspace(caseId, diagnosis, responsibilities,
                 technicalOrderSnapshots, actor.hospitalScope(), actor.actorId());
@@ -366,7 +381,7 @@ public class V2DiagnosisApplicationService {
                 new PatientSnapshot(pathologyCase.patientReference(), pathologyCase.visitReference()), materialTree,
                 diagnosis == null ? null : diagnosisView(diagnosis), templateVersion == null ? null
                         : templateVersionView(templateVersion), responsibilities.stream().map(this::responsibilityView).toList(),
-                current == null ? null : responsibilityView(current), actions, technicalOrders,
+                current == null ? null : responsibilityView(current), actions, molecularResults, technicalOrders,
                 blockingTechnicalOrderCount,
                 new Placeholder("TECHNICAL_ORDER", "V2-I04已实现"), new Placeholder("REPORT", "V2-I05待实现"),
                 reportWorkspace.reports(), reportWorkspace.blockingReasons(), digitalSlides,
@@ -787,7 +802,8 @@ public class V2DiagnosisApplicationService {
     public record DiagnosisWorkspaceResult(CaseSummary caseSummary, ApplicationSummary application,
             PatientSnapshot patient, MaterialTreeResult materialTree, DiagnosisView diagnosis,
             TemplateVersionView templateVersion, List<ResponsibilityView> responsibilityChain,
-            ResponsibilityView currentResponsibility, Actions actions, List<TechnicalOrderView> technicalOrders,
+            ResponsibilityView currentResponsibility, Actions actions, List<MolecularResultView> molecularResults,
+            List<TechnicalOrderView> technicalOrders,
             int blockingTechnicalOrderCount, Placeholder technicalOrder,
             Placeholder report, List<V2ReportApplicationService.ReportView> reports,
             List<String> blockingReasons, List<DigitalSlideView> digitalSlides, Instant refreshedAt) { }
@@ -805,6 +821,8 @@ public class V2DiagnosisApplicationService {
             boolean canCompleteAudit, boolean canReassign, boolean readyForSignOut,
             boolean canCreateTechnicalOrder, boolean canPreview, boolean canSignOut,
             boolean canWithdraw, boolean canSupplement) { }
+    public record MolecularResultView(UUID resultId, String resultCode, String resultData, String statusCode,
+            Instant completedAt, String completedBy) { }
     public record TechnicalOrderView(UUID orderId, String orderNo, TechnicalOrderStatus status,
             boolean requiredBeforeSignOut, boolean blocking, long version, List<TechnicalOrderItemView> items) { }
     public record TechnicalOrderItemView(UUID itemId, String projectCode, String projectName, int quantity,

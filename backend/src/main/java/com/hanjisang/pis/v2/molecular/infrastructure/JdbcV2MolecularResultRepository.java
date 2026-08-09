@@ -2,6 +2,7 @@ package com.hanjisang.pis.v2.molecular.infrastructure;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -49,6 +50,20 @@ public class JdbcV2MolecularResultRepository {
                 WHERE case_id = ? AND organization_reference = ? AND status_code = 'COMPLETED'
                 """, Integer.class, caseId, organizationReference);
         return count != null && count > 0;
+    }
+
+    public List<MolecularResult> findByCase(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, case_id, specimen_id, result_code, CAST(result_data AS VARCHAR) AS result_data,
+                       status_code, completed_at, completed_by_ref, concurrency_version
+                FROM pis_v2.molecular_result
+                WHERE case_id = ? AND organization_reference = ?
+                ORDER BY completed_at, id
+                """, (rs, rowNum) -> new MolecularResult(rs.getObject("id", UUID.class),
+                rs.getObject("case_id", UUID.class), rs.getObject("specimen_id", UUID.class),
+                rs.getString("result_code"), rs.getString("result_data"), rs.getString("status_code"),
+                rs.getTimestamp("completed_at").toInstant(), rs.getString("completed_by_ref"),
+                rs.getLong("concurrency_version")), caseId, organizationReference);
     }
 
     public Optional<IdempotencyResult> findIdempotency(String operationCode, String key) {

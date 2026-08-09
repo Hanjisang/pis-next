@@ -67,6 +67,7 @@ public class V2FrozenApplicationService {
         FrozenRound round = FrozenRound.open(UUID.randomUUID(), frozenCase.id(), repository.nextRoundNo(caseId),
                 command.arrivalTime() == null ? now : command.arrivalTime(), now);
         repository.insert(round, actor.hospitalScope(), actor.actorId(), now);
+        linkUnassignedSpecimens(round, actor, now);
         audit.append("PIS-V2-I06-FROZEN-ROUND-OPEN", FROZEN_PERMISSION, actor, "ALLOWED", "COMPLETED", round.id(),
                 "V2-FROZEN-ROUND", UUID.randomUUID().toString(), "roundNo=" + round.roundNo());
         outbox.append("V2-I06-FROZEN-ROUND-OPENED", round.id(), "V2-FROZEN-ROUND", round.version(),
@@ -133,14 +134,23 @@ public class V2FrozenApplicationService {
 
     @Transactional(readOnly = true)
     public FrozenWorkspace workspace(UUID caseId) {
-        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        var frozenAccess = authorization.decide(FROZEN_PERMISSION);
+        ActorContext actor = frozenAccess.allowed() ? frozenAccess.actor() : authorization.require(DIAGNOSIS_PERMISSION);
         Case frozenCase = frozenCase(caseId, actor);
         List<RoundView> rounds = repository.findByCase(caseId, actor.hospitalScope()).stream().map(round -> {
             Production production = repository.production(round.id());
             UUID diagnosisId = diagnosisRepository.findDiagnosisByContext(DiagnosisContextType.FROZEN_ROUND, round.id(),
                     actor.hospitalScope()).map(Diagnosis::id).orElse(null);
-            return new RoundView(round.id(), round.roundNo(), round.status(), repository.findSpecimenIds(round.id()),
+            List<RoundSpecimenView> specimens = repository.findSpecimenIds(round.id()).stream()
+                    .map(specimenId -> registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                            .map(item -> new RoundSpecimenView(item.id(), item.specimenNo(), item.specimenCode(),
+                                    item.specimenKindCode(), item.collectionSite()))
+                            .orElse(null))
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+            return new RoundView(round.id(), round.roundNo(), round.status(), specimens,
                     production.totalRequired(), production.completedRequired(), production.complete(), diagnosisId,
+                    round.arrivalTime(), round.registeredAt(), round.grossingStartTime(), round.slideCompletedTime(),
                     round.diagnosisSignedTime());
         }).toList();
         return new FrozenWorkspace(frozenCase.id(), frozenCase.caseNo(), frozenCase.businessTypeCode(), rounds,
@@ -211,6 +221,13 @@ public class V2FrozenApplicationService {
         return round;
     }
 
+    private void linkUnassignedSpecimens(FrozenRound round, ActorContext actor, Instant now) {
+        int sequence = repository.nextSpecimenSequence(round.id());
+        for (UUID specimenId : repository.findUnlinkedCaseSpecimenIds(round.caseId(), actor.hospitalScope())) {
+            repository.linkSpecimen(round.id(), specimenId, sequence++, actor.actorId(), now);
+        }
+    }
+
     private Case frozenCase(UUID caseId, ActorContext actor) {
         Case pathologyCase = registrationRepository.findCase(caseId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
@@ -241,8 +258,12 @@ public class V2FrozenApplicationService {
             int totalRequiredSlides, int completedRequiredSlides, boolean productionComplete, boolean duplicate) { }
     public record DiagnosisResult(UUID diagnosisId, UUID roundId, boolean duplicate) { }
     public record EndResult(UUID routineCaseId, boolean duplicate) { }
-    public record RoundView(UUID roundId, int roundNo, String status, List<UUID> specimenIds, int totalRequiredSlides,
-            int completedRequiredSlides, boolean productionComplete, UUID diagnosisId, Instant diagnosisSignedTime) { }
+    public record RoundView(UUID roundId, int roundNo, String status, List<RoundSpecimenView> specimens,
+            int totalRequiredSlides, int completedRequiredSlides, boolean productionComplete, UUID diagnosisId,
+            Instant arrivalTime, Instant registeredAt, Instant grossingStartTime, Instant slideCompletedTime,
+            Instant diagnosisSignedTime) { }
+    public record RoundSpecimenView(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
+            String collectionSite) { }
     public record FrozenWorkspace(UUID frozenCaseId, String pathologyNo, String businessTypeCode, List<RoundView> rounds,
             UUID routineCaseId) { }
 }

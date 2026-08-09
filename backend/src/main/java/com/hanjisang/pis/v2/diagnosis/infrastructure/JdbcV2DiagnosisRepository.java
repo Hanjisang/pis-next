@@ -360,15 +360,34 @@ public class JdbcV2DiagnosisRepository {
                 FROM pis_v2.pathology_case c
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
-                  AND EXISTS (
-                      SELECT 1 FROM pis_v2.slide s
-                      WHERE s.case_id = c.id AND s.source_context_type = 'INITIAL'
-                        AND s.required = TRUE AND s.completed_at IS NOT NULL AND s.deleted_at IS NULL
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM pis_v2.slide s
-                      WHERE s.case_id = c.id AND s.source_context_type = 'INITIAL'
-                        AND s.required = TRUE AND s.completed_at IS NULL AND s.deleted_at IS NULL
+                  AND (
+                      (bt.business_type_code = 'MOLECULAR' AND EXISTS (
+                          SELECT 1 FROM pis_v2.molecular_result mr
+                          WHERE mr.case_id = c.id AND mr.organization_reference = ?
+                            AND mr.status_code = 'COMPLETED'
+                      ))
+                      OR
+                      (bt.business_type_code NOT IN ('MOLECULAR', 'FROZEN')
+                       AND EXISTS (
+                          SELECT 1 FROM pis_v2.slide s
+                          WHERE s.case_id = c.id AND s.required = TRUE
+                            AND s.completed_at IS NOT NULL AND s.deleted_at IS NULL
+                            AND (s.source_context_type = 'INITIAL'
+                                 OR (bt.business_type_code LIKE 'CYTOLOGY_%'
+                                     AND s.source_context_type = 'CYTOLOGY')
+                                 OR (bt.business_type_code = 'REFERRAL'
+                                     AND s.source_context_type = 'EXTERNAL'))
+                       )
+                       AND NOT EXISTS (
+                          SELECT 1 FROM pis_v2.slide s
+                          WHERE s.case_id = c.id AND s.required = TRUE
+                            AND s.completed_at IS NULL AND s.deleted_at IS NULL
+                            AND (s.source_context_type = 'INITIAL'
+                                 OR (bt.business_type_code LIKE 'CYTOLOGY_%'
+                                     AND s.source_context_type = 'CYTOLOGY')
+                                 OR (bt.business_type_code = 'REFERRAL'
+                                     AND s.source_context_type = 'EXTERNAL'))
+                       ))
                   )
                   AND NOT EXISTS (
                       SELECT 1
@@ -378,7 +397,8 @@ public class JdbcV2DiagnosisRepository {
                   )
                 ORDER BY c.created_at, c.id
                 """, (rs, rowNum) -> new PublicPoolCase(rs.getObject("id", UUID.class), rs.getString("case_no"),
-                rs.getString("business_type_code")), organizationReference, organizationReference);
+                rs.getString("business_type_code")), organizationReference, organizationReference,
+                organizationReference);
     }
 
     public void insertAssignmentRule(AssignmentRule rule) {

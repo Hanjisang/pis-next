@@ -45,6 +45,7 @@ class IdentityIntegrationTest {
         assertThat(resolved.userId()).isEqualTo(userId);
         assertThat(resolved.doctorIdentity().doctorCode()).isEqualTo("DOC-A");
         assertThat(resolved.organization().departmentId()).isEqualTo(departmentId);
+        assertThat(new DoctorIdentityResolver().actorReference(resolved)).isEqualTo(doctor.id().toString());
     }
 
     @Test

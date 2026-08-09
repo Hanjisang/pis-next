@@ -67,6 +67,7 @@ class V2BusinessTypeWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
         assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
+        assertThat(publicPoolCaseIds()).contains(caseId);
         JsonNode diagnosis = claim(caseId, "cytology-claim-key");
         assertThat(diagnosis.get("diagnosisId").asText()).isNotBlank();
     }
@@ -91,6 +92,11 @@ class V2BusinessTypeWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
         assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
+        assertThat(workspace.get("molecularResults")).hasSize(1);
+        assertThat(workspace.get("molecularResults").get(0).get("resultCode").asText()).isEqualTo("PANEL-1");
+        assertThat(workspace.get("molecularResults").get(0).get("resultData").asText())
+                .contains("mutationDetected");
+        assertThat(publicPoolCaseIds()).contains(caseId);
         assertThat(claim(caseId, "molecular-claim-after-result").get("diagnosisId").asText()).isNotBlank();
         JsonNode sendOut = json(mockMvc.perform(post("/api/v2/send-outs/cases/%s".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -130,7 +136,13 @@ class V2BusinessTypeWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(workspace.get("materialTree").get("initialProductionComplete").asBoolean()).isTrue();
         assertThat(workspace.get("actions").get("canClaim").asBoolean()).isTrue();
+        assertThat(publicPoolCaseIds()).contains(caseId);
         assertThat(claim(caseId, "consultation-claim-key").get("diagnosisId").asText()).isNotBlank();
+    }
+
+    private java.util.List<String> publicPoolCaseIds() throws Exception {
+        return json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/public-pool"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).findValuesAsText("caseId");
     }
 
     private JsonNode claim(String caseId, String key) throws Exception {

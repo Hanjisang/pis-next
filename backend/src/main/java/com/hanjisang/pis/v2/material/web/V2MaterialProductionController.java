@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService;
@@ -142,6 +143,18 @@ public class V2MaterialProductionController {
     @GetMapping("/cases/{caseId}/materials")
     public V2MaterialProductionApplicationService.MaterialTreeResult materialTree(@PathVariable UUID caseId) {
         return service.materialTree(caseId);
+    }
+
+    @GetMapping("/cases/{caseId}/grossing-workspace")
+    public V2MaterialProductionApplicationService.GrossingWorkspaceResult grossingWorkspace(
+            @PathVariable UUID caseId, @RequestParam(defaultValue = "INITIAL") String sourceType,
+            @RequestParam(required = false) UUID sourceReferenceId) {
+        return service.grossingWorkspace(caseId, sourceType, sourceReferenceId);
+    }
+
+    @GetMapping("/slides/production-workbench")
+    public V2MaterialProductionApplicationService.ProductionWorkbenchResult productionWorkbench() {
+        return service.productionWorkbench();
     }
 
     public record CreateGrossingRequest(String sourceType, UUID sourceReferenceId, String grossDescription,

@@ -92,6 +92,15 @@ class V2GateCWebTest {
                 .get("loanId").asText();
         mockMvc.perform(post("/api/v2/custody/loans/%s/return".formatted(loanId))).andExpect(status().isOk());
 
+        JsonNode custodyMaterials = json(mockMvc.perform(get("/api/v2/custody/cases/%s/materials".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(custodyMaterials).hasSize(2);
+        JsonNode custodySlide = java.util.stream.StreamSupport.stream(custodyMaterials.spliterator(), false)
+                .filter(item -> "SLIDE".equals(item.get("materialKind").asText())).findFirst().orElseThrow();
+        assertThat(custodySlide.get("materialCode").asText()).isEqualTo("A1-HE");
+        assertThat(custodySlide.get("locationName").asText()).isEqualTo("合成归档室");
+        assertThat(custodySlide.path("borrowerReference").isMissingNode()).isTrue();
+
         assertThat(json(mockMvc.perform(get("/api/v2/search?q=H-000001"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).size()).isGreaterThan(0);
         assertThat(json(mockMvc.perform(post("/api/v2/qc/evaluate").contentType(MediaType.APPLICATION_JSON)

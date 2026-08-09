@@ -139,6 +139,16 @@ public class V2CustodyApplicationService {
         return new CustodyBatchResult(batchId, safe(command.blockIds()).size(), safe(command.slideIds()).size(), false);
     }
 
+    @Transactional(readOnly = true)
+    public List<CustodyMaterialView> caseMaterials(UUID caseId) {
+        ActorContext actor = authorization.require(QUERY_PERMISSION);
+        return repository.findCaseMaterials(caseId, actor.hospitalScope()).stream()
+                .map(row -> new CustodyMaterialView(row.materialKind(), row.materialId(), row.materialCode(),
+                        row.locationId(), row.locationCode(), row.locationName(), row.loanId(),
+                        row.borrowerReference(), row.destroyedAt()))
+                .toList();
+    }
+
     private CustodyBatchResult replay(String operation, String key, String digest, ActorContext actor) {
         var existing = repository.findIdempotency(operation, key).orElse(null);
         if (existing == null) return null;
@@ -183,4 +193,6 @@ public class V2CustodyApplicationService {
     public record LocationResult(UUID locationId, UUID parentId, String locationCode, String locationName, String locationKindCode) { }
     public record CustodyBatchResult(UUID batchId, int blockCount, int slideCount, boolean duplicate) { }
     public record LoanResult(UUID loanId, int blockCount, int slideCount, String statusCode) { }
+    public record CustodyMaterialView(String materialKind, UUID materialId, String materialCode, UUID locationId,
+            String locationCode, String locationName, UUID loanId, String borrowerReference, Instant destroyedAt) { }
 }

@@ -158,6 +158,33 @@ class V2MaterialProductionWebTest {
                 String.class, UUID.fromString(slideId))).isEqualTo("FAILED");
     }
 
+    @Test
+    void uxWorkspaceQueriesReturnCaseContextAndProductionQueue() throws Exception {
+        String caseId = createCase("APP-UX01-QUERY");
+        String specimenId = createSpecimen(caseId, "A", "specimen-ux01-query");
+
+        JsonNode beforeGrossing = objectMapper.readTree(mockMvc.perform(
+                get("/api/v2/cases/%s/grossing-workspace".formatted(caseId))
+                        .queryParam("sourceType", "INITIAL"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(beforeGrossing.get("patientReference").asText()).isEqualTo("SYNTH-APP-UX01-QUERY");
+        assertThat(beforeGrossing.path("grossing").isMissingNode()).isTrue();
+        assertThat(beforeGrossing.get("specimens")).hasSize(1);
+
+        String grossingId = createGrossing(caseId, "grossing-ux01-query");
+        associateSpecimen(grossingId, specimenId, "associate-ux01-query");
+        createBlock(grossingId, specimenId, "A1", "block-ux01-query");
+        completeGrossing(grossingId, 0, "complete-ux01-query");
+
+        JsonNode queue = objectMapper.readTree(mockMvc.perform(get("/api/v2/slides/production-workbench"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(queue.get("slides")).isNotEmpty();
+        JsonNode slide = queue.get("slides").get(0);
+        assertThat(slide.get("caseNo").asText()).isNotBlank();
+        assertThat(slide.get("patientReference").asText()).isEqualTo("SYNTH-APP-UX01-QUERY");
+        assertThat(slide.get("slideCode").asText()).isEqualTo("A1-HE");
+    }
+
     private String createCase(String suffix) throws Exception {
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/cases")
                 .contentType(MediaType.APPLICATION_JSON)

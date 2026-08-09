@@ -147,7 +147,10 @@ class V2TechnicalOrderWebTest {
         assertThat(workspace.get("blockingTechnicalOrderCount").asInt()).isZero();
         JsonNode workbench = json(mockMvc.perform(get("/api/v2/technical-workbench"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(workbench.get("orders")).isEmpty();
+        assertThat(workbench.get("orders")).hasSize(1);
+        assertThat(workbench.get("orders").get(0).get("status").asText()).isEqualTo("COMPLETED");
+        assertThat(workbench.get("orders").get(0).get("caseNo").asText()).isNotBlank();
+        assertThat(workbench.get("orders").get(0).get("patientReference").asText()).isNotBlank();
     }
 
     @Test

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +50,11 @@ public class V2CustodyController {
     public V2CustodyApplicationService.CustodyBatchResult destroy(@RequestBody DestroyRequest request) {
         return service.destroy(new DestroyCommand(request.blockIds(), request.slideIds(), request.reason(),
                 request.batchReference()));
+    }
+
+    @GetMapping("/cases/{caseId}/materials")
+    public List<V2CustodyApplicationService.CustodyMaterialView> caseMaterials(@PathVariable UUID caseId) {
+        return service.caseMaterials(caseId);
     }
 
     public record CreateLocationRequest(UUID parentId, String locationCode, String locationName, String locationKindCode) { }

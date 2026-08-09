@@ -360,8 +360,13 @@ public class V2ReportApplicationService {
                 "visitReference", value(pathologyCase.visitReference()), "applicationItemCode",
                 pathologyCase.applicationItemCode(), "sourceSystemCode", pathologyCase.sourceSystemCode(),
                 "externalApplicationId", pathologyCase.externalApplicationId()));
-        String materialSnapshot = json(materialRepository.findMaterialTree(pathologyCase.id(), actor.hospitalScope())
-                .stream().map(this::materialRowSnapshot).toList());
+        var materialRows = materialRepository.findMaterialTree(pathologyCase.id(), actor.hospitalScope());
+        if (diagnosis.contextType() == com.hanjisang.pis.v2.diagnosis.domain.DiagnosisContextType.FROZEN_ROUND) {
+            var roundSpecimenIds = materialRepository.findFrozenRoundSpecimenIds(diagnosis.contextId(),
+                    pathologyCase.id(), actor.hospitalScope());
+            materialRows = materialRows.stream().filter(row -> roundSpecimenIds.contains(row.specimenId())).toList();
+        }
+        String materialSnapshot = json(materialRows.stream().map(this::materialRowSnapshot).toList());
         String technicalSnapshot = json(technicalOrders.stream().map(item -> Map.of("orderId", item.order().id(),
                 "orderNo", item.order().orderNo(), "status", item.derivedStatus().name(), "blocking", item.blocking(),
                 "items", item.items().stream().map(detail -> Map.of("projectCode", detail.item().project().code(),

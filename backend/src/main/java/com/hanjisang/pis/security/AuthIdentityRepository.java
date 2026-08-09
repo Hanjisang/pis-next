@@ -36,6 +36,17 @@ public class AuthIdentityRepository implements AuthenticatedUserDirectory {
         return findAuthRow("id = ?", userId).map(this::toUser);
     }
 
+    public List<DoctorIdentity> findEnabledDoctors(String hospitalScope) {
+        return jdbc.query("""
+                SELECT d.id, d.user_id, d.doctor_code, d.display_name, d.title, d.department,
+                       d.department_id, d.enabled
+                FROM pis_v2.doctor_identity d
+                JOIN pis_v2.auth_user u ON u.id = d.user_id
+                WHERE d.enabled = TRUE AND u.enabled = TRUE AND u.hospital_scope = ?
+                ORDER BY d.display_name, d.doctor_code
+                """, (rs, rowNum) -> doctor(rs), hospitalScope);
+    }
+
     public void seedSyntheticAccounts(String password) {
         for (AccountSpec account : syntheticAccounts()) {
             UUID userId = findAuthRow("username = ?", account.username()).map(AuthRow::id)

@@ -145,7 +145,8 @@ public class V2TechnicalOrderApplicationService {
                 UUID.randomUUID().toString(), "items=" + preparedItems.size());
         outbox.append("PIS-V2-I04-TECHNICAL-ORDER-CREATED", order.id(), "V2-TECHNICAL-ORDER", order.version(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
-        return orderResult(repository.findOrderSnapshot(order.id(), actor.hospitalScope()).orElseThrow(), false);
+        return orderResult(repository.findOrderSnapshot(order.id(), actor.hospitalScope()).orElseThrow(), false,
+                actor.hospitalScope());
     }
 
     @Transactional
@@ -165,7 +166,7 @@ public class V2TechnicalOrderApplicationService {
             throw reject("V2-TECHNICAL-ORDER-CANCELLED", "已取消技术医嘱不能执行");
         }
         if (snapshot.derivedStatus() == TechnicalOrderStatus.COMPLETED) {
-            return orderResult(snapshot, false);
+            return orderResult(snapshot, false, actor.hospitalScope());
         }
         for (ItemSnapshot itemSnapshot : snapshot.items()) {
             TechnicalProject project = itemSnapshot.item().project();
@@ -195,7 +196,8 @@ public class V2TechnicalOrderApplicationService {
                 UUID.randomUUID().toString(), "技术医嘱已触发实际产物生成");
         outbox.append("PIS-V2-I04-TECHNICAL-ORDER-EXECUTED", orderId, "V2-TECHNICAL-ORDER", snapshot.order().version(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
-        return orderResult(repository.findOrderSnapshot(orderId, actor.hospitalScope()).orElseThrow(), false);
+        return orderResult(repository.findOrderSnapshot(orderId, actor.hospitalScope()).orElseThrow(), false,
+                actor.hospitalScope());
     }
 
     @Transactional
@@ -243,7 +245,8 @@ public class V2TechnicalOrderApplicationService {
                 "V2-TECHNICAL-ORDER-ITEM-RESULT", UUID.randomUUID().toString(), "技术结构化结果已录入");
         outbox.append("PIS-V2-I04-TECHNICAL-RESULT-ENTERED", snapshot.order().id(), "V2-TECHNICAL-ORDER",
                 snapshot.order().version(), UUID.randomUUID().toString(), digest, actor.actorId());
-        return orderResult(repository.findOrderSnapshot(snapshot.order().id(), actor.hospitalScope()).orElseThrow(), false);
+        return orderResult(repository.findOrderSnapshot(snapshot.order().id(), actor.hospitalScope()).orElseThrow(),
+                false, actor.hospitalScope());
     }
 
     @Transactional
@@ -278,21 +281,23 @@ public class V2TechnicalOrderApplicationService {
                 UUID.randomUUID().toString(), command.reason());
         outbox.append("PIS-V2-I04-TECHNICAL-ORDER-CANCELLED", orderId, "V2-TECHNICAL-ORDER", order.version(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
-        return orderResult(repository.findOrderSnapshot(orderId, actor.hospitalScope()).orElseThrow(), false);
+        return orderResult(repository.findOrderSnapshot(orderId, actor.hospitalScope()).orElseThrow(), false,
+                actor.hospitalScope());
     }
 
     @Transactional(readOnly = true)
     public TechnicalOrderResult getOrder(UUID orderId) {
         ActorContext actor = authorization.require(TECHNICAL_QUERY);
         return orderResult(repository.findOrderSnapshot(orderId, actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-TECHNICAL-ORDER-NOT-FOUND", "技术医嘱不存在或不在当前数据范围")), false);
+                .orElseThrow(() -> reject("V2-TECHNICAL-ORDER-NOT-FOUND", "技术医嘱不存在或不在当前数据范围")),
+                false, actor.hospitalScope());
     }
 
     @Transactional(readOnly = true)
     public List<TechnicalOrderResult> diagnosisOrders(UUID diagnosisId) {
         ActorContext actor = authorization.require(TECHNICAL_QUERY);
         return repository.findOrderSnapshotsByDiagnosis(diagnosisId, actor.hospitalScope()).stream()
-                .map(snapshot -> orderResult(snapshot, false)).toList();
+                .map(snapshot -> orderResult(snapshot, false, actor.hospitalScope())).toList();
     }
 
     /** Shared sign-out gate; the report module must not duplicate I04's blocking projection. */
@@ -305,7 +310,7 @@ public class V2TechnicalOrderApplicationService {
     public WorkbenchResult workbench() {
         ActorContext actor = authorization.require(TECHNICAL_QUERY);
         return new WorkbenchResult(repository.findWorkbenchSnapshots(actor.hospitalScope()).stream()
-                .map(snapshot -> orderResult(snapshot, false)).toList());
+                .map(snapshot -> orderResult(snapshot, false, actor.hospitalScope())).toList());
     }
 
     private PreparedItem prepareItem(CreateItemCommand command, Case pathologyCase, ActorContext actor) {
@@ -441,7 +446,8 @@ public class V2TechnicalOrderApplicationService {
         if (!existing.payloadDigest().equals(digest)) throw reject("V2-IDEMPOTENCY-CONFLICT", "技术医嘱幂等摘要冲突");
         if (existing.resultEntityId() == null) throw reject("V2-IDEMPOTENCY-INVALID", "技术医嘱幂等结果缺少主体");
         return orderResult(repository.findOrderSnapshot(existing.resultEntityId(), actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-IDEMPOTENCY-INVALID", "技术医嘱幂等结果对应主体不存在")), true);
+                .orElseThrow(() -> reject("V2-IDEMPOTENCY-INVALID", "技术医嘱幂等结果对应主体不存在")),
+                true, actor.hospitalScope());
     }
 
     private TechnicalOrderResult replayAfterReservation(String operation, String key, String digest,
@@ -449,9 +455,12 @@ public class V2TechnicalOrderApplicationService {
         return replayOrder(operation, key, digest, actor);
     }
 
-    private TechnicalOrderResult orderResult(OrderSnapshot snapshot, boolean duplicate) {
+    private TechnicalOrderResult orderResult(OrderSnapshot snapshot, boolean duplicate, String organizationReference) {
+        Case pathologyCase = registrationRepository.findCase(snapshot.order().caseId(), organizationReference)
+                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "技术医嘱病例不存在或不在当前数据范围"));
         return new TechnicalOrderResult(snapshot.order().id(), snapshot.order().orderNo(), snapshot.order().diagnosisId(),
-                snapshot.order().caseId(), snapshot.derivedStatus(), snapshot.order().requiredBeforeSignOut(),
+                snapshot.order().caseId(), pathologyCase.caseNo(), pathologyCase.patientReference(),
+                snapshot.derivedStatus(), snapshot.order().requiredBeforeSignOut(),
                 snapshot.blocking(), snapshot.order().version(), snapshot.order().cancelledAt(),
                 snapshot.order().cancellationReason(), snapshot.items().stream().map(item -> new ItemResult(
                 item.item().id(), item.item().project().id(), item.item().project().code(), item.item().project().name(),
@@ -548,7 +557,8 @@ public class V2TechnicalOrderApplicationService {
             boolean producesStructuredResult, String defaultSlideType, String parametersSchema, String resultSchema,
             boolean requiredBeforeSignOutDefault, int configurationVersion) { }
     public record TechnicalOrderResult(UUID orderId, String orderNo, UUID diagnosisId, UUID caseId,
-            TechnicalOrderStatus status, boolean requiredBeforeSignOut, boolean blocking, long version,
+            String caseNo, String patientReference, TechnicalOrderStatus status, boolean requiredBeforeSignOut,
+            boolean blocking, long version,
             Instant cancelledAt, String cancellationReason, List<ItemResult> items, boolean duplicate) { }
     public record ItemResult(UUID itemId, UUID projectId, String projectCode, String projectName, int quantity,
             String status, int expectedCount, int completedCount, List<TargetResult> targets, List<OutputResult> outputs,

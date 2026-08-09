@@ -15,6 +15,6 @@ public class DoctorIdentityResolver {
     }
 
     public String actorReference(AuthenticatedUser user) {
-        return resolve(user).map(DoctorIdentity::doctorCode).orElse(user.username());
+        return resolve(user).map(doctor -> doctor.id().toString()).orElse(user.userId().toString());
     }
 }

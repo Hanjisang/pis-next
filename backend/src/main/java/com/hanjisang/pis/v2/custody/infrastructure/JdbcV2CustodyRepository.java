@@ -3,6 +3,7 @@ package com.hanjisang.pis.v2.custody.infrastructure;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -135,6 +136,48 @@ public class JdbcV2CustodyRepository {
                 """, UUID.randomUUID(), slideId, Timestamp.from(now), actorRef, reason, batchReference);
     }
 
+    public List<CustodyMaterialRow> findCaseMaterials(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT material_kind, material_id, material_code, location_id, location_code, location_name,
+                       loan_id, borrower_reference, destroyed_at
+                FROM (
+                    SELECT 'BLOCK' AS material_kind, b.id AS material_id, b.block_code AS material_code,
+                           loc.id AS location_id, loc.location_code, loc.location_name,
+                           (SELECT l.id FROM pis_v2.loan_item li JOIN pis_v2.loan l ON l.id = li.loan_id
+                             WHERE li.block_id = b.id AND li.returned_at IS NULL AND l.status_code = 'BORROWED'
+                             ORDER BY l.borrowed_at DESC LIMIT 1) AS loan_id,
+                           (SELECT l.borrower_reference FROM pis_v2.loan_item li JOIN pis_v2.loan l ON l.id = li.loan_id
+                             WHERE li.block_id = b.id AND li.returned_at IS NULL AND l.status_code = 'BORROWED'
+                             ORDER BY l.borrowed_at DESC LIMIT 1) AS borrower_reference,
+                           b.destroyed_at
+                    FROM pis_v2.block b
+                    LEFT JOIN pis_v2.block_archive_current current_archive ON current_archive.block_id = b.id
+                    LEFT JOIN pis_v2.archive_location loc ON loc.id = current_archive.location_id
+                    WHERE b.case_id = ? AND b.organization_reference = ? AND b.deleted_at IS NULL
+                    UNION ALL
+                    SELECT 'SLIDE' AS material_kind, sl.id AS material_id, sl.slide_code AS material_code,
+                           loc.id AS location_id, loc.location_code, loc.location_name,
+                           (SELECT l.id FROM pis_v2.loan_item li JOIN pis_v2.loan l ON l.id = li.loan_id
+                             WHERE li.slide_id = sl.id AND li.returned_at IS NULL AND l.status_code = 'BORROWED'
+                             ORDER BY l.borrowed_at DESC LIMIT 1) AS loan_id,
+                           (SELECT l.borrower_reference FROM pis_v2.loan_item li JOIN pis_v2.loan l ON l.id = li.loan_id
+                             WHERE li.slide_id = sl.id AND li.returned_at IS NULL AND l.status_code = 'BORROWED'
+                             ORDER BY l.borrowed_at DESC LIMIT 1) AS borrower_reference,
+                           sl.destroyed_at
+                    FROM pis_v2.slide sl
+                    LEFT JOIN pis_v2.slide_archive_current current_archive ON current_archive.slide_id = sl.id
+                    LEFT JOIN pis_v2.archive_location loc ON loc.id = current_archive.location_id
+                    WHERE sl.case_id = ? AND sl.organization_reference = ? AND sl.deleted_at IS NULL
+                ) material
+                ORDER BY material_kind, material_code
+                """, (rs, rowNum) -> new CustodyMaterialRow(rs.getString("material_kind"),
+                rs.getObject("material_id", UUID.class), rs.getString("material_code"),
+                rs.getObject("location_id", UUID.class), rs.getString("location_code"),
+                rs.getString("location_name"), rs.getObject("loan_id", UUID.class),
+                rs.getString("borrower_reference"), instant(rs, "destroyed_at")), caseId, organizationReference,
+                caseId, organizationReference);
+    }
+
     public Optional<IdempotencyResult> findIdempotency(String operationCode, String key) {
         return jdbcTemplate.query("""
                 SELECT payload_digest, result_entity_id FROM pis_v2.custody_command_idempotency
@@ -153,4 +196,11 @@ public class JdbcV2CustodyRepository {
     }
 
     public record IdempotencyResult(String payloadDigest, UUID resultEntityId) { }
+    public record CustodyMaterialRow(String materialKind, UUID materialId, String materialCode, UUID locationId,
+            String locationCode, String locationName, UUID loanId, String borrowerReference, Instant destroyedAt) { }
+
+    private static Instant instant(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        Timestamp value = rs.getTimestamp(column);
+        return value == null ? null : value.toInstant();
+    }
 }

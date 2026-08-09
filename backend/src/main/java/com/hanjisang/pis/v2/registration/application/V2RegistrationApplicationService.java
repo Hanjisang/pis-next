@@ -275,10 +275,12 @@ public class V2RegistrationApplicationService {
 
     public record SoftDeleteSpecimenCommand(long expectedVersion, String reason) { }
 
-    public record CaseResult(UUID caseId, String caseNo, String businessTypeCode, String lifecycleStateCode,
-            boolean numberBindingActive, long concurrencyVersion, boolean duplicate, String eventTypeCode) {
+    public record CaseResult(UUID caseId, String caseNo, String businessTypeCode, String patientReference,
+            String visitReference, String applicationNo, String lifecycleStateCode, boolean numberBindingActive,
+            long concurrencyVersion, boolean duplicate, String eventTypeCode) {
         static CaseResult created(Case pathologyCase, boolean duplicate, String eventTypeCode) {
             return new CaseResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
+                    pathologyCase.patientReference(), pathologyCase.visitReference(), pathologyCase.externalApplicationId(),
                     pathologyCase.lifecycleStateCode(), pathologyCase.numberBindingActive(),
                     pathologyCase.concurrencyVersion(), duplicate, eventTypeCode);
         }

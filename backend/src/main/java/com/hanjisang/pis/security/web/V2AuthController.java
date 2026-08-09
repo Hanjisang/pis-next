@@ -1,6 +1,7 @@
 package com.hanjisang.pis.security.web;
 
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.servlet.http.Cookie;
@@ -64,6 +65,13 @@ public class V2AuthController {
     public AuthResponse me() {
         return AuthenticationContext.current().map(user -> AuthResponse.from(user, doctorIdentityResolver))
                 .orElseThrow(() -> new P15BusinessException("V2-AUTHENTICATION-REQUIRED", "请先登录", 401));
+    }
+
+    @GetMapping("/doctors")
+    public List<DoctorResponse> doctors() {
+        AuthenticatedUser current = AuthenticationContext.current()
+                .orElseThrow(() -> new P15BusinessException("V2-AUTHENTICATION-REQUIRED", "请先登录", 401));
+        return identities.findEnabledDoctors(current.hospitalScope()).stream().map(DoctorResponse::from).toList();
     }
 
     @PostMapping("/logout")
