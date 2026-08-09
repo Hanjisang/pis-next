@@ -18,6 +18,7 @@ import com.hanjisang.pis.v2.diagnosis.domain.Diagnosis;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
 import com.hanjisang.pis.presentation.configuration.HospitalProfileApplicationService;
 import com.hanjisang.pis.presentation.configuration.JdbcHospitalProfileRepository;
+import com.hanjisang.pis.security.AuthIdentityRepository;
 
 @Testcontainers
 class V2RegistrationPostgresIntegrationTest {
@@ -42,9 +43,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("S03-DEVICE-ADAPTER");
+                String.class)).isEqualTo("S04-IDENTITY-INTEGRATION");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("23");
+                String.class)).isEqualTo("24");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
@@ -79,6 +80,26 @@ class V2RegistrationPostgresIntegrationTest {
                     ('integration_message_log', 'integration_attempt', 'integration_dead_letter',
                      'integration_replay_request', 'integration_reconciliation', 'external_identifier_mapping')
                 """, Integer.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'pis_v2' AND table_name IN
+                    ('identity_provider_configuration', 'external_identity_link', 'external_authentication_event')
+                """, Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.identity_provider_configuration",
+                Integer.class)).isEqualTo(15);
+
+        AuthIdentityRepository identities = new AuthIdentityRepository(jdbc);
+        identities.seedSyntheticAccounts(UUID.randomUUID().toString());
+        var doctorA = identities.authenticate("doctor-a", "not-the-random-password");
+        assertThat(doctorA).isEmpty();
+        var storedDoctorA = jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.auth_user WHERE username = 'doctor-a' AND hospital_profile_id IS NOT NULL AND department_id IS NOT NULL",
+                Integer.class);
+        assertThat(storedDoctorA).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.doctor_identity di
+                JOIN pis_v2.auth_user u ON u.id = di.user_id
+                WHERE u.username = 'doctor-a' AND di.department_id = u.department_id
+                """, Integer.class)).isEqualTo(1);
 
         HospitalProfileApplicationService hospitalProfiles = new HospitalProfileApplicationService(
                 new JdbcHospitalProfileRepository(jdbc));

@@ -21,6 +21,7 @@ import com.hanjisang.pis.security.AuthenticationSessionFilter;
 import com.hanjisang.pis.security.AuthenticationSessionStore;
 import com.hanjisang.pis.security.DoctorIdentity;
 import com.hanjisang.pis.security.DoctorIdentityResolver;
+import com.hanjisang.pis.security.OrganizationContext;
 import com.hanjisang.pis.security.P15BusinessException;
 
 @RestController
@@ -82,11 +83,11 @@ public class V2AuthController {
     public record AuthConfigResponse(boolean required) { }
 
     public record AuthResponse(UUID userId, String username, String displayName, String roleCode,
-            String department, Set<String> permissions, DoctorResponse doctor) {
+            String department, Set<String> permissions, DoctorResponse doctor, OrganizationResponse organization) {
         static AuthResponse from(AuthenticatedUser user, DoctorIdentityResolver resolver) {
             DoctorResponse doctor = resolver.resolve(user).map(DoctorResponse::from).orElse(null);
             return new AuthResponse(user.userId(), user.username(), user.displayName(), user.roleCode(),
-                    user.departmentScope(), user.permissions(), doctor);
+                    user.departmentScope(), user.permissions(), doctor, OrganizationResponse.from(user.organization()));
         }
     }
 
@@ -94,6 +95,15 @@ public class V2AuthController {
         static DoctorResponse from(DoctorIdentity doctor) {
             return new DoctorResponse(doctor.id(), doctor.doctorCode(), doctor.displayName(), doctor.title(),
                     doctor.department());
+        }
+    }
+
+    public record OrganizationResponse(UUID hospitalProfileId, String hospitalProfileCode, UUID campusId,
+            String campusCode, UUID departmentId, String departmentCode, String departmentName) {
+        static OrganizationResponse from(OrganizationContext organization) {
+            return organization == null ? null : new OrganizationResponse(organization.hospitalProfileId(),
+                    organization.hospitalProfileCode(), organization.campusId(), organization.campusCode(),
+                    organization.departmentId(), organization.departmentCode(), organization.departmentName());
         }
     }
 }

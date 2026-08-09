@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class AuthIdentityRepository {
+public class AuthIdentityRepository implements AuthenticatedUserDirectory {
 
     private final JdbcTemplate jdbc;
 
@@ -41,11 +41,13 @@ public class AuthIdentityRepository {
             UUID userId = findAuthRow("username = ?", account.username()).map(AuthRow::id)
                     .orElseGet(UUID::randomUUID);
             Instant now = Instant.now();
+            OrganizationIds organization = findOrganization("LOCAL_HOSPITAL", account.department());
             jdbc.update("""
                     INSERT INTO pis_v2.auth_user
                         (id, username, display_name, password_digest, role_code, hospital_scope,
-                         department_scope, task_scope, enabled, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)
+                         department_scope, task_scope, enabled, created_at, updated_at,
+                         hospital_profile_id, campus_id, department_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
                     ON CONFLICT (username) DO UPDATE SET
                         display_name = EXCLUDED.display_name,
                         password_digest = EXCLUDED.password_digest,
@@ -53,11 +55,15 @@ public class AuthIdentityRepository {
                         hospital_scope = EXCLUDED.hospital_scope,
                         department_scope = EXCLUDED.department_scope,
                         task_scope = EXCLUDED.task_scope,
+                        hospital_profile_id = EXCLUDED.hospital_profile_id,
+                        campus_id = EXCLUDED.campus_id,
+                        department_id = EXCLUDED.department_id,
                         enabled = TRUE,
                         updated_at = EXCLUDED.updated_at
                     """, userId, account.username(), account.displayName(), PasswordHash.create(password),
                     account.roleCode(), "LOCAL_HOSPITAL", account.department(), account.taskScope(),
-                    Timestamp.from(now), Timestamp.from(now));
+                    Timestamp.from(now), Timestamp.from(now), organization.hospitalProfileId(),
+                    organization.campusId(), organization.departmentId());
             jdbc.update("DELETE FROM pis_v2.auth_user_permission WHERE user_id = ?", userId);
             for (String permission : account.permissions()) {
                 jdbc.update("INSERT INTO pis_v2.auth_user_permission (user_id, permission_code) VALUES (?, ?)",
@@ -69,25 +75,31 @@ public class AuthIdentityRepository {
                 if (doctorId == null) doctorId = UUID.randomUUID();
                 jdbc.update("""
                         INSERT INTO pis_v2.doctor_identity
-                            (id, user_id, doctor_code, display_name, title, department, enabled, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)
+                            (id, user_id, doctor_code, display_name, title, department, department_id,
+                             enabled, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)
                         ON CONFLICT (user_id) DO UPDATE SET
                             doctor_code = EXCLUDED.doctor_code,
                             display_name = EXCLUDED.display_name,
                             title = EXCLUDED.title,
                             department = EXCLUDED.department,
+                            department_id = EXCLUDED.department_id,
                             enabled = TRUE,
                             updated_at = EXCLUDED.updated_at
                         """, doctorId, userId, account.doctorCode(), account.displayName(), account.title(),
-                        account.department(), Timestamp.from(now), Timestamp.from(now));
+                        account.department(), organization.departmentId(), Timestamp.from(now), Timestamp.from(now));
             }
         }
     }
 
     private Optional<AuthRow> findAuthRow(String predicate, Object... arguments) {
-        String sql = "SELECT id, username, display_name, password_digest, role_code, hospital_scope, "
-                + "department_scope, task_scope, enabled "
-                + "FROM pis_v2.auth_user WHERE " + predicate;
+        String sql = "SELECT u.id, u.username, u.display_name, u.password_digest, u.role_code, u.hospital_scope, "
+                + "u.department_scope, u.task_scope, u.enabled, u.hospital_profile_id, u.campus_id, "
+                + "u.department_id, hp.profile_code, hc.campus_code, hd.department_code, hd.department_name "
+                + "FROM pis_v2.auth_user u "
+                + "LEFT JOIN pis_v2.hospital_profile hp ON hp.id = u.hospital_profile_id "
+                + "LEFT JOIN pis_v2.hospital_campus hc ON hc.id = u.campus_id "
+                + "LEFT JOIN pis_v2.hospital_department hd ON hd.id = u.department_id WHERE u." + predicate;
         return jdbc.query(sql, rs -> rs.next() ? Optional.of(authRow(rs)) : Optional.empty(), arguments);
     }
 
@@ -96,23 +108,42 @@ public class AuthIdentityRepository {
                 "SELECT permission_code FROM pis_v2.auth_user_permission WHERE user_id = ? ORDER BY permission_code",
                 (rs, rowNum) -> rs.getString(1), row.id()));
         DoctorIdentity doctor = jdbc.query("""
-                SELECT id, user_id, doctor_code, display_name, title, department, enabled
+                SELECT id, user_id, doctor_code, display_name, title, department, department_id, enabled
                 FROM pis_v2.doctor_identity WHERE user_id = ? AND enabled = TRUE
                 """, rs -> rs.next() ? doctor(rs) : null, row.id());
         return new AuthenticatedUser(row.id(), row.username(), row.displayName(), row.roleCode(), row.hospitalScope(),
-                row.departmentScope(), row.taskScope(), Set.copyOf(permissions), doctor);
+                row.departmentScope(), row.taskScope(), Set.copyOf(permissions), doctor,
+                new OrganizationContext(row.hospitalProfileId(), row.profileCode(), row.campusId(), row.campusCode(),
+                        row.departmentId(), row.organizationDepartmentCode(), row.departmentName()));
     }
 
     private static AuthRow authRow(ResultSet rs) throws SQLException {
         return new AuthRow(rs.getObject("id", UUID.class), rs.getString("username"), rs.getString("display_name"),
                 rs.getString("password_digest"), rs.getString("role_code"), rs.getString("hospital_scope"),
-                rs.getString("department_scope"), rs.getString("task_scope"), rs.getBoolean("enabled"));
+                rs.getString("department_scope"), rs.getString("task_scope"), rs.getBoolean("enabled"),
+                rs.getObject("hospital_profile_id", UUID.class), rs.getObject("campus_id", UUID.class),
+                rs.getObject("department_id", UUID.class), rs.getString("profile_code"),
+                rs.getString("campus_code"), rs.getString("department_code"), rs.getString("department_name"));
     }
 
     private static DoctorIdentity doctor(ResultSet rs) throws SQLException {
         return new DoctorIdentity(rs.getObject("id", UUID.class), rs.getObject("user_id", UUID.class),
                 rs.getString("doctor_code"), rs.getString("display_name"), rs.getString("title"),
-                rs.getString("department"), rs.getBoolean("enabled"));
+                rs.getString("department"), rs.getObject("department_id", UUID.class), rs.getBoolean("enabled"));
+    }
+
+    private OrganizationIds findOrganization(String profileCode, String departmentCode) {
+        return jdbc.query("""
+                SELECT hp.id AS hospital_profile_id, hc.id AS campus_id, hd.id AS department_id
+                FROM pis_v2.hospital_profile hp
+                LEFT JOIN pis_v2.hospital_campus hc
+                  ON hc.hospital_profile_id = hp.id AND hc.campus_code = 'MAIN'
+                LEFT JOIN pis_v2.hospital_department hd
+                  ON hd.hospital_profile_id = hp.id AND hd.department_code = ?
+                WHERE hp.profile_code = ?
+                """, rs -> rs.next() ? new OrganizationIds(rs.getObject("hospital_profile_id", UUID.class),
+                rs.getObject("campus_id", UUID.class), rs.getObject("department_id", UUID.class))
+                : new OrganizationIds(null, null, null), departmentCode, profileCode);
     }
 
     private static List<AccountSpec> syntheticAccounts() {
@@ -142,7 +173,11 @@ public class AuthIdentityRepository {
     }
 
     private record AuthRow(UUID id, String username, String displayName, String passwordDigest, String roleCode,
-            String hospitalScope, String departmentScope, String taskScope, boolean enabled) { }
+            String hospitalScope, String departmentScope, String taskScope, boolean enabled,
+            UUID hospitalProfileId, UUID campusId, UUID departmentId, String profileCode, String campusCode,
+            String organizationDepartmentCode, String departmentName) { }
+
+    private record OrganizationIds(UUID hospitalProfileId, UUID campusId, UUID departmentId) { }
 
     private record AccountSpec(String username, String displayName, String roleCode, String doctorCode, String title,
             String department, String taskScope, Set<String> permissions) { }

@@ -5,5 +5,5 @@ import java.util.UUID;
 
 public record AuthenticatedUser(UUID userId, String username, String displayName, String roleCode,
         String hospitalScope, String departmentScope, String taskScope, Set<String> permissions,
-        DoctorIdentity doctorIdentity) {
+        DoctorIdentity doctorIdentity, OrganizationContext organization) {
 }
