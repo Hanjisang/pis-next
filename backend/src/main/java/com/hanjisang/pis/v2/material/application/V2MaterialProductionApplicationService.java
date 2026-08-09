@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hanjisang.pis.integration.OutboxPort;
+import com.hanjisang.pis.integration.device.LabelPrintService;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
 import com.hanjisang.pis.security.P15AuthorizationService;
@@ -44,17 +45,17 @@ public class V2MaterialProductionApplicationService {
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
-    private final PrintService printService;
+    private final LabelPrintService labelPrintService;
 
     public V2MaterialProductionApplicationService(JdbcV2MaterialRepository repository,
             JdbcV2RegistrationRepository registrationRepository, P15AuthorizationService authorization,
-            JdbcAuditEventRepository audit, OutboxPort outbox, PrintService printService) {
+            JdbcAuditEventRepository audit, OutboxPort outbox, LabelPrintService labelPrintService) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
-        this.printService = printService;
+        this.labelPrintService = labelPrintService;
     }
 
     @Transactional
@@ -521,7 +522,7 @@ public class V2MaterialProductionApplicationService {
         reserve(operation, command.idempotencyKey(), digest, "PRINT", blockId, actor);
         PrintRule rule = repository.findPrintRule(actor.hospitalScope(),
                 repository.findCaseBusinessTypeId(block.caseId(), actor.hospitalScope()).orElse(null), "BLOCK", "MANUAL")
-                .orElse(new PrintRule(UUID.randomUUID(), null, "BLOCK", "MANUAL", "SYNTH-PRINTER", true));
+                .orElse(new PrintRule(UUID.randomUUID(), null, "BLOCK", "MANUAL", "MOCK://SYNTH-PRINTER", true));
         PrintResult result = recordPrint(block.caseId(), "BLOCK", block.id(), block.blockCode(), rule, actor,
                 Instant.now());
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
@@ -545,7 +546,7 @@ public class V2MaterialProductionApplicationService {
         reserve(operation, command.idempotencyKey(), digest, "PRINT", slideId, actor);
         PrintRule rule = repository.findPrintRule(actor.hospitalScope(),
                 repository.findCaseBusinessTypeId(slide.caseId(), actor.hospitalScope()).orElse(null), "SLIDE", "MANUAL")
-                .orElse(new PrintRule(UUID.randomUUID(), null, "SLIDE", "MANUAL", "SYNTH-PRINTER", true));
+                .orElse(new PrintRule(UUID.randomUUID(), null, "SLIDE", "MANUAL", "MOCK://SYNTH-PRINTER", true));
         PrintResult result = recordPrint(slide.caseId(), "SLIDE", slide.id(), slide.slideCode(), rule, actor,
                 Instant.now());
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
@@ -595,8 +596,8 @@ public class V2MaterialProductionApplicationService {
 
     private PrintResult recordPrint(UUID caseId, String entityKind, UUID entityId, String businessCode,
             PrintRule rule, ActorContext actor, Instant now) {
-        PrintService.PrintResult serviceResult = printService.print(new PrintService.PrintRequest(entityKind, entityId,
-                businessCode, rule.printerProfileCode(), actor.actorId()));
+        LabelPrintService.PrintResult serviceResult = labelPrintService.print(new LabelPrintService.PrintRequest(
+                entityKind, entityId, businessCode, rule.printerProfileCode(), businessCode, actor.actorId()));
         repository.insertPrintLog(caseId, entityKind, entityId, businessCode, rule.printerProfileCode(), actor.actorId(),
                 now, new JdbcV2MaterialRepository.PrintServiceResult(serviceResult.resultCode(),
                         serviceResult.failureReason()));

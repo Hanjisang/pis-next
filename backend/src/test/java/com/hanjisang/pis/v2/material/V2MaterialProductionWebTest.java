@@ -144,7 +144,7 @@ class V2MaterialProductionWebTest {
                 INSERT INTO pis_v2.print_rule
                     (id, organization_reference, business_type_id, entity_kind_code, trigger_code,
                      printer_profile_code, active, configuration_version, created_at, updated_at, created_by_ref)
-                VALUES (?, 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'MANUAL', 'FAIL-SYNTH-PRINTER', TRUE, 1,
+                VALUES (?, 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'MANUAL', 'MOCK://FAIL-SYNTH-PRINTER', TRUE, 1,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST')
                 """, UUID.randomUUID());
         JsonNode print = objectMapper.readTree(mockMvc.perform(post("/api/v2/slides/%s/print".formatted(slideId))

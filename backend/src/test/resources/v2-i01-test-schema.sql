@@ -367,7 +367,7 @@ INSERT INTO pis_v2.print_rule
     (id, organization_reference, business_type_id, entity_kind_code, trigger_code, printer_profile_code,
      active, configuration_version, created_at, updated_at, created_by_ref)
 VALUES ('00000000-0000-0000-0000-00000000b011', 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'ON_GROSSING_COMPLETE',
-        'SYNTH-PRINTER', TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
+        'MOCK://SYNTH-PRINTER', TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
 
 CREATE TABLE IF NOT EXISTS pis_v2.report_template (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,

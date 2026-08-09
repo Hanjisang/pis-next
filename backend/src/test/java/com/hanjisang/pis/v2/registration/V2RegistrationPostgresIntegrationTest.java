@@ -42,9 +42,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("S02-INTEGRATION-ARCHITECTURE");
+                String.class)).isEqualTo("S03-DEVICE-ADAPTER");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("22");
+                String.class)).isEqualTo("23");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
@@ -52,6 +52,8 @@ class V2RegistrationPostgresIntegrationTest {
                 .isEqualTo(36);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.slide_rule", Integer.class)).isEqualTo(10);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.print_rule", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT printer_profile_code FROM pis_v2.print_rule", String.class))
+                .isEqualTo("MOCK://SYNTH-PRINTER");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template_version", Integer.class))
                 .isEqualTo(8);
