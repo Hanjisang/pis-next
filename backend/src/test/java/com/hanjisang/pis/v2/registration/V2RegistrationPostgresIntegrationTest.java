@@ -42,9 +42,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("S01-HOSPITAL-PROFILE");
+                String.class)).isEqualTo("S02-INTEGRATION-ARCHITECTURE");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("21");
+                String.class)).isEqualTo("22");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
@@ -71,6 +71,12 @@ class V2RegistrationPostgresIntegrationTest {
                      'label_template', 'printer_mapping', 'print_strategy',
                      'hospital_report_configuration', 'device_configuration', 'integration_configuration')
                 """, Integer.class)).isEqualTo(11);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'pis_v2' AND table_name IN
+                    ('integration_message_log', 'integration_attempt', 'integration_dead_letter',
+                     'integration_replay_request', 'integration_reconciliation', 'external_identifier_mapping')
+                """, Integer.class)).isEqualTo(6);
 
         HospitalProfileApplicationService hospitalProfiles = new HospitalProfileApplicationService(
                 new JdbcHospitalProfileRepository(jdbc));
