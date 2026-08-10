@@ -41,8 +41,7 @@ public class V2AdministrationApplicationService {
     public AdministrationSnapshot snapshot() {
         authorization.require(ADMIN_PERMISSION);
         List<UserAdmin> users = repository.users().stream().map(this::user).toList();
-        List<PermissionOption> permissions = allPermissions(users);
-        return new AdministrationSnapshot(users, repository.roleCodes(), permissions, repository.organizations());
+        return new AdministrationSnapshot(users, repository.roleCodes(), permissionCatalog(), repository.organizations());
     }
 
     @Transactional
@@ -54,6 +53,7 @@ public class V2AdministrationApplicationService {
         List<String> permissions = java.util.stream.Stream.concat(
                 command.businessPermissions() == null ? java.util.stream.Stream.empty() : command.businessPermissions().stream(),
                 command.actionPermissions() == null ? java.util.stream.Stream.empty() : command.actionPermissions().stream())
+                .filter(code -> BUSINESS.contains(code) || ACTION.contains(code))
                 .distinct().toList();
         boolean changed = repository.updateUser(id, new JdbcV2AdministrationRepository.UserUpdate(
                 command.displayName().trim(), command.roleCode(), command.hospitalScope(), command.departmentScope(),
@@ -61,7 +61,7 @@ public class V2AdministrationApplicationService {
                 command.doctorDepartment(), command.doctorEnabled(), permissions), Instant.now());
         if (!changed) throw new P15BusinessException("V2-ADMIN-NOT-FOUND", "用户不存在", 404);
         audit.append("PIS-V2-PX02-ADMIN-USER-UPDATE", ADMIN_PERMISSION, actor, "ALLOWED", "COMPLETED", id,
-                "V2-AUTH-USER", UUID.randomUUID().toString(), "permissions and scope updated");
+                "V2-AUTH-USER", UUID.randomUUID().toString(), "permissions and data scopes updated");
         return snapshot();
     }
 
@@ -74,11 +74,11 @@ public class V2AdministrationApplicationService {
                 business, action);
     }
 
-    private static List<PermissionOption> allPermissions(List<UserAdmin> users) {
-        Set<String> codes = new java.util.TreeSet<>();
-        users.forEach(user -> { codes.addAll(user.businessPermissions()); codes.addAll(user.actionPermissions()); });
-        return codes.stream().map(code -> new PermissionOption(code, label(code),
-                BUSINESS.contains(code) ? "BUSINESS" : "ACTION")).toList();
+    private static List<PermissionOption> permissionCatalog() {
+        return java.util.stream.Stream.concat(BUSINESS.stream(), ACTION.stream())
+                .sorted()
+                .map(code -> new PermissionOption(code, label(code), BUSINESS.contains(code) ? "BUSINESS" : "ACTION"))
+                .toList();
     }
 
     private static String label(String code) {
@@ -93,9 +93,9 @@ public class V2AdministrationApplicationService {
             case "P14-PERM-034" -> "诊断责任";
             case "P14-PERM-035" -> "审核";
             case "P14-PERM-036" -> "报告签发";
+            case "P14-PERM-042" -> "模板配置";
             case "P14-PERM-048" -> "查询";
             case "P14-PERM-055" -> "报告查看";
-            case "P14-PERM-042" -> "模板配置";
             default -> code;
         };
     }
@@ -109,6 +109,5 @@ public class V2AdministrationApplicationService {
             List<String> actionPermissions) { }
     public record UpdateUser(String displayName, String roleCode, String hospitalScope, String departmentScope,
             String taskScope, boolean enabled, String doctorCode, String doctorTitle, String doctorDepartment,
-            boolean doctorEnabled, List<String> businessPermissions, List<String> actionPermissions,
-            List<String> dataPermissions) { }
+            boolean doctorEnabled, List<String> businessPermissions, List<String> actionPermissions) { }
 }
