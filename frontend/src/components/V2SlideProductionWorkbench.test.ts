@@ -85,8 +85,8 @@ describe('V2SlideProductionWorkbench', () => {
     expect(wrapper.text()).toContain('待制片');
     expect(wrapper.text()).toContain('进行中');
     expect(wrapper.text()).toContain('今日完成');
-    expect(wrapper.findAll('[role="tab"]')[0].text()).toContain('1');
-    expect(wrapper.findAll('[role="tab"]')[1].text()).toContain('1');
+    expect(wrapper.findAll('[role="tab"]')[0].text()).toContain('2');
+    expect(wrapper.findAll('[role="tab"]')[1].text()).toContain('0');
     expect(wrapper.findAll('[role="tab"]')[2].text()).toContain('1');
     expect(wrapper.text()).not.toContain('脱水 → 包埋');
   });

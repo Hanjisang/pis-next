@@ -10,6 +10,80 @@ export type V2CaseWorkspace = {
   refreshedAt: string;
 };
 
+export type V2WorkbenchItem = {
+  caseId: string;
+  pathologyNo: string;
+  patientReference: string;
+  businessTypeCode: string;
+  businessTypeName: string;
+  workCode: string;
+  workLabel: string;
+  responsibilityName: string | null;
+  occurredAt: string | null;
+  caseCreatedAt: string;
+  availableActions: string[];
+  deepLink: string;
+};
+
+export type V2WorkbenchCounts = {
+  initial: number;
+  review: number;
+  audit: number;
+  technicalResultReturned: number;
+  withdrawnReport: number;
+  publicPool: number;
+};
+
+export type V2WorkbenchQueues = {
+  histology: number;
+  dehydration: number;
+  embedding: number;
+  cutting: number;
+  staining: number;
+  coverslipping: number;
+  technical: number;
+  frozen: number;
+  withdrawn: number;
+};
+
+export type V2MyWorkbench = {
+  refreshedAt: string;
+  myWork: V2WorkbenchItem[];
+  publicPool: V2WorkbenchItem[];
+  counts: V2WorkbenchCounts;
+  queues: V2WorkbenchQueues;
+};
+
+export async function getV2MyWorkbench(): Promise<V2MyWorkbench> {
+  const response = await fetch('/api/v2/my-workbench');
+  const body = (await response.json()) as Partial<V2MyWorkbench> & { message?: string };
+  if (!response.ok) throw new Error(body.message ?? '我的工作台暂时无法加载');
+  return {
+    refreshedAt: body.refreshedAt ?? new Date().toISOString(),
+    myWork: body.myWork ?? [],
+    publicPool: body.publicPool ?? [],
+    counts: body.counts ?? {
+      initial: 0,
+      review: 0,
+      audit: 0,
+      technicalResultReturned: 0,
+      withdrawnReport: 0,
+      publicPool: 0,
+    },
+    queues: body.queues ?? {
+      histology: 0,
+      dehydration: 0,
+      embedding: 0,
+      cutting: 0,
+      staining: 0,
+      coverslipping: 0,
+      technical: 0,
+      frozen: 0,
+      withdrawn: 0,
+    },
+  };
+}
+
 export type V2CaseHeader = {
   caseId: string;
   pathologyNo: string;

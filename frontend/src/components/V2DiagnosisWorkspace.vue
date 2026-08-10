@@ -31,6 +31,10 @@ import {
 import V2ImageViewer from './V2ImageViewer.vue';
 import V2CaseHeader from './V2CaseHeader.vue';
 import { getV2CaseWorkspace, type V2WorkspaceTimelineEntry } from '../v2WorkspaceApi';
+import CaseEvidencePanel from './diagnosis/CaseEvidencePanel.vue';
+import DiagnosisEditor from './diagnosis/DiagnosisEditor.vue';
+import DiagnosisWorkspaceShell from './diagnosis/DiagnosisWorkspaceShell.vue';
+import ImageViewerPanel from './diagnosis/ImageViewerPanel.vue';
 
 type TemplateOption = { value: string; label: string };
 type TemplateComponent = {
@@ -763,435 +767,446 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
       <p v-if="error" class="feedback error diagnosis-feedback" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success diagnosis-feedback" role="status">{{ notice }}</p>
 
-      <div class="diagnosis-layout">
-        <aside class="diagnosis-context-nav" aria-label="病例上下文">
-          <p class="section-kicker">病例上下文</p>
-          <nav class="context-nav-list" aria-label="病例材料导航">
-            <button
-              v-for="item in contextItems"
-              :key="item.id"
-              type="button"
-              :class="{ active: activeContext === item.id }"
-              @click="activeContext = item.id"
-            >
-              <span>{{ item.label }}</span
-              ><span v-if="item.count !== ''" class="count-pill">{{ item.count }}</span>
-            </button>
-          </nav>
-
-          <section class="context-detail">
-            <dl v-if="activeContext === 'application'" class="context-definition-list">
-              <div>
-                <dt>申请号</dt>
-                <dd>{{ workspace.application.externalApplicationId }}</dd>
-              </div>
-              <div>
-                <dt>来源</dt>
-                <dd>
-                  {{
-                    workspace.application.sourceSystemCode === 'MANUAL'
-                      ? '手工登记'
-                      : workspace.application.sourceSystemCode
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>申请项目</dt>
-                <dd>{{ workspace.application.applicationItemCode }}</dd>
-              </div>
-            </dl>
-            <ul v-else-if="activeContext === 'specimens'" class="context-material-list">
-              <li v-for="specimen in workspace.materialTree.specimens" :key="specimen.specimenId">
-                <strong>标本 {{ specimen.specimenCode }}</strong
-                ><span>{{ specimen.specimenNo }}</span>
-              </li>
-            </ul>
-            <ul v-else-if="activeContext === 'blocks'" class="context-material-list">
-              <li v-for="block in allBlocks" :key="block.blockId">
-                <strong>{{ block.blockCode }}</strong
-                ><span>{{ block.slides.length }} 张玻片</span>
-              </li>
-            </ul>
-            <ul v-else-if="activeContext === 'slides'" class="context-material-list">
-              <li v-for="slide in allSlides" :key="slide.slideId">
-                <strong>{{ slide.slideCode }}</strong
-                ><span :class="slide.completed ? 'success-text' : 'warning-text'">{{
-                  slide.completed ? '已完成' : '待完成'
-                }}</span>
-              </li>
-            </ul>
-            <div v-else-if="activeContext === 'digital'" class="context-material-list">
-              <button
-                v-for="digital in workspace.digitalSlides ?? []"
-                :key="digital.digitalSlideId"
-                class="digital-slide-link"
-                type="button"
-                @click="openViewer(digital)"
-              >
-                <span
-                  ><strong>数字切片</strong><small>{{ digital.sourcePlatform }}</small></span
-                ><span>打开 →</span>
-              </button>
-              <p v-if="!(workspace.digitalSlides ?? []).length" class="muted">当前没有数字切片。</p>
-            </div>
-            <div v-else-if="activeContext === 'history'" class="context-history-list">
-              <article v-for="entry in timelineEntries" :key="entry.eventId">
-                <time>{{ formatDateTime(entry.occurredAt) }}</time>
-                <div>
-                  <strong>{{ entry.title }}</strong>
-                  <span>{{ entry.actorName || entry.actorRef || '系统记录' }}</span>
-                  <small v-if="entry.detail">{{ entry.detail }}</small>
-                </div>
-              </article>
-              <p v-if="!timelineEntries.length" class="muted">当前病例还没有业务历史。</p>
-            </div>
-            <div v-else class="empty-state compact">
-              <strong>暂无历史病理记录</strong><span>患者历史接入后显示在这里。</span>
-            </div>
-          </section>
-        </aside>
-
-        <main class="diagnosis-editor-stage">
-          <section
-            v-if="selectedViewer"
-            class="diagnosis-viewer-panel workspace-panel"
-            aria-label="数字切片查看"
-          >
-            <header class="panel-title-row">
-              <div>
-                <p class="section-kicker">材料证据</p>
-                <h2>数字切片</h2>
-              </div>
-              <button class="text-button" type="button" @click="selectedViewer = null">
-                收起阅片
-              </button>
-            </header>
-            <V2ImageViewer
-              :source="selectedViewer.viewerReference"
-              :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
-              :source-platform="selectedViewer.sourcePlatform"
-              :context="selectedViewer.context"
-            />
-          </section>
-          <section class="diagnosis-editor-card" aria-label="诊断编辑器">
-            <header class="panel-title-row">
-              <div>
-                <p class="section-kicker">诊断内容</p>
-                <h2>{{ editorTitle }}</h2>
-              </div>
-              <span v-if="workspace.diagnosis" class="status-pill"
-                >最近保存 {{ formatDateTime(workspace.diagnosis.updatedAt) }}</span
-              >
-            </header>
-
-            <div v-if="!workspace.diagnosis" class="empty-state">
-              <strong>病例尚未接诊</strong><span>接诊后会建立初诊责任并打开诊断编辑器。</span>
-            </div>
-            <fieldset v-else :disabled="!canEdit || submitting" class="diagnosis-fields">
-              <legend class="visually-hidden">诊断内容</legend>
-              <template v-for="component in templateComponents" :key="component.code">
-                <label v-if="['TEXT', 'TEXTAREA'].includes(componentType(component))">
-                  {{ component.label || component.code }}
-                  <textarea
-                    v-if="componentType(component) === 'TEXTAREA'"
-                    :value="stringValue(component)"
-                    :required="component.required"
-                    :readonly="component.readOnly"
-                    rows="3"
-                    @input="updateStructuredValue(component.code, eventValue($event))"
-                  ></textarea>
-                  <input
-                    v-else
-                    :value="stringValue(component)"
-                    :required="component.required"
-                    :readonly="component.readOnly"
-                    @input="updateStructuredValue(component.code, eventValue($event))"
-                  />
-                </label>
-                <label
-                  v-else-if="['SINGLE_SELECT', 'DICTIONARY'].includes(componentType(component))"
+      <DiagnosisWorkspaceShell>
+        <div class="diagnosis-layout">
+          <CaseEvidencePanel>
+            <aside class="diagnosis-context-nav" aria-label="病例上下文">
+              <p class="section-kicker">病例上下文</p>
+              <nav class="context-nav-list" aria-label="病例材料导航">
+                <button
+                  v-for="item in contextItems"
+                  :key="item.id"
+                  type="button"
+                  :class="{ active: activeContext === item.id }"
+                  @click="activeContext = item.id"
                 >
-                  {{ component.label || component.code }}
-                  <select
-                    :value="stringValue(component)"
-                    :disabled="component.readOnly"
-                    @change="updateStructuredValue(component.code, eventValue($event))"
+                  <span>{{ item.label }}</span
+                  ><span v-if="item.count !== ''" class="count-pill">{{ item.count }}</span>
+                </button>
+              </nav>
+
+              <section class="context-detail">
+                <dl v-if="activeContext === 'application'" class="context-definition-list">
+                  <div>
+                    <dt>申请号</dt>
+                    <dd>{{ workspace.application.externalApplicationId }}</dd>
+                  </div>
+                  <div>
+                    <dt>来源</dt>
+                    <dd>
+                      {{
+                        workspace.application.sourceSystemCode === 'MANUAL'
+                          ? '手工登记'
+                          : workspace.application.sourceSystemCode
+                      }}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>申请项目</dt>
+                    <dd>{{ workspace.application.applicationItemCode }}</dd>
+                  </div>
+                </dl>
+                <ul v-else-if="activeContext === 'specimens'" class="context-material-list">
+                  <li
+                    v-for="specimen in workspace.materialTree.specimens"
+                    :key="specimen.specimenId"
                   >
-                    <option value="">请选择</option>
-                    <option
-                      v-for="option in templateOptions(component)"
-                      :key="option.value"
-                      :value="option.value"
+                    <strong>标本 {{ specimen.specimenCode }}</strong
+                    ><span>{{ specimen.specimenNo }}</span>
+                  </li>
+                </ul>
+                <ul v-else-if="activeContext === 'blocks'" class="context-material-list">
+                  <li v-for="block in allBlocks" :key="block.blockId">
+                    <strong>{{ block.blockCode }}</strong
+                    ><span>{{ block.slides.length }} 张玻片</span>
+                  </li>
+                </ul>
+                <ul v-else-if="activeContext === 'slides'" class="context-material-list">
+                  <li v-for="slide in allSlides" :key="slide.slideId">
+                    <strong>{{ slide.slideCode }}</strong
+                    ><span :class="slide.completed ? 'success-text' : 'warning-text'">{{
+                      slide.completed ? '已完成' : '待完成'
+                    }}</span>
+                  </li>
+                </ul>
+                <div v-else-if="activeContext === 'digital'" class="context-material-list">
+                  <button
+                    v-for="digital in workspace.digitalSlides ?? []"
+                    :key="digital.digitalSlideId"
+                    class="digital-slide-link"
+                    type="button"
+                    @click="openViewer(digital)"
+                  >
+                    <span
+                      ><strong>数字切片</strong><small>{{ digital.sourcePlatform }}</small></span
+                    ><span>打开 →</span>
+                  </button>
+                  <p v-if="!(workspace.digitalSlides ?? []).length" class="muted">
+                    当前没有数字切片。
+                  </p>
+                </div>
+                <div v-else-if="activeContext === 'history'" class="context-history-list">
+                  <article v-for="entry in timelineEntries" :key="entry.eventId">
+                    <time>{{ formatDateTime(entry.occurredAt) }}</time>
+                    <div>
+                      <strong>{{ entry.title }}</strong>
+                      <span>{{ entry.actorName || entry.actorRef || '系统记录' }}</span>
+                      <small v-if="entry.detail">{{ entry.detail }}</small>
+                    </div>
+                  </article>
+                  <p v-if="!timelineEntries.length" class="muted">当前病例还没有业务历史。</p>
+                </div>
+                <div v-else class="empty-state compact">
+                  <strong>暂无历史病理记录</strong><span>患者历史接入后显示在这里。</span>
+                </div>
+              </section>
+            </aside>
+          </CaseEvidencePanel>
+
+          <main class="diagnosis-editor-stage">
+            <ImageViewerPanel
+              v-if="selectedViewer"
+              class="diagnosis-viewer-panel workspace-panel"
+              aria-label="数字切片查看"
+            >
+              <header class="panel-title-row">
+                <div>
+                  <p class="section-kicker">材料证据</p>
+                  <h2>数字切片</h2>
+                </div>
+                <button class="text-button" type="button" @click="selectedViewer = null">
+                  收起阅片
+                </button>
+              </header>
+              <V2ImageViewer
+                :source="selectedViewer.viewerReference"
+                :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
+                :source-platform="selectedViewer.sourcePlatform"
+                :context="selectedViewer.context"
+              />
+            </ImageViewerPanel>
+            <DiagnosisEditor>
+              <header class="panel-title-row">
+                <div>
+                  <p class="section-kicker">诊断内容</p>
+                  <h2>{{ editorTitle }}</h2>
+                </div>
+                <span v-if="workspace.diagnosis" class="status-pill"
+                  >最近保存 {{ formatDateTime(workspace.diagnosis.updatedAt) }}</span
+                >
+              </header>
+
+              <div v-if="!workspace.diagnosis" class="empty-state">
+                <strong>病例尚未接诊</strong><span>接诊后会建立初诊责任并打开诊断编辑器。</span>
+              </div>
+              <fieldset v-else :disabled="!canEdit || submitting" class="diagnosis-fields">
+                <legend class="visually-hidden">诊断内容</legend>
+                <template v-for="component in templateComponents" :key="component.code">
+                  <label v-if="['TEXT', 'TEXTAREA'].includes(componentType(component))">
+                    {{ component.label || component.code }}
+                    <textarea
+                      v-if="componentType(component) === 'TEXTAREA'"
+                      :value="stringValue(component)"
+                      :required="component.required"
+                      :readonly="component.readOnly"
+                      rows="3"
+                      @input="updateStructuredValue(component.code, eventValue($event))"
+                    ></textarea>
+                    <input
+                      v-else
+                      :value="stringValue(component)"
+                      :required="component.required"
+                      :readonly="component.readOnly"
+                      @input="updateStructuredValue(component.code, eventValue($event))"
+                    />
+                  </label>
+                  <label
+                    v-else-if="['SINGLE_SELECT', 'DICTIONARY'].includes(componentType(component))"
+                  >
+                    {{ component.label || component.code }}
+                    <select
+                      :value="stringValue(component)"
+                      :disabled="component.readOnly"
+                      @change="updateStructuredValue(component.code, eventValue($event))"
                     >
-                      {{ option.label }}
+                      <option value="">请选择</option>
+                      <option
+                        v-for="option in templateOptions(component)"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
+                  <label v-else-if="componentType(component) === 'BOOLEAN'" class="checkbox-label">
+                    <input
+                      type="checkbox"
+                      :checked="Boolean(structuredValue(component))"
+                      :disabled="component.readOnly"
+                      @change="updateStructuredValue(component.code, eventCheckedValue($event))"
+                    />
+                    {{ component.label || component.code }}
+                  </label>
+                </template>
+                <label v-if="!hasTemplateComponent('microscopicDescription')">
+                  镜下所见
+                  <textarea
+                    v-model="microscopicDescription"
+                    class="microscopic-text"
+                    placeholder="记录镜下形态、结构及必要的阴性所见"
+                  ></textarea>
+                </label>
+                <label v-if="!hasTemplateComponent('diagnosisText')">
+                  病理诊断
+                  <textarea
+                    v-model="diagnosisText"
+                    class="diagnosis-text"
+                    placeholder="输入正式病理诊断"
+                  ></textarea>
+                </label>
+                <label v-if="!hasTemplateComponent('comment')">
+                  备注
+                  <textarea
+                    v-model="comment"
+                    rows="2"
+                    placeholder="可选：建议、说明或备注"
+                  ></textarea>
+                </label>
+              </fieldset>
+            </DiagnosisEditor>
+          </main>
+
+          <aside class="diagnosis-inspector" aria-label="责任、医嘱与报告">
+            <section class="inspector-section">
+              <h3>责任链</h3>
+              <div class="responsibility-timeline">
+                <div
+                  v-for="role in ['INITIAL', 'REVIEW', 'AUDIT'] as const"
+                  :key="role"
+                  class="responsibility-step"
+                >
+                  <span
+                    class="semantic-dot"
+                    :class="
+                      workspace.responsibilityChain.some(
+                        (item) => item.role === role && item.current,
+                      )
+                        ? 'current'
+                        : workspace.responsibilityChain.some(
+                              (item) => item.role === role && item.completedAt,
+                            )
+                          ? 'success'
+                          : 'neutral'
+                    "
+                  ></span>
+                  <span>
+                    <strong>{{ responsibilityName(role) }}</strong>
+                    <small>{{
+                      doctorName(
+                        workspace.responsibilityChain.find((item) => item.role === role)?.doctorId,
+                      )
+                    }}</small>
+                  </span>
+                  <span>{{
+                    workspace.responsibilityChain.some(
+                      (item) => item.role === role && item.completedAt,
+                    )
+                      ? '✓'
+                      : workspace.responsibilityChain.some(
+                            (item) => item.role === role && item.current,
+                          )
+                        ? '当前'
+                        : '待分配'
+                  }}</span>
+                </div>
+              </div>
+
+              <div
+                v-if="currentRole && currentRole !== 'AUDIT' && canEdit"
+                class="next-responsibility-form"
+              >
+                <label>
+                  下一步
+                  <select v-model="nextRole">
+                    <option v-if="currentRole === 'INITIAL'" value="REVIEW">提交复诊</option>
+                    <option value="AUDIT">提交审核</option>
+                  </select>
+                </label>
+                <label>
+                  {{ responsibilityName(nextRole) }}医生
+                  <select v-model="nextDoctorId">
+                    <option value="" disabled>请选择医生</option>
+                    <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+                      {{ doctor.displayName }} · {{ doctor.title || '医生' }}
                     </option>
                   </select>
                 </label>
-                <label v-else-if="componentType(component) === 'BOOLEAN'" class="checkbox-label">
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(structuredValue(component))"
-                    :disabled="component.readOnly"
-                    @change="updateStructuredValue(component.code, eventCheckedValue($event))"
-                  />
-                  {{ component.label || component.code }}
+              </div>
+              <div v-if="workspace.actions.canReassign" class="reassignment-form">
+                <label>
+                  改派给
+                  <select v-model="assignmentDoctor">
+                    <option value="" disabled>请选择医生</option>
+                    <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
+                      {{ doctor.displayName }}
+                    </option>
+                  </select>
                 </label>
-              </template>
-              <label v-if="!hasTemplateComponent('microscopicDescription')">
-                镜下所见
-                <textarea
-                  v-model="microscopicDescription"
-                  class="microscopic-text"
-                  placeholder="记录镜下形态、结构及必要的阴性所见"
-                ></textarea>
-              </label>
-              <label v-if="!hasTemplateComponent('diagnosisText')">
-                病理诊断
-                <textarea
-                  v-model="diagnosisText"
-                  class="diagnosis-text"
-                  placeholder="输入正式病理诊断"
-                ></textarea>
-              </label>
-              <label v-if="!hasTemplateComponent('comment')">
-                备注
-                <textarea
-                  v-model="comment"
-                  rows="2"
-                  placeholder="可选：建议、说明或备注"
-                ></textarea>
-              </label>
-            </fieldset>
-          </section>
-        </main>
+                <label>改派原因 <input v-model="assignmentReason" placeholder="必填" /></label>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="!assignmentDoctor || !assignmentReason.trim() || submitting"
+                  @click="reassign"
+                >
+                  确认改派
+                </button>
+              </div>
+            </section>
 
-        <aside class="diagnosis-inspector" aria-label="责任、医嘱与报告">
-          <section class="inspector-section">
-            <h3>责任链</h3>
-            <div class="responsibility-timeline">
-              <div
-                v-for="role in ['INITIAL', 'REVIEW', 'AUDIT'] as const"
-                :key="role"
-                class="responsibility-step"
-              >
-                <span
-                  class="semantic-dot"
-                  :class="
-                    workspace.responsibilityChain.some((item) => item.role === role && item.current)
-                      ? 'current'
-                      : workspace.responsibilityChain.some(
-                            (item) => item.role === role && item.completedAt,
-                          )
+            <section v-if="molecularResults.length" class="inspector-section">
+              <header class="panel-title-row">
+                <h3>分子结果</h3>
+                <span class="status-pill success">{{ molecularResults.length }} 项已返回</span>
+              </header>
+              <div class="technical-result-list">
+                <div
+                  v-for="result in molecularResults"
+                  :key="result.resultId"
+                  class="technical-result-item"
+                >
+                  <span class="semantic-dot success"></span>
+                  <span>
+                    <strong>{{ result.resultCode }}</strong>
+                    <small>{{ molecularResultSummary(result.resultData) }}</small>
+                  </span>
+                  <span>{{ result.statusCode === 'COMPLETED' ? '已完成' : '处理中' }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="inspector-section">
+              <header class="panel-title-row">
+                <h3>技术医嘱</h3>
+                <span v-if="technicalReturnedCount" class="status-pill success"
+                  >{{ technicalReturnedCount }} 项结果已返回</span
+                >
+              </header>
+              <div v-if="workspace.technicalOrders.length" class="technical-result-list">
+                <div
+                  v-for="order in workspace.technicalOrders"
+                  :key="order.orderId"
+                  class="technical-result-item"
+                >
+                  <span
+                    class="semantic-dot"
+                    :class="
+                      order.status === 'COMPLETED'
                         ? 'success'
-                        : 'neutral'
-                  "
-                ></span>
-                <span>
-                  <strong>{{ responsibilityName(role) }}</strong>
-                  <small>{{
-                    doctorName(
-                      workspace.responsibilityChain.find((item) => item.role === role)?.doctorId,
-                    )
-                  }}</small>
-                </span>
-                <span>{{
-                  workspace.responsibilityChain.some(
-                    (item) => item.role === role && item.completedAt,
-                  )
-                    ? '✓'
-                    : workspace.responsibilityChain.some(
-                          (item) => item.role === role && item.current,
-                        )
-                      ? '当前'
-                      : '待分配'
-                }}</span>
+                        : order.blocking
+                          ? 'warning'
+                          : 'neutral'
+                    "
+                  ></span>
+                  <span
+                    ><strong>{{ order.items.map((item) => item.projectName).join('、') }}</strong
+                    ><small
+                      >{{ order.items.reduce((sum, item) => sum + item.completedCount, 0) }}/{{
+                        order.items.reduce((sum, item) => sum + item.expectedCount, 0)
+                      }}
+                      完成</small
+                    ></span
+                  >
+                  <span>{{ statusName(order.status) }}</span>
+                </div>
               </div>
-            </div>
+              <p v-else class="muted">当前没有技术医嘱。</p>
+            </section>
 
-            <div
-              v-if="currentRole && currentRole !== 'AUDIT' && canEdit"
-              class="next-responsibility-form"
-            >
-              <label>
-                下一步
-                <select v-model="nextRole">
-                  <option v-if="currentRole === 'INITIAL'" value="REVIEW">提交复诊</option>
-                  <option value="AUDIT">提交审核</option>
-                </select>
-              </label>
-              <label>
-                {{ responsibilityName(nextRole) }}医生
-                <select v-model="nextDoctorId">
-                  <option value="" disabled>请选择医生</option>
-                  <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
-                    {{ doctor.displayName }} · {{ doctor.title || '医生' }}
-                  </option>
-                </select>
-              </label>
-            </div>
-            <div v-if="workspace.actions.canReassign" class="reassignment-form">
-              <label>
-                改派给
-                <select v-model="assignmentDoctor">
-                  <option value="" disabled>请选择医生</option>
-                  <option v-for="doctor in doctors" :key="doctor.id" :value="doctor.id">
-                    {{ doctor.displayName }}
-                  </option>
-                </select>
-              </label>
-              <label>改派原因 <input v-model="assignmentReason" placeholder="必填" /></label>
-              <button
-                class="secondary-button"
-                type="button"
-                :disabled="!assignmentDoctor || !assignmentReason.trim() || submitting"
-                @click="reassign"
-              >
-                确认改派
-              </button>
-            </div>
-          </section>
-
-          <section v-if="molecularResults.length" class="inspector-section">
-            <header class="panel-title-row">
-              <h3>分子结果</h3>
-              <span class="status-pill success">{{ molecularResults.length }} 项已返回</span>
-            </header>
-            <div class="technical-result-list">
-              <div
-                v-for="result in molecularResults"
-                :key="result.resultId"
-                class="technical-result-item"
-              >
-                <span class="semantic-dot success"></span>
-                <span>
-                  <strong>{{ result.resultCode }}</strong>
-                  <small>{{ molecularResultSummary(result.resultData) }}</small>
-                </span>
-                <span>{{ result.statusCode === 'COMPLETED' ? '已完成' : '处理中' }}</span>
+            <section class="inspector-section">
+              <h3>报告</h3>
+              <div class="report-status-list">
+                <span
+                  ><small>当前状态</small><strong>{{ reportStatus }}</strong></span
+                >
+                <span
+                  ><small>制片</small><strong>{{ productionSummary }}</strong></span
+                >
+                <span v-if="workspace.blockingReasons.length"
+                  ><small>暂不能签发</small
+                  ><strong>{{ workspace.blockingReasons.length }} 项待处理</strong></span
+                >
               </div>
-            </div>
-          </section>
+              <ul v-if="workspace.blockingReasons.length" class="plain-warning-list">
+                <li v-for="reason in workspace.blockingReasons" :key="reason">
+                  {{ blockerText(reason) }}
+                </li>
+              </ul>
+            </section>
 
-          <section class="inspector-section">
-            <header class="panel-title-row">
-              <h3>技术医嘱</h3>
-              <span v-if="technicalReturnedCount" class="status-pill success"
-                >{{ technicalReturnedCount }} 项结果已返回</span
-              >
-            </header>
-            <div v-if="workspace.technicalOrders.length" class="technical-result-list">
-              <div
-                v-for="order in workspace.technicalOrders"
-                :key="order.orderId"
-                class="technical-result-item"
-              >
-                <span
-                  class="semantic-dot"
-                  :class="
-                    order.status === 'COMPLETED'
-                      ? 'success'
-                      : order.blocking
-                        ? 'warning'
-                        : 'neutral'
-                  "
-                ></span>
-                <span
-                  ><strong>{{ order.items.map((item) => item.projectName).join('、') }}</strong
-                  ><small
-                    >{{ order.items.reduce((sum, item) => sum + item.completedCount, 0) }}/{{
-                      order.items.reduce((sum, item) => sum + item.expectedCount, 0)
-                    }}
-                    完成</small
-                  ></span
-                >
-                <span>{{ statusName(order.status) }}</span>
+            <section v-if="workspace.reports.length" class="inspector-section">
+              <h3>报告历史</h3>
+              <div class="report-history-list">
+                <article v-for="report in workspace.reports" :key="report.reportId">
+                  <span
+                    ><strong>{{ report.reportNo }}</strong
+                    ><small
+                      >{{ report.supplemental ? '补充报告' : '正式报告' }} ·
+                      {{ report.status === 'EFFECTIVE' ? '生效' : '已撤回' }}</small
+                    ></span
+                  >
+                  <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
+                    >PDF</a
+                  >
+                </article>
               </div>
-            </div>
-            <p v-else class="muted">当前没有技术医嘱。</p>
-          </section>
-
-          <section class="inspector-section">
-            <h3>报告</h3>
-            <div class="report-status-list">
-              <span
-                ><small>当前状态</small><strong>{{ reportStatus }}</strong></span
-              >
-              <span
-                ><small>制片</small><strong>{{ productionSummary }}</strong></span
-              >
-              <span v-if="workspace.blockingReasons.length"
-                ><small>暂不能签发</small
-                ><strong>{{ workspace.blockingReasons.length }} 项待处理</strong></span
-              >
-            </div>
-            <ul v-if="workspace.blockingReasons.length" class="plain-warning-list">
-              <li v-for="reason in workspace.blockingReasons" :key="reason">
-                {{ blockerText(reason) }}
-              </li>
-            </ul>
-          </section>
-
-          <section v-if="workspace.reports.length" class="inspector-section">
-            <h3>报告历史</h3>
-            <div class="report-history-list">
-              <article v-for="report in workspace.reports" :key="report.reportId">
-                <span
-                  ><strong>{{ report.reportNo }}</strong
-                  ><small
-                    >{{ report.supplemental ? '补充报告' : '正式报告' }} ·
-                    {{ report.status === 'EFFECTIVE' ? '生效' : '已撤回' }}</small
-                  ></span
+              <div class="inline-actions">
+                <button
+                  v-if="workspace.actions.canWithdraw"
+                  class="text-button"
+                  type="button"
+                  @click="withdrawalOpen = !withdrawalOpen"
                 >
-                <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
-                  >PDF</a
+                  撤回
+                </button>
+                <button
+                  v-if="workspace.actions.canSupplement"
+                  class="text-button"
+                  type="button"
+                  @click="supplementalOpen = !supplementalOpen"
                 >
-              </article>
-            </div>
-            <div class="inline-actions">
-              <button
-                v-if="workspace.actions.canWithdraw"
-                class="text-button"
-                type="button"
-                @click="withdrawalOpen = !withdrawalOpen"
-              >
-                撤回
-              </button>
-              <button
-                v-if="workspace.actions.canSupplement"
-                class="text-button"
-                type="button"
-                @click="supplementalOpen = !supplementalOpen"
-              >
-                补充报告
-              </button>
-            </div>
-            <div v-if="withdrawalOpen" class="report-inline-form">
-              <label>撤回原因 <input v-model="withdrawalReason" /></label>
-              <button
-                v-for="report in workspace.reports.filter((item) => item.status === 'EFFECTIVE')"
-                :key="report.reportId"
-                class="danger-button"
-                type="button"
-                :disabled="!withdrawalReason.trim() || submitting"
-                @click="withdrawReport(report.reportId)"
-              >
-                确认撤回 {{ report.reportNo }}
-              </button>
-            </div>
-            <div v-if="supplementalOpen" class="report-inline-form">
-              <label>补充内容 <textarea v-model="supplementalContent" rows="3"></textarea></label>
-              <button
-                class="primary-button"
-                type="button"
-                :disabled="!supplementalContent.trim() || submitting"
-                @click="supplementReport"
-              >
-                签发补充报告
-              </button>
-            </div>
-          </section>
-        </aside>
-      </div>
+                  补充报告
+                </button>
+              </div>
+              <div v-if="withdrawalOpen" class="report-inline-form">
+                <label>撤回原因 <input v-model="withdrawalReason" /></label>
+                <button
+                  v-for="report in workspace.reports.filter((item) => item.status === 'EFFECTIVE')"
+                  :key="report.reportId"
+                  class="danger-button"
+                  type="button"
+                  :disabled="!withdrawalReason.trim() || submitting"
+                  @click="withdrawReport(report.reportId)"
+                >
+                  确认撤回 {{ report.reportNo }}
+                </button>
+              </div>
+              <div v-if="supplementalOpen" class="report-inline-form">
+                <label>补充内容 <textarea v-model="supplementalContent" rows="3"></textarea></label>
+                <button
+                  class="primary-button"
+                  type="button"
+                  :disabled="!supplementalContent.trim() || submitting"
+                  @click="supplementReport"
+                >
+                  签发补充报告
+                </button>
+              </div>
+            </section>
+          </aside>
+        </div>
+      </DiagnosisWorkspaceShell>
 
       <footer class="workspace-action-bar" aria-label="诊断主要操作">
         <span class="muted"

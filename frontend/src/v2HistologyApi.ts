@@ -30,15 +30,42 @@ export type V2HistologySlide = {
   phases: V2HistologyPhase[];
 };
 
+export type V2HistologyQueues = {
+  dehydration: number;
+  embedding: number;
+  cutting: number;
+  staining: number;
+  coverslipping: number;
+  completed: number;
+  exceptions: number;
+};
+
 export async function getV2HistologyWorkbench(caseId?: string) {
   const query = caseId ? `?caseId=${encodeURIComponent(caseId)}` : '';
   const response = await fetch(`/api/v2/histology/workbench${query}`);
   const body = (await response.json()) as
     | { message?: string }
-    | { slides: V2HistologySlide[]; refreshedAt: string };
+    | { slides: V2HistologySlide[]; queues?: V2HistologyQueues; refreshedAt: string };
   if (!response.ok)
     throw new Error((body as { message?: string }).message ?? '制片事实暂时无法加载');
-  return body as { slides: V2HistologySlide[]; refreshedAt: string };
+  const successBody = body as {
+    slides: V2HistologySlide[];
+    queues?: V2HistologyQueues;
+    refreshedAt: string;
+  };
+  return {
+    slides: successBody.slides ?? [],
+    queues: successBody.queues ?? {
+      dehydration: 0,
+      embedding: 0,
+      cutting: 0,
+      staining: 0,
+      coverslipping: 0,
+      completed: 0,
+      exceptions: 0,
+    },
+    refreshedAt: successBody.refreshedAt,
+  };
 }
 
 async function phaseRequest<T>(path: string, init: RequestInit = {}) {
@@ -89,4 +116,18 @@ export function recordV2HistologyException(input: {
       body: JSON.stringify({ exceptionCode: input.exceptionCode, note: input.note }),
     },
   );
+}
+
+export function startV2HistologyPhaseBatch(slideIds: string[], phaseCode: HistologyPhaseCode) {
+  return phaseRequest<V2HistologyPhase[]>(`/api/v2/histology/phases/${phaseCode}/start-batch`, {
+    method: 'POST',
+    body: JSON.stringify({ slideIds }),
+  });
+}
+
+export function completeV2HistologyPhaseBatch(slideIds: string[], phaseCode: HistologyPhaseCode) {
+  return phaseRequest<V2HistologyPhase[]>(`/api/v2/histology/phases/${phaseCode}/complete-batch`, {
+    method: 'POST',
+    body: JSON.stringify({ slideIds }),
+  });
 }

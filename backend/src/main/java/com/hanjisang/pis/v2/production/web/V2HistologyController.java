@@ -1,6 +1,7 @@
 package com.hanjisang.pis.v2.production.web;
 
 import java.util.UUID;
+import java.util.List;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +34,14 @@ public class V2HistologyController {
         return service.complete(slideId, phaseCode);
     }
 
+    @PostMapping("/phases/{phaseCode}/start-batch")
+    public List<V2HistologyApplicationService.PhaseFact> startBatch(@PathVariable String phaseCode,
+            @RequestBody BatchRequest request) { return service.startBatch(request.slideIds(), phaseCode); }
+
+    @PostMapping("/phases/{phaseCode}/complete-batch")
+    public List<V2HistologyApplicationService.PhaseFact> completeBatch(@PathVariable String phaseCode,
+            @RequestBody BatchRequest request) { return service.completeBatch(request.slideIds(), phaseCode); }
+
     @PostMapping("/slides/{slideId}/phases/{phaseCode}/exception")
     public V2HistologyApplicationService.PhaseFact exception(@PathVariable UUID slideId, @PathVariable String phaseCode,
             @RequestBody ExceptionRequest request) {
@@ -41,4 +50,5 @@ public class V2HistologyController {
 
     public record PhaseRequest(String deviceReference, String batchReference) { }
     public record ExceptionRequest(String exceptionCode, String note) { }
+    public record BatchRequest(List<UUID> slideIds) { }
 }

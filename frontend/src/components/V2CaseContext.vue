@@ -16,7 +16,12 @@ import {
   type V2WorkspaceTimelineEntry,
 } from '../v2WorkspaceApi';
 
-const props = defineProps<{ caseId: string; authUser?: V2AuthUser | null }>();
+const props = defineProps<{
+  caseId: string;
+  authUser?: V2AuthUser | null;
+  focusKind?: string;
+  focusId?: string;
+}>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
 const workspace = ref<V2CaseWorkspace | null>(null);
@@ -53,6 +58,13 @@ watch(
   () => props.caseId,
   () => void load(),
   { immediate: true },
+);
+
+watch(
+  () => [props.focusKind, props.focusId],
+  ([kind]) => {
+    if (kind) activeSection.value = 'materials';
+  },
 );
 
 async function load() {
@@ -273,6 +285,10 @@ function lifecycleLabel(lifecycle: string) {
                     v-for="block in specimen.blocks"
                     :key="block.blockId"
                     class="material-tree-block"
+                    :class="{
+                      'material-focused':
+                        props.focusKind === 'block' && props.focusId === block.blockId,
+                    }"
                   >
                     <div class="material-node-heading">
                       <span class="node-glyph block-glyph" aria-hidden="true">蜡</span>
@@ -290,6 +306,10 @@ function lifecycleLabel(lifecycle: string) {
                       <li v-for="slide in block.slides" :key="slide.slideId">
                         <button
                           class="material-node-button"
+                          :class="{
+                            'material-focused':
+                              props.focusKind === 'slide' && props.focusId === slide.slideId,
+                          }"
                           type="button"
                           @click="openDigitalSlides(slide.slideId)"
                         >

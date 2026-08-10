@@ -15,6 +15,7 @@ import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationSe
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.RegisterSpecimenCommand;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.SoftDeleteSpecimenCommand;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.UpdateSpecimenCommand;
+import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.ApplicationMappingOption;
 
 @RestController
 @RequestMapping("/api/v2/registration")
@@ -31,6 +32,11 @@ public class V2RegistrationController {
         return service.createCase(new CreateCaseCommand(request.sourceSystemCode(), request.externalApplicationId(),
                 request.applicationItemCode(), request.patientReference(), request.visitReference(),
                 request.idempotencyKey()));
+    }
+
+    @GetMapping("/application-item-mappings")
+    public java.util.List<ApplicationMappingOption> applicationItemMappings() {
+        return service.applicationMappings();
     }
 
     @GetMapping("/cases/{caseId}")

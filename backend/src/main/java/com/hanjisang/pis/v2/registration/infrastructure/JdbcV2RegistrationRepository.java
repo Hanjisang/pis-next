@@ -2,6 +2,7 @@ package com.hanjisang.pis.v2.registration.infrastructure;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +52,31 @@ public class JdbcV2RegistrationRepository {
                 """, rs -> rs.next() ? Optional.of(BusinessType.define(rs.getObject("id", UUID.class),
                 rs.getString("business_type_code"), rs.getString("display_name"), rs.getString("modality_code"),
                 rs.getBoolean("active"), rs.getInt("configuration_version"))) : Optional.empty(), businessTypeCode);
+    }
+
+    public Optional<String> findActiveApplicationItemCode(String businessTypeCode) {
+        return jdbcTemplate.query("""
+                SELECT m.application_item_code
+                FROM pis_v2.application_item_mapping m
+                JOIN pis_v2.business_type bt ON bt.id = m.business_type_id
+                WHERE bt.business_type_code = ? AND m.active = TRUE AND bt.active = TRUE
+                ORDER BY m.sequence_no, m.application_item_code
+                LIMIT 1
+                """, rs -> rs.next() ? Optional.of(rs.getString("application_item_code")) : Optional.empty(),
+                businessTypeCode);
+    }
+
+    public List<ApplicationMappingOption> findActiveApplicationMappings(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT m.application_item_code, m.default_specimen_kind_code,
+                       bt.business_type_code, bt.display_name, bt.modality_code
+                FROM pis_v2.application_item_mapping m
+                JOIN pis_v2.business_type bt ON bt.id = m.business_type_id
+                WHERE m.active = TRUE AND bt.active = TRUE
+                ORDER BY m.sequence_no, m.application_item_code
+                """, (rs, rowNum) -> new ApplicationMappingOption(rs.getString("application_item_code"),
+                rs.getString("default_specimen_kind_code"), rs.getString("business_type_code"),
+                rs.getString("display_name"), rs.getString("modality_code")));
     }
 
     public String allocateNumber(String organizationReference, String businessTypeCode, String numberKindCode,
@@ -235,6 +261,9 @@ public class JdbcV2RegistrationRepository {
     }
 
     public record Routing(BusinessType businessType, ApplicationItemMapping mapping) { }
+
+    public record ApplicationMappingOption(String applicationItemCode, String defaultSpecimenKindCode,
+            String businessTypeCode, String businessTypeName, String modalityCode) { }
 
     public record IdempotencyResult(String payloadDigest, String resultKindCode, UUID resultCaseId,
             UUID resultSpecimenId) { }

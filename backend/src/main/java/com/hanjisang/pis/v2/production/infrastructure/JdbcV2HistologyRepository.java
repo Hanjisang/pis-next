@@ -96,8 +96,7 @@ public class JdbcV2HistologyRepository {
         int changed = jdbc.update("""
                 UPDATE pis_v2.material_process_fact
                 SET started_at = COALESCE(started_at, ?), completed_at = ?,
-                    operator_ref = COALESCE(operator_ref, ?), exception_code = NULL,
-                    exception_note = NULL, updated_at = ?, concurrency_version = concurrency_version + 1
+                    operator_ref = COALESCE(operator_ref, ?), updated_at = ?, concurrency_version = concurrency_version + 1
                 WHERE slide_id = ? AND phase_code = ? AND organization_reference = ?
                 """, nowValue, nowValue, operatorRef, nowValue, slideId, phaseCode, organizationReference);
         if (changed == 0) {

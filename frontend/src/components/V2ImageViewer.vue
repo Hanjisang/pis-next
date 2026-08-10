@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+
+import {
+  isRegularImageSource,
+  isTiledViewerSource,
+  type ImageViewerAdapter,
+} from '../viewer/ImageViewerAdapter';
+import { RegularImageViewerAdapter } from '../viewer/RegularImageViewerAdapter';
+import { TiledWSIViewerAdapter } from '../viewer/TiledWSIViewerAdapter';
 
 type ViewerContext = {
   caseNo?: string;
@@ -17,80 +25,98 @@ const props = defineProps<{
 }>();
 
 const viewerRoot = ref<HTMLElement | null>(null);
-const viewport = ref<HTMLDivElement | null>(null);
+const viewerHost = ref<HTMLElement | null>(null);
+const adapter = ref<ImageViewerAdapter | null>(null);
 const scale = ref(1);
-const offsetX = ref(0);
-const offsetY = ref(0);
-const dragging = ref(false);
 const imageError = ref(false);
 const fullscreenActive = ref(false);
-const dragStart = ref({ x: 0, y: 0, offsetX: 0, offsetY: 0 });
+const loading = ref(false);
 
-const isImageReference = computed(() => {
-  const source = props.source?.trim() ?? '';
-  return /^(https?:|data:image|blob:|\/)/i.test(source);
+const sourceValue = computed(() => props.source?.trim() ?? '');
+const tiled = computed(() => isTiledViewerSource(sourceValue.value));
+const regular = computed(() => isRegularImageSource(sourceValue.value));
+const supported = computed(() => tiled.value || regular.value);
+const modeLabel = computed(() => {
+  if (tiled.value) return 'WSI 分层阅片器';
+  if (regular.value) return '普通图像阅片器';
+  return props.sourcePlatform || '外部阅片平台';
 });
 
-const transform = computed(
-  () => `translate(${offsetX.value}px, ${offsetY.value}px) scale(${scale.value})`,
+watch(
+  () => props.source,
+  () => void mountViewer(),
 );
 
+async function mountViewer() {
+  adapter.value?.destroy();
+  adapter.value = null;
+  imageError.value = false;
+  scale.value = 1;
+  if (!supported.value) return;
+  await nextTick();
+  if (!viewerHost.value) return;
+  loading.value = true;
+  try {
+    const nextAdapter = tiled.value ? new TiledWSIViewerAdapter() : new RegularImageViewerAdapter();
+    await nextAdapter.mount(viewerHost.value);
+    nextAdapter.open({ source: sourceValue.value });
+    adapter.value = nextAdapter;
+  } catch {
+    imageError.value = true;
+  } finally {
+    loading.value = false;
+  }
+}
+
 function zoom(delta: number) {
+  adapter.value?.zoomBy(delta);
   scale.value = Math.min(8, Math.max(0.25, Number((scale.value + delta).toFixed(2))));
 }
 
 function reset() {
+  adapter.value?.reset();
   scale.value = 1;
-  offsetX.value = 0;
-  offsetY.value = 0;
-}
-
-function onPointerDown(event: PointerEvent) {
-  if (!isImageReference.value) return;
-  dragging.value = true;
-  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  dragStart.value = {
-    x: event.clientX,
-    y: event.clientY,
-    offsetX: offsetX.value,
-    offsetY: offsetY.value,
-  };
-}
-
-function onPointerMove(event: PointerEvent) {
-  if (!dragging.value) return;
-  offsetX.value = dragStart.value.offsetX + event.clientX - dragStart.value.x;
-  offsetY.value = dragStart.value.offsetY + event.clientY - dragStart.value.y;
-}
-
-function onPointerUp() {
-  dragging.value = false;
 }
 
 function onWheel(event: WheelEvent) {
-  if (!isImageReference.value) return;
+  if (!supported.value || !adapter.value) return;
   event.preventDefault();
   zoom(event.deltaY > 0 ? -0.1 : 0.1);
 }
 
 function onFullscreenChange() {
-  fullscreenActive.value = document.fullscreenElement === viewerRoot.value;
+  // OpenSeadragon may promote its own host element to fullscreen. The browser
+  // fullscreen element, rather than the Vue root identity, is the source of truth.
+  fullscreenActive.value = Boolean(document.fullscreenElement);
 }
 
 function fullscreen() {
-  if (fullscreenActive.value) {
+  if (fullscreenActive.value || document.fullscreenElement) {
+    fullscreenActive.value = false;
+    adapter.value?.setFullScreen(false);
     void document.exitFullscreen?.();
     return;
   }
-  void viewerRoot.value?.requestFullscreen?.();
+  fullscreenActive.value = true;
+  if (tiled.value) {
+    adapter.value?.setFullScreen(true);
+  } else {
+    const request = viewerRoot.value?.requestFullscreen?.();
+    void request?.catch(() => {
+      fullscreenActive.value = false;
+    });
+  }
 }
 
-function imageFailed() {
-  imageError.value = true;
-}
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  void mountViewer();
+});
 
-onMounted(() => document.addEventListener('fullscreenchange', onFullscreenChange));
-onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenChange));
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
+  adapter.value?.destroy();
+});
 </script>
 
 <template>
@@ -98,7 +124,7 @@ onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenC
     <header class="image-viewer-toolbar">
       <div>
         <strong>{{ label || '数字切片' }}</strong>
-        <span>{{ sourcePlatform || '通用阅片器' }}</span>
+        <span>{{ modeLabel }}</span>
       </div>
       <div class="viewer-controls">
         <button type="button" aria-label="缩小" @click="zoom(-0.25)">−</button>
@@ -137,43 +163,30 @@ onUnmounted(() => document.removeEventListener('fullscreenchange', onFullscreenC
       </div>
     </dl>
     <div
-      ref="viewport"
-      class="image-viewer-viewport"
-      :class="{ dragging, 'image-viewer-placeholder': !isImageReference || imageError }"
+      ref="viewerHost"
+      class="image-viewer-viewport image-viewer-host"
+      :class="{ 'image-viewer-placeholder': !supported || imageError, 'viewer-loading': loading }"
       tabindex="0"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
       @wheel="onWheel"
     >
-      <img
-        v-if="isImageReference && !imageError"
-        :src="source ?? undefined"
-        :alt="label || '数字切片图像'"
-        :style="{ transform }"
-        draggable="false"
-        @error="imageFailed"
-      />
-      <div v-else class="viewer-empty-content">
-        <span class="viewer-placeholder-icon" aria-hidden="true">◎</span>
-        <strong>{{ imageError ? '阅片器引用暂时不可访问' : '已准备好阅片入口' }}</strong>
-        <p>
-          {{
-            imageError
-              ? '请检查图像平台连接，或从外部阅片器打开。'
-              : '当前记录提供了数字切片元数据，可接入医院阅片平台。'
-          }}
-        </p>
+      <div v-if="loading" class="viewer-empty-content" aria-live="polite">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <strong>正在打开切片</strong>
       </div>
-      <div v-if="isImageReference && !imageError" class="viewer-minimap" aria-hidden="true">
-        <img :src="source ?? undefined" alt="" />
-        <span></span>
+      <div v-else-if="imageError" class="viewer-empty-content">
+        <span class="viewer-placeholder-icon" aria-hidden="true">!</span>
+        <strong>阅片器暂时无法打开</strong>
+        <p>请检查本地切片资源，或使用外部阅片平台打开。</p>
+      </div>
+      <div v-else-if="!supported" class="viewer-empty-content">
+        <span class="viewer-placeholder-icon" aria-hidden="true">◉</span>
+        <strong>已准备好阅片入口</strong>
+        <p>当前记录提供了数字切片元数据，可连接医院阅片平台。</p>
       </div>
     </div>
     <footer class="image-viewer-footer">
-      <span>滚轮缩放 · 按住拖动平移</span>
-      <a v-if="source" :href="source" target="_blank" rel="noreferrer">在外部阅片器打开 ↗</a>
+      <span>滚轮缩放 · 按住拖动平移 · {{ tiled ? '缩略导航器已启用' : '普通图像回退模式' }}</span>
+      <a v-if="source" :href="source" target="_blank" rel="noreferrer">在外部阅片器打开 →</a>
     </footer>
   </section>
 </template>

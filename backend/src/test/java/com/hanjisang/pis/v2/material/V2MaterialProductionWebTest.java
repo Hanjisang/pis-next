@@ -219,7 +219,8 @@ class V2MaterialProductionWebTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(completed.get("completedAt").isNull()).isFalse();
-        assertThat(completed.path("exceptionCode").isMissingNode() || completed.path("exceptionCode").isNull()).isTrue();
+        assertThat(completed.get("exceptionCode").asText()).isEqualTo("染色过浅");
+        assertThat(completed.get("exceptionNote").asText()).isEqualTo("synthetic exception");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.material_process_fact WHERE slide_id = ?",
                 Integer.class, UUID.fromString(slideId))).isEqualTo(1);
     }

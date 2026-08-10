@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import com.hanjisang.pis.v2.registration.domain.Specimen;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.IdempotencyResult;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.Routing;
+import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.ApplicationMappingOption;
 
 @Service
 public class V2RegistrationApplicationService {
@@ -81,6 +83,12 @@ public class V2RegistrationApplicationService {
         outbox.append("P12-EVC-002", caseId, "V2-CASE", pathologyCase.concurrencyVersion(), correlationId,
                 digest, actor.actorId());
         return CaseResult.created(pathologyCase, false, "P12-EVC-002");
+    }
+
+    @Transactional(readOnly = true)
+    public List<ApplicationMappingOption> applicationMappings() {
+        ActorContext actor = authorization.require("P14-PERM-004");
+        return repository.findActiveApplicationMappings(actor.hospitalScope());
     }
 
     @Transactional

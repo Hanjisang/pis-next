@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -41,7 +42,8 @@ public class V2HistologyApplicationService {
             builder.phases.add(new PhaseFact(row.phaseCode(), row.startedAt(), row.completedAt(), row.operatorRef(),
                     row.deviceReference(), row.batchReference(), row.exceptionCode(), row.exceptionNote()));
         }
-        return new HistologyWorkbenchResult(grouped.values().stream().map(SlideBuilder::build).toList(), Instant.now());
+        List<SlideWorkItem> slides = grouped.values().stream().map(SlideBuilder::build).toList();
+        return new HistologyWorkbenchResult(slides, queues(slides), Instant.now());
     }
 
     @Transactional
@@ -65,6 +67,22 @@ public class V2HistologyApplicationService {
         audit.append("PIS-V2-PX01-HISTOLOGY-COMPLETE-" + phaseCode, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slideId,
                 "V2-SLIDE", UUID.randomUUID().toString(), "phase=" + phaseCode);
         return fact;
+    }
+
+    @Transactional
+    public List<PhaseFact> startBatch(List<UUID> slideIds, String phaseCode) {
+        if (slideIds == null || slideIds.isEmpty()) {
+            throw new P15BusinessException("V2-HISTOLOGY-BATCH-EMPTY", "请选择至少一张玻片", 400);
+        }
+        return slideIds.stream().distinct().map(slideId -> start(slideId, phaseCode, null, null)).toList();
+    }
+
+    @Transactional
+    public List<PhaseFact> completeBatch(List<UUID> slideIds, String phaseCode) {
+        if (slideIds == null || slideIds.isEmpty()) {
+            throw new P15BusinessException("V2-HISTOLOGY-BATCH-EMPTY", "请选择至少一张玻片", 400);
+        }
+        return slideIds.stream().distinct().map(slideId -> complete(slideId, phaseCode)).toList();
     }
 
     @Transactional
@@ -99,6 +117,30 @@ public class V2HistologyApplicationService {
                 row.deviceReference(), row.batchReference(), row.exceptionCode(), row.exceptionNote());
     }
 
+    private static HistologyQueueSummary queues(List<SlideWorkItem> slides) {
+        return new HistologyQueueSummary(
+                waiting(slides, "DEHYDRATION", null), waiting(slides, "EMBEDDING", "DEHYDRATION"),
+                waiting(slides, "SECTIONING", "EMBEDDING"), waiting(slides, "STAINING", "SECTIONING"),
+                waiting(slides, "MOUNTING", "STAINING"),
+                (int) slides.stream().filter(item -> item.slideCompletedAt() != null).count(),
+                (int) slides.stream().filter(V2HistologyApplicationService::hasException).count());
+    }
+
+    private static int waiting(List<SlideWorkItem> slides, String phaseCode, String previousPhase) {
+        return (int) slides.stream().filter(item -> {
+            Map<String, PhaseFact> facts = item.phases().stream()
+                    .collect(java.util.stream.Collectors.toMap(PhaseFact::phaseCode, fact -> fact, (left, right) -> left));
+            PhaseFact current = facts.get(phaseCode);
+            PhaseFact previous = previousPhase == null ? null : facts.get(previousPhase);
+            return (current == null || current.startedAt() == null || current.completedAt() == null)
+                    && (previous == null || previous.completedAt() != null);
+        }).count();
+    }
+
+    private static boolean hasException(SlideWorkItem item) {
+        return item.phases().stream().anyMatch(fact -> fact.exceptionCode() != null && !fact.exceptionCode().isBlank());
+    }
+
     private static final class SlideBuilder {
         private final UUID slideId;
         private final UUID caseId;
@@ -117,7 +159,10 @@ public class V2HistologyApplicationService {
                 slideType, slideCompletedAt, phases); }
     }
 
-    public record HistologyWorkbenchResult(List<SlideWorkItem> slides, Instant refreshedAt) { }
+    public record HistologyWorkbenchResult(List<SlideWorkItem> slides, HistologyQueueSummary queues,
+            Instant refreshedAt) { }
+    public record HistologyQueueSummary(int dehydration, int embedding, int cutting, int staining,
+            int coverslipping, int completed, int exceptions) { }
     public record SlideWorkItem(UUID slideId, UUID caseId, String caseNo, String patientReference, String slideCode,
             String slideType, Instant slideCompletedAt, List<PhaseFact> phases) { }
     public record PhaseFact(String phaseCode, Instant startedAt, Instant completedAt, String operatorRef,

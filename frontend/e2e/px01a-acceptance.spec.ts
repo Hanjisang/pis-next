@@ -120,7 +120,7 @@ async function completeProduction(page: Page, caseRef: CaseRef) {
   const selectAll = page.getByRole('checkbox', { name: '选择当前列表全部玻片' });
   await expect(selectAll).toBeVisible();
   await selectAll.check();
-  const completeBatch = page.getByRole('button', { name: /批量完成/ });
+  const completeBatch = page.getByRole('button', { name: /^批量完成（/ });
   await expect(completeBatch).toBeEnabled();
   await completeBatch.click();
   await expect(page.getByRole('status').filter({ hasText: '已完成' })).toBeVisible();
@@ -196,7 +196,7 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await logout(page);
   await login(page, 'doctor-a');
   await page.goto(`/v2/diagnosis/${caseRef.caseId}`);
-  await expect(page.getByRole('region', { name: '诊断工作区' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '诊断工作区' }).last()).toBeVisible();
   await page.getByRole('button', { name: '接诊' }).click();
   const editor = page.getByRole('region', { name: '诊断编辑器' });
   await editor.getByLabel('镜下所见').fill('PX01A 初诊镜下所见。');

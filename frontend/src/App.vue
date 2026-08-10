@@ -15,6 +15,7 @@ import V2DigitalSlideWorkbench from './components/V2DigitalSlideWorkbench.vue';
 import V2MaterialCustodyWorkbench from './components/V2MaterialCustodyWorkbench.vue';
 import V2QualityWorkbench from './components/V2QualityWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
+import V2ReportCenter from './components/V2ReportCenter.vue';
 import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.vue';
 import V2SystemAdminHub from './components/V2SystemAdminHub.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
@@ -222,6 +223,8 @@ onUnmounted(() => {
           v-else-if="route.name === 'case'"
           :case-id="route.caseId"
           :auth-user="authUser"
+          :focus-kind="route.focusKind"
+          :focus-id="route.focusId"
           @navigate="navigate"
         />
         <V2RegistrationWorkbench
@@ -242,8 +245,12 @@ onUnmounted(() => {
           v-model:case-id="routeCaseId"
           @navigate="navigate"
         />
+        <V2ReportCenter
+          v-else-if="route.name === 'reports' && !route.caseId"
+          @navigate="navigate"
+        />
         <V2DiagnosisWorkspace
-          v-else-if="route.name === 'diagnosis' || route.name === 'reports'"
+          v-else-if="route.name === 'diagnosis' || (route.name === 'reports' && route.caseId)"
           v-model:case-id="routeCaseId"
           :auth-user="authUser"
           :frozen-round-id="route.roundId || undefined"

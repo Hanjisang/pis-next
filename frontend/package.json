@@ -20,11 +20,13 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "openseadragon": "^5.0.1",
     "vue": "3.5.40"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
     "@playwright/test": "^1.62.1",
+    "@types/openseadragon": "^5.0.0",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.6",
     "eslint": "9.39.1",

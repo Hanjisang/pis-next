@@ -101,8 +101,11 @@ test('取材人员从病例中心进入病例级取材工作区', async ({ page 
 });
 
 test('冰冻病例中心清楚显示多轮状态和当前轮次', async ({ page }) => {
+  const pathologyNo = process.env.PIS_E2E_FROZEN_PATHOLOGY_NO;
+  if (!pathologyNo) throw new Error('PIS_E2E_FROZEN_PATHOLOGY_NO is required');
+
   await login(page, 'registrar');
-  await openCaseFromSearch(page, 'F-000003');
+  await openCaseFromSearch(page, pathologyNo);
   await page.getByRole('button', { name: /查看冰冻/ }).click();
 
   await expect(page).toHaveURL(/\/v2\/frozen\//);
@@ -110,15 +113,17 @@ test('冰冻病例中心清楚显示多轮状态和当前轮次', async ({ page 
   await expect(page.getByRole('navigation', { name: '冰冻轮次' })).toBeVisible();
   await expect(page.getByText('冰冻第 1 轮', { exact: true })).toBeVisible();
   await expect(page.getByText('冰冻第 2 轮', { exact: true })).toBeVisible();
-  await expect(page.getByText('冰冻第 3 轮', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /进入常规流程/ })).toBeVisible();
   await expectAccessibleButtons(page);
   await expectNoPageOverflow(page);
 });
 
 test('病例报告页保留原始、补充和签发历史', async ({ page }) => {
+  const pathologyNo = process.env.PIS_E2E_REPORT_PATHOLOGY_NO;
+  if (!pathologyNo) throw new Error('PIS_E2E_REPORT_PATHOLOGY_NO is required');
+
   await login(page, 'doctor-c');
-  await openCaseFromSearch(page, 'F-000003');
+  await openCaseFromSearch(page, pathologyNo);
   await page
     .getByRole('navigation', { name: '病例内容' })
     .getByRole('button', { name: /^报告/ })
@@ -128,7 +133,7 @@ test('病例报告页保留原始、补充和签发历史', async ({ page }) => 
   await expect(page.getByText('原始报告', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('R001', { exact: true })).toBeVisible();
   await expect(page.getByText('R002', { exact: true })).toBeVisible();
-  await expect(page.getByText('R003', { exact: true })).toBeVisible();
+  await expect(page.getByText('S001', { exact: true })).toBeVisible();
   await expectAccessibleButtons(page);
   await expectNoPageOverflow(page);
 });

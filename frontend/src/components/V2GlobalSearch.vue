@@ -12,16 +12,16 @@ type SearchResult = {
 };
 
 const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{
-  close: [];
-  navigate: [path: string];
-}>();
+const emit = defineEmits<{ close: []; navigate: [path: string] }>();
 
 const query = ref('');
 const results = ref<SearchResult[]>([]);
 const loading = ref(false);
 const error = ref('');
+const selectedIndex = ref(-1);
 const searchInput = ref<HTMLInputElement | null>(null);
+let debounceTimer: number | undefined;
+let requestSequence = 0;
 
 const groupedResults = computed(() => {
   const groups = new Map<string, SearchResult[]>();
@@ -51,37 +51,93 @@ watch(
   },
 );
 
+watch(query, () => {
+  window.clearTimeout(debounceTimer);
+  selectedIndex.value = -1;
+  debounceTimer = window.setTimeout(() => void search(), 250);
+});
+
 async function search() {
-  if (!query.value.trim()) {
+  const value = query.value.trim();
+  if (!value) {
     results.value = [];
+    error.value = '';
     return;
   }
+  const sequence = ++requestSequence;
   loading.value = true;
   error.value = '';
   try {
-    const response = await fetch(`/api/v2/search?q=${encodeURIComponent(query.value.trim())}`);
+    const response = await fetch(`/api/v2/search?q=${encodeURIComponent(value)}`);
     const body = (await response.json()) as SearchResult[] | { message?: string };
     if (!response.ok) throw new Error((body as { message?: string }).message ?? '查询失败');
-    results.value = body as SearchResult[];
+    if (sequence === requestSequence) results.value = body as SearchResult[];
   } catch (requestError) {
-    error.value = friendlyError(requestError, '查询失败，请检查关键词后重试。');
+    if (sequence === requestSequence)
+      error.value = friendlyError(requestError, '查询失败，请稍后重试');
   } finally {
-    loading.value = false;
+    if (sequence === requestSequence) loading.value = false;
+  }
+}
+
+function targetForResult(result: SearchResult) {
+  const caseId = encodeURIComponent(result.caseId);
+  const id = encodeURIComponent(result.id);
+  switch (result.resultKind) {
+    case 'BLOCK':
+      return `/v2/cases/${caseId}?focus=block&focusId=${id}`;
+    case 'SLIDE':
+      return `/v2/cases/${caseId}?focus=slide&focusId=${id}`;
+    case 'REPORT':
+      return `/v2/reports/${caseId}?reportId=${id}`;
+    case 'TECHNICAL_ORDER':
+      return `/v2/technical-orders/${caseId}?focus=technical-order&focusId=${id}`;
+    case 'DIAGNOSIS':
+      return `/v2/diagnosis/${caseId}?focus=diagnosis&focusId=${id}`;
+    default:
+      return `/v2/cases/${caseId}`;
   }
 }
 
 function openResult(result: SearchResult) {
-  const target = `/v2/cases/${encodeURIComponent(result.caseId)}`;
-  emit('navigate', target);
+  emit('navigate', targetForResult(result));
   emit('close');
 }
 
+function flattenIndex(groupIndex: number, itemIndex: number) {
+  return (
+    groupedResults.value
+      .slice(0, groupIndex)
+      .reduce((total, [, items]) => total + items.length, 0) + itemIndex
+  );
+}
+
 function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && props.open) emit('close');
+  if (!props.open) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    emit('close');
+    return;
+  }
+  if (!results.value.length) return;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    selectedIndex.value = (selectedIndex.value + 1) % results.value.length;
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    selectedIndex.value =
+      selectedIndex.value <= 0 ? results.value.length - 1 : selectedIndex.value - 1;
+  } else if (event.key === 'Enter' && selectedIndex.value >= 0) {
+    event.preventDefault();
+    openResult(results.value[selectedIndex.value]);
+  }
 }
 
 onMounted(() => window.addEventListener('keydown', handleKeydown));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown);
+  window.clearTimeout(debounceTimer);
+});
 </script>
 
 <template>
@@ -96,7 +152,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
           ×
         </button>
       </header>
-
       <form class="global-search-form" @submit.prevent="search">
         <label for="global-search-input">病理号、患者、申请号或材料编号</label>
         <div class="input-action-row">
@@ -111,34 +166,39 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
             {{ loading ? '查询中…' : '查询' }}
           </button>
         </div>
+        <small class="search-hint">↑ ↓ 选择 · Enter 打开 · Esc 关闭</small>
       </form>
-
       <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
       <div v-else-if="loading" class="search-skeleton" aria-label="正在查询">
         <span></span><span></span><span></span>
       </div>
       <div v-else-if="query.trim() && !results.length" class="empty-state compact">
-        <strong>没有找到“{{ query.trim() }}”</strong>
-        <span>请检查病理号、患者姓名或材料编号。</span>
+        <strong>没有找到“{{ query.trim() }}”</strong><span>请检查病理号、患者姓名或材料编号。</span>
       </div>
       <div v-else-if="groupedResults.length" class="search-result-groups">
-        <section v-for="[group, items] in groupedResults" :key="group" class="search-result-group">
+        <section
+          v-for="([group, items], groupIndex) in groupedResults"
+          :key="group"
+          class="search-result-group"
+        >
           <h3>
             {{ group }} <span>{{ items.length }}</span>
           </h3>
           <button
-            v-for="result in items"
+            v-for="(result, itemIndex) in items"
             :key="`${result.resultKind}-${result.id}`"
             type="button"
             class="search-result-row"
+            :class="{ selected: selectedIndex === flattenIndex(groupIndex, itemIndex) }"
+            @mouseenter="selectedIndex = flattenIndex(groupIndex, itemIndex)"
             @click="openResult(result)"
           >
-            <span>
-              <strong>{{ result.displayCode }}</strong>
-              <small>{{ result.summary }}</small>
-            </span>
+            <span
+              ><strong>{{ result.displayCode }}</strong
+              ><small>{{ result.summary }}</small></span
+            >
             <span class="result-meta"
-              >{{ result.resultKind === 'REPORT' ? '查看报告' : '打开病例' }} →</span
+              >{{ result.resultKind === 'REPORT' ? '查看报告' : '打开上下文' }} →</span
             >
           </button>
         </section>

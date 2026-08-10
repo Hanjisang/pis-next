@@ -185,10 +185,12 @@ public class V2FrozenApplicationService {
         }
         var businessType = registrationRepository.findBusinessType(ROUTINE)
                 .orElseThrow(() -> reject("V2-FROZEN-END-ROUTINE-TYPE", "组织病理业务类型不存在"));
+        String routineApplicationItemCode = registrationRepository.findActiveApplicationItemCode(ROUTINE)
+                .orElseThrow(() -> reject("V2-FROZEN-END-ROUTING", "组织病理申请项目映射不存在"));
         UUID routineId = UUID.randomUUID();
         String routineNo = registrationRepository.allocateNumber(actor.hospitalScope(), ROUTINE, "CASE", now);
         Case routine = Case.routineFromFrozen(routineId, routineNo, "V2-FROZEN-END", "FROZEN:" + frozenCase.id(),
-                "SYNTH-HISTOLOGY", businessType.id(), businessType.code(), frozenCase.patientReference(),
+                routineApplicationItemCode, businessType.id(), businessType.code(), frozenCase.patientReference(),
                 frozenCase.visitReference(), frozenCase.id());
         registrationRepository.insertCase(routine, actor.hospitalScope(), now, actor.actorId());
         UUID specimenId = UUID.randomUUID();
