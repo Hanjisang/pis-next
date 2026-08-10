@@ -219,3 +219,30 @@ export async function getV2CaseWorkspace(caseId: string): Promise<V2CaseWorkspac
   }
   return body as V2CaseWorkspace;
 }
+
+export type V2PatientHistoryItem = {
+  caseId: string;
+  pathologyNo: string;
+  businessTypeCode: string;
+  businessTypeName: string;
+  occurredAt: string;
+  diagnosisSummary?: string | null;
+  reportId?: string | null;
+  reportNo?: string | null;
+  reportStatus?: string | null;
+  signedAt?: string | null;
+};
+
+export async function getV2PatientHistory(patientReference: string) {
+  const response = await fetch(
+    `/api/v2/patient-history?patientReference=${encodeURIComponent(patientReference)}`,
+  );
+  const body = (await response.json()) as {
+    message?: string;
+    items?: V2PatientHistoryItem[];
+    patientReference?: string;
+    refreshedAt?: string;
+  };
+  if (!response.ok) throw new Error(body.message ?? '患者历史暂时无法加载');
+  return body;
+}

@@ -14,12 +14,17 @@ import {
 } from '../v2DiagnosisApi';
 import { completeV2Slides, getV2MaterialTree } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 type QueueTab = 'PENDING' | 'EXECUTING' | 'RESULT' | 'COMPLETED';
 type ResultDraft = { conclusion: string; value: string };
 
 const emit = defineEmits<{ navigate: [path: string] }>();
 const caseId = defineModel<string>('caseId', { default: '' });
+const props = withDefaults(defineProps<{ focusKind?: string; focusId?: string }>(), {
+  focusKind: '',
+  focusId: '',
+});
 const orders = ref<V2TechnicalOrder[]>([]);
 const activeTab = ref<QueueTab>('PENDING');
 const loading = ref(false);
@@ -35,6 +40,7 @@ const molecularProject = ref('常用分子检测');
 const molecularConclusion = ref('');
 const molecularResult = ref<V2MolecularResult | null>(null);
 const molecularLoading = ref(false);
+const historyDrawerOpen = ref(false);
 
 const tabCounts = computed(() => ({
   PENDING: orders.value.filter((order) => order.status === 'PENDING').length,
@@ -77,6 +83,20 @@ async function refresh() {
       for (const item of order.items) {
         resultDrafts[item.itemId] ??= { conclusion: '', value: '' };
       }
+    }
+    const focused =
+      props.focusKind === 'technical-order' && props.focusId
+        ? result.orders.find((order) => order.orderId === props.focusId)
+        : undefined;
+    if (focused) {
+      activeTab.value =
+        focused.status === 'PENDING'
+          ? 'PENDING'
+          : focused.status === 'COMPLETED'
+            ? 'COMPLETED'
+            : requiresResult(focused)
+              ? 'RESULT'
+              : 'EXECUTING';
     }
   } catch (requestError) {
     if (sequence === refreshSequence) {
@@ -224,6 +244,14 @@ onMounted(() => void refresh());
       <button class="secondary-button" type="button" :disabled="loading" @click="refresh">
         {{ loading ? '刷新中…' : '刷新队列' }}
       </button>
+      <button
+        v-if="caseId"
+        class="secondary-button"
+        type="button"
+        @click="historyDrawerOpen = true"
+      >
+        历史记录
+      </button>
     </header>
 
     <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
@@ -337,6 +365,7 @@ onMounted(() => void refresh());
         v-for="order in visibleOrders"
         :key="order.orderId"
         class="workspace-panel technical-order-card"
+        :class="{ 'technical-order-focused': props.focusId === order.orderId }"
       >
         <header class="technical-order-heading">
           <span
@@ -462,5 +491,12 @@ onMounted(() => void refresh());
         </footer>
       </article>
     </div>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="caseId"
+      title="技术医嘱历史"
+      target-label="技术工作台"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

@@ -39,6 +39,11 @@ public class V2RegistrationController {
         return service.applicationMappings();
     }
 
+    @GetMapping("/queue")
+    public V2RegistrationApplicationService.RegistrationQueueResult queue() {
+        return service.registrationQueue();
+    }
+
     @GetMapping("/cases/{caseId}")
     public V2RegistrationApplicationService.CaseResult getCase(@PathVariable UUID caseId) {
         return service.getCase(caseId);

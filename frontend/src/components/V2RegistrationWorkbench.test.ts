@@ -8,6 +8,11 @@ describe('V2RegistrationWorkbench', () => {
     const wrapper = mount(V2RegistrationWorkbench);
 
     expect(wrapper.text()).toContain('核对申请并登记');
+    expect(wrapper.text()).toContain('待登记申请');
+    const manualButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('新增手工病例'));
+    await manualButton?.trigger('click');
     expect(wrapper.text()).toContain('患者 / 就诊');
     expect(wrapper.text()).toContain('业务类型与编号');
     expect(wrapper.text()).toContain('标本信息');

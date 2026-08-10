@@ -320,6 +320,20 @@ public class JdbcV2TechnicalOrderRepository {
         return orderId == null ? Optional.empty() : findOrderSnapshot(orderId, organizationReference);
     }
 
+    public boolean itemBelongsToCurrentResponsibility(UUID itemId, String doctorReference,
+            String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pis_v2.technical_order_item i
+                JOIN pis_v2.technical_order o ON o.id = i.order_id
+                JOIN pis_v2.diagnosis d ON d.id = o.diagnosis_id
+                JOIN pis_v2.responsibility_unit r ON r.diagnosis_id = d.id
+                WHERE i.id = ? AND o.organization_reference = ?
+                  AND r.doctor_id = ? AND r.completed_at IS NULL AND r.ended_at IS NULL
+                """, Integer.class, itemId, organizationReference, doctorReference);
+        return count != null && count > 0;
+    }
+
     private OrderSnapshot buildSnapshot(TechnicalOrder order, String organizationReference) {
         List<ItemSnapshot> items = jdbcTemplate.query("""
                 SELECT i.id, i.order_id, i.technical_project_id, i.project_code_snapshot, i.project_name_snapshot,

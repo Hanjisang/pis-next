@@ -23,6 +23,7 @@ import {
   type V2GrossingWorkspace,
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -51,6 +52,7 @@ const error = ref('');
 const notice = ref('');
 const doctors = ref<Array<{ id: string; displayName: string; title?: string | null }>>([]);
 const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
+const historyDrawerOpen = ref(false);
 
 const currentSpecimen = computed(
   () =>
@@ -256,6 +258,27 @@ function addBlock() {
   });
 }
 
+function addBlocks(count: number) {
+  const specimen = currentSpecimen.value;
+  const grossing = workspace.value?.grossing;
+  if (!specimen || !grossing || count < 1) return;
+  void run(async () => {
+    const base = specimen.blocks.length;
+    for (let index = 0; index < count; index += 1) {
+      const code = `${specimen.specimenCode}${base + index + 1}`;
+      await createV2Block({
+        grossingId: grossing.grossingId,
+        specimenId: specimen.specimenId,
+        blockCode: code,
+        blockType: props.sourceType === 'FROZEN_CONTEXT' ? 'FROZEN' : 'ROUTINE',
+        idempotencyKey: idempotencyKey('px02b-block-quick-create'),
+      });
+    }
+    notice.value = `已快速建立 ${count} 个蜡块。`;
+    await loadWorkspace();
+  });
+}
+
 function duplicateLastBlock() {
   setSuggestedBlockCode();
   addBlock();
@@ -405,6 +428,9 @@ onMounted(() => void loadDoctors());
           >
             查看制片
           </button>
+          <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+            历史记录
+          </button>
         </template>
       </V2CaseHeader>
 
@@ -505,6 +531,12 @@ onMounted(() => void loadDoctors());
                 </label>
                 <button class="primary-button" type="button" :disabled="busy" @click="addBlock">
                   + 蜡块
+                </button>
+                <button class="text-button" type="button" :disabled="busy" @click="addBlocks(3)">
+                  +3
+                </button>
+                <button class="text-button" type="button" :disabled="busy" @click="addBlocks(5)">
+                  +5
                 </button>
               </div>
             </header>
@@ -627,5 +659,12 @@ onMounted(() => void loadDoctors());
         </div>
       </div>
     </template>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="workspace?.caseId"
+      title="取材历史"
+      target-label="取材工作台"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

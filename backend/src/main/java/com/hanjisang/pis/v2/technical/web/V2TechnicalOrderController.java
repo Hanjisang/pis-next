@@ -87,6 +87,11 @@ public class V2TechnicalOrderController {
                 request.idempotencyKey()));
     }
 
+    @PostMapping("/technical-order-items/{itemId}/acknowledge")
+    public V2TechnicalOrderApplicationService.TechnicalAcknowledgement acknowledge(@PathVariable UUID itemId) {
+        return service.acknowledgeResult(itemId);
+    }
+
     @GetMapping("/technical-workbench")
     public V2TechnicalOrderApplicationService.WorkbenchResult workbench() {
         return service.workbench();

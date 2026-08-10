@@ -29,6 +29,11 @@ public class V2CustodyController {
                 request.locationName(), request.locationKindCode()));
     }
 
+    @GetMapping("/locations")
+    public List<V2CustodyApplicationService.LocationResult> locations() {
+        return service.locations();
+    }
+
     @PostMapping("/archive")
     public V2CustodyApplicationService.CustodyBatchResult archive(@RequestBody ArchiveRequest request) {
         return service.archive(new ArchiveCommand(request.blockIds(), request.slideIds(), request.locationId(),

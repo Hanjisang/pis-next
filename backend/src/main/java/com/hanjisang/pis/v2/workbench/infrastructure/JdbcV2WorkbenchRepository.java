@@ -44,13 +44,13 @@ public class JdbcV2WorkbenchRepository {
                 """, (rs, rowNum) -> row(rs), organizationReference, actorReference);
     }
 
-    public List<WorkbenchRow> findTechnicalAttention(String organizationReference, Instant after) {
+    public List<WorkbenchRow> findTechnicalAttention(String organizationReference, String actorReference) {
         return jdbc.query("""
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
                        COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
                        'TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION' AS work_code,
                        '技术结果待处理' AS work_label,
-                       NULL AS responsibility_name,
+                       COALESCE(di.display_name, current_r.doctor_id) AS responsibility_name,
                        MAX(r.entered_at) AS occurred_at,
                        c.created_at AS case_created_at
                 FROM pis_v2.pathology_case c
@@ -61,12 +61,24 @@ public class JdbcV2WorkbenchRepository {
                 JOIN pis_v2.technical_order_item i ON i.order_id = o.id
                 JOIN pis_v2.technical_order_item_result r ON r.item_id = i.id
                 LEFT JOIN pis_v2.diagnosis d ON d.case_id = c.id AND d.organization_reference = c.organization_reference
+                JOIN pis_v2.responsibility_unit current_r
+                  ON current_r.diagnosis_id = d.id
+                 AND current_r.doctor_id = ?
+                 AND current_r.completed_at IS NULL
+                 AND current_r.ended_at IS NULL
+                LEFT JOIN pis_v2.doctor_identity di ON CAST(di.id AS VARCHAR) = current_r.doctor_id
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
                   AND o.status_code <> 'CANCELLED'
-                  AND r.entered_at > COALESCE(d.updated_at, c.created_at)
-                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name, ctx.patient_reference, c.created_at
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pis.audit_event acknowledged
+                      WHERE acknowledged.operation_code = 'PIS-V2-PX02B-TECHNICAL-RESULT-ACK'
+                        AND acknowledged.target_object_id = i.id
+                        AND acknowledged.created_at >= r.entered_at
+                  )
+                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name, ctx.patient_reference,
+                         di.display_name, current_r.doctor_id, c.created_at
                 ORDER BY MAX(r.entered_at) DESC, c.id
-                """, (rs, rowNum) -> row(rs), organizationReference);
+                """, (rs, rowNum) -> row(rs), actorReference, organizationReference);
     }
 
     public List<WorkbenchRow> findWithdrawnReports(String organizationReference) {

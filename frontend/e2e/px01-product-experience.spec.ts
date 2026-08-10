@@ -49,7 +49,10 @@ test('技术人员从病例中心进入制片并看到轻量技术过程工作�
   await expect(page.getByRole('region', { name: '玻片制片工作台' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '脱水、包埋、切片、染色、封片' })).toBeVisible();
   await expect(page.getByText('轻量记录', { exact: true })).toBeVisible();
-  await expect(page.getByRole('tablist', { name: '制片队列状态' })).toBeVisible();
+  await expect(page.getByRole('group', { name: '技术环节队列' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /待脱水/ })).toBeVisible();
+  await page.getByRole('button', { name: /已完成/ }).click();
+  await expect(page.getByRole('table', { name: '技术环节材料列表' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '扫码完成玻片' })).toBeVisible();
   await expectAccessibleButtons(page);
   await expectNoPageOverflow(page);

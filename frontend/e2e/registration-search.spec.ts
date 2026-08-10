@@ -8,6 +8,7 @@ test('登记员在单页登记两个标本，并从全局查询进入病例上�
   await expect(page.getByRole('button', { name: '诊断', exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: '登记', exact: true }).click();
+  await page.getByRole('button', { name: '新增手工病例' }).click();
   const suffix = `${Date.now()}-${testInfo.project.name}`;
   await page.getByRole('textbox', { name: '患者编号' }).fill(`SYNTH-UX01-${suffix}`);
   await page.getByRole('textbox', { name: '就诊号' }).fill(`SYNTH-VISIT-${suffix}`);

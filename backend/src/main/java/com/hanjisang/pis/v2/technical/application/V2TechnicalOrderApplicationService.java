@@ -50,6 +50,7 @@ public class V2TechnicalOrderApplicationService {
     public static final String TECHNICAL_PROJECT = "P14-PERM-016";
     public static final String TECHNICAL_EXECUTION = "P14-PERM-017";
     public static final String TECHNICAL_QUERY = "P14-PERM-048";
+    public static final String DIAGNOSIS_INITIAL = "P14-PERM-034";
 
     private final JdbcV2TechnicalOrderRepository repository;
     private final JdbcV2DiagnosisRepository diagnosisRepository;
@@ -257,6 +258,19 @@ public class V2TechnicalOrderApplicationService {
                 snapshot.order().version(), UUID.randomUUID().toString(), digest, actor.actorId());
         return orderResult(repository.findOrderSnapshot(snapshot.order().id(), actor.hospitalScope()).orElseThrow(),
                 false, actor.hospitalScope());
+    }
+
+    @Transactional
+    public TechnicalAcknowledgement acknowledgeResult(UUID itemId) {
+        ActorContext actor = authorization.require(DIAGNOSIS_INITIAL);
+        requireId(itemId, "技术结果项目ID不能为空");
+        if (!repository.itemBelongsToCurrentResponsibility(itemId, actor.actorId(), actor.hospitalScope())) {
+            throw reject("V2-TECHNICAL-RESULT-ACK-REJECTED", "只有当前病例责任医生可以确认技术结果");
+        }
+        Instant now = Instant.now();
+        audit.append("PIS-V2-PX02B-TECHNICAL-RESULT-ACK", DIAGNOSIS_INITIAL, actor, "ALLOWED", "COMPLETED",
+                itemId, "V2-TECHNICAL-ORDER-ITEM-RESULT", UUID.randomUUID().toString(), "技术结果已查看");
+        return new TechnicalAcknowledgement(itemId, actor.actorId(), now);
     }
 
     @Transactional
@@ -577,4 +591,5 @@ public class V2TechnicalOrderApplicationService {
     public record OutputResult(TechnicalOutputType outputKind, UUID outputId, int occurrenceNo) { }
     public record ResultView(UUID resultId, String resultData, long version, Instant enteredAt) { }
     public record WorkbenchResult(List<TechnicalOrderResult> orders) { }
+    public record TechnicalAcknowledgement(UUID itemId, String acknowledgedBy, Instant acknowledgedAt) { }
 }

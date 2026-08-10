@@ -4,6 +4,8 @@ import { computed, ref, watch } from 'vue';
 import { friendlyError, idempotencyKey } from '../uiText';
 import { getV2Case, type V2CaseResult } from '../v2Api';
 import { operationsRequest } from '../v2OperationsApi';
+import { getV2ArchiveLocations, type V2ArchiveLocation } from '../v2CustodyApi';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 type CustodyMode = 'ARCHIVE' | 'LOAN' | 'DESTRUCTION';
 type CustodyMaterial = {
@@ -24,13 +26,15 @@ const pathologyCase = ref<V2CaseResult | null>(null);
 const materials = ref<CustodyMaterial[]>([]);
 const selectedIds = ref<string[]>([]);
 const mode = ref<CustodyMode>('ARCHIVE');
-const location = ref({ id: '', code: '', name: '', kind: 'SHELF' });
+const locations = ref<V2ArchiveLocation[]>([]);
+const selectedLocationId = ref('');
 const loan = ref({ borrower: '', purpose: '' });
 const destruction = ref({ reason: '', batch: '', confirmed: false });
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
+const historyDrawerOpen = ref(false);
 
 const selectedMaterials = computed(() =>
   materials.value.filter((item) => selectedIds.value.includes(item.materialId)),
@@ -60,11 +64,13 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    [pathologyCase.value, materials.value] = await Promise.all([
+    [pathologyCase.value, materials.value, locations.value] = await Promise.all([
       getV2Case(lookupCaseId.value.trim()),
       operationsRequest<CustodyMaterial[]>(`/custody/cases/${lookupCaseId.value.trim()}/materials`),
+      getV2ArchiveLocations(),
     ]);
     selectedIds.value = [];
+    selectedLocationId.value = locations.value[0]?.locationId ?? '';
   } catch (requestError) {
     pathologyCase.value = null;
     materials.value = [];
@@ -100,25 +106,7 @@ function toggleAll() {
       : materials.value.map((item) => item.materialId);
 }
 
-function createLocation() {
-  if (!location.value.code.trim() || !location.value.name.trim()) return;
-  void submit(async () => {
-    const result = await operationsRequest<{ locationId: string }>('/custody/locations', {
-      method: 'POST',
-      body: JSON.stringify({
-        parentId: null,
-        locationCode: location.value.code.trim(),
-        locationName: location.value.name.trim(),
-        locationKindCode: location.value.kind,
-      }),
-    });
-    location.value.id = result.locationId;
-    notice.value = `归档位置“${location.value.name}”已建立，可用于本次批量归档。`;
-  });
-}
-
 function archive() {
-  if (!location.value.id || !selectedMaterials.value.length) return;
   const materialCount = selectedMaterials.value.length;
   void submit(async () => {
     await operationsRequest('/custody/archive', {
@@ -126,13 +114,14 @@ function archive() {
       body: JSON.stringify({
         blockIds: selectedBlocks.value,
         slideIds: selectedSlides.value,
-        locationId: location.value.id,
+        locationId: selectedLocationId.value,
         reason: '常规归档',
         idempotencyKey: idempotencyKey('ux01-custody-archive'),
       }),
     });
     await load();
-    notice.value = `已将 ${materialCount} 件材料归档到“${location.value.name}”。`;
+    const target = locations.value.find((item) => item.locationId === selectedLocationId.value);
+    notice.value = `已将 ${materialCount} 件材料归档到“${target?.locationName ?? '所选库位'}”。`;
   });
 }
 
@@ -204,6 +193,14 @@ function destroy() {
         <label>打开病例 <input v-model="lookupCaseId" /></label
         ><button class="secondary-button" type="submit" :disabled="loading">打开</button>
       </form>
+      <button
+        v-if="lookupCaseId"
+        class="secondary-button"
+        type="button"
+        @click="historyDrawerOpen = true"
+      >
+        历史记录
+      </button>
     </header>
     <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
     <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
@@ -294,35 +291,25 @@ function destroy() {
             <header class="panel-title-row">
               <div>
                 <p class="section-kicker">归档位置</p>
-                <h3>选择或建立位置</h3>
+                <h3>选择已配置库位</h3>
               </div>
             </header>
-            <div class="field-grid">
-              <label>位置编码 <input v-model="location.code" placeholder="例如 A-03-02" /></label
-              ><label>位置名称 <input v-model="location.name" placeholder="例如 A柜第3层" /></label
-              ><label class="span-two"
-                >位置类型
-                <select v-model="location.kind">
-                  <option value="ROOM">房间</option>
-                  <option value="CABINET">柜</option>
-                  <option value="SHELF">层架</option>
-                  <option value="SLOT">格位</option>
-                </select></label
-              >
-            </div>
-            <button
-              class="secondary-button"
-              type="button"
-              :disabled="submitting"
-              @click="createLocation"
-            >
-              建立归档位置
-            </button>
-            <p v-if="location.id" class="feedback info">当前目标：{{ location.name }}</p>
+            <label class="archive-location-select"
+              >归档库位
+              <select v-model="selectedLocationId">
+                <option value="" disabled>请选择配置中的库位</option>
+                <option v-for="item in locations" :key="item.locationId" :value="item.locationId">
+                  {{ item.locationCode }} · {{ item.locationName }}
+                </option>
+              </select>
+            </label>
+            <p v-if="!locations.length" class="feedback warning">
+              当前没有可用库位，请先在“配置中心 → 归档库位”建立。
+            </p>
             <button
               class="primary-button"
               type="button"
-              :disabled="!location.id || !selectedIds.length || submitting"
+              :disabled="!selectedLocationId || !selectedIds.length || submitting"
               @click="archive"
             >
               归档所选 {{ selectedIds.length }} 件
@@ -393,5 +380,12 @@ function destroy() {
         </aside>
       </div>
     </template>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="pathologyCase?.caseId"
+      title="材料归档历史"
+      target-label="归档借阅"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

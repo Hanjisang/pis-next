@@ -15,6 +15,7 @@ import {
   type V2CaseWorkspace,
   type V2WorkspaceTimelineEntry,
 } from '../v2WorkspaceApi';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 const props = defineProps<{
   caseId: string;
@@ -28,8 +29,8 @@ const workspace = ref<V2CaseWorkspace | null>(null);
 const loading = ref(false);
 const error = ref('');
 const activeSection = ref<'materials' | 'history' | 'responsibility' | 'reports'>('materials');
-const selectedTimeline = ref<V2WorkspaceTimelineEntry | null>(null);
 const historyTargetId = ref<string | null>(null);
+const historyDrawerOpen = ref(false);
 
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
 const header = computed(() => workspace.value?.caseHeader);
@@ -47,6 +48,24 @@ const materialCounts = computed(() => {
     slides: slides.length,
     completedSlides: slides.filter((slide) => slide.completed).length,
   };
+});
+const currentResponsibilityLabel = computed(() => {
+  const current = workspace.value?.responsibilities.find(
+    (item) => !item.completedAt && !item.endedAt,
+  );
+  if (!current) return '暂无当前责任';
+  return `${roleLabel(current.roleCode)} · ${current.doctorName}`;
+});
+const derivedProgress = computed(() => {
+  const total = materialCounts.value.slides;
+  if (!total) return workspace.value?.responsibilities.length ? '诊断处理中' : '待建立材料';
+  return `${materialCounts.value.completedSlides}/${total} 张玻片完成`;
+});
+const reportStatusLabel = computed(() => {
+  const reports = workspace.value?.reports ?? [];
+  if (reports.some((report) => report.statusCode === 'EFFECTIVE')) return '已签发';
+  if (reports.some((report) => report.statusCode === 'WITHDRAWN')) return '报告已撤回';
+  return reports.length ? '报告处理中' : '尚未签发';
 });
 const visibleTimeline = computed(() =>
   historyTargetId.value
@@ -109,7 +128,7 @@ function openReport(reportId: string) {
 
 function viewHistory(targetId?: string) {
   historyTargetId.value = targetId ?? null;
-  activeSection.value = 'history';
+  historyDrawerOpen.value = true;
 }
 
 function actorLabel(entry: V2WorkspaceTimelineEntry) {
@@ -149,7 +168,7 @@ function lifecycleLabel(lifecycle: string) {
           <p class="case-patient-line">
             <strong>{{ header.patientReference }}</strong>
             <span v-if="header.visitReference">就诊 {{ header.visitReference }}</span>
-            <span>申请项目 {{ header.applicationItemCode }}</span>
+            <span>业务类型 {{ businessTypeName(header.businessTypeCode) }}</span>
           </p>
         </div>
         <div class="case-header-actions">
@@ -195,6 +214,15 @@ function lifecycleLabel(lifecycle: string) {
         </div>
         <div>
           <span>建立时间</span><strong>{{ formatDateTime(header.createdAt) }}</strong>
+        </div>
+        <div>
+          <span>当前责任</span><strong>{{ currentResponsibilityLabel }}</strong>
+        </div>
+        <div>
+          <span>当前进度</span><strong>{{ derivedProgress }}</strong>
+        </div>
+        <div>
+          <span>报告状态</span><strong>{{ reportStatusLabel }}</strong>
         </div>
       </div>
 
@@ -467,7 +495,11 @@ function lifecycleLabel(lifecycle: string) {
                 ><span class="timeline-actor">{{ actorLabel(entry) }}</span>
               </div>
               <p v-if="entry.detail">{{ entry.detail }}</p>
-              <button class="history-link" type="button" @click="selectedTimeline = entry">
+              <button
+                class="history-link"
+                type="button"
+                @click="viewHistory(entry.targetId ?? undefined)"
+              >
                 查看记录详情
               </button>
             </div>
@@ -552,51 +584,15 @@ function lifecycleLabel(lifecycle: string) {
         </div>
       </section>
 
-      <div
-        v-if="selectedTimeline"
-        class="history-detail-overlay"
-        role="presentation"
-        @click.self="selectedTimeline = null"
-      >
-        <section
-          class="history-detail-panel"
-          role="dialog"
-          aria-modal="true"
-          aria-label="业务记录详情"
-        >
-          <header>
-            <div>
-              <p class="section-kicker">业务记录</p>
-              <h3>{{ selectedTimeline.title }}</h3>
-            </div>
-            <button
-              class="icon-button"
-              type="button"
-              aria-label="关闭"
-              @click="selectedTimeline = null"
-            >
-              ×
-            </button>
-          </header>
-          <dl class="detail-list">
-            <div>
-              <dt>时间</dt>
-              <dd>{{ formatDateTime(selectedTimeline.occurredAt) }}</dd>
-            </div>
-            <div>
-              <dt>操作人</dt>
-              <dd>{{ actorLabel(selectedTimeline) }}</dd>
-            </div>
-            <div>
-              <dt>记录</dt>
-              <dd>{{ selectedTimeline.detail || '已记录业务事实。' }}</dd>
-            </div>
-          </dl>
-          <button class="primary-button" type="button" @click="selectedTimeline = null">
-            知道了
-          </button>
-        </section>
-      </div>
+      <V2HistoryDrawer
+        :open="historyDrawerOpen"
+        :case-id="header.caseId"
+        :entries="workspace.timeline"
+        :target-id="historyTargetId"
+        :title="historyTargetId ? '对象历史' : '病例业务历史'"
+        target-label="业务追溯"
+        @close="historyDrawerOpen = false"
+      />
     </template>
   </section>
 </template>

@@ -10,6 +10,7 @@ import {
   statusName,
 } from '../uiText';
 import {
+  acknowledgeV2TechnicalResult,
   assignV2Diagnosis,
   claimV2Diagnosis,
   completeV2Responsibility,
@@ -30,11 +31,18 @@ import {
 } from '../v2DiagnosisApi';
 import V2ImageViewer from './V2ImageViewer.vue';
 import V2CaseHeader from './V2CaseHeader.vue';
-import { getV2CaseWorkspace, type V2WorkspaceTimelineEntry } from '../v2WorkspaceApi';
+import {
+  getV2CaseWorkspace,
+  getV2MyWorkbench,
+  getV2PatientHistory,
+  type V2PatientHistoryItem,
+  type V2WorkspaceTimelineEntry,
+} from '../v2WorkspaceApi';
 import CaseEvidencePanel from './diagnosis/CaseEvidencePanel.vue';
 import DiagnosisEditor from './diagnosis/DiagnosisEditor.vue';
 import DiagnosisWorkspaceShell from './diagnosis/DiagnosisWorkspaceShell.vue';
 import ImageViewerPanel from './diagnosis/ImageViewerPanel.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 type TemplateOption = { value: string; label: string };
 type TemplateComponent = {
@@ -92,8 +100,13 @@ type ReportPreviewDocument = {
 
 const caseId = defineModel<string>('caseId', { default: '' });
 const props = withDefaults(
-  defineProps<{ frozenRoundId?: string; authUser?: V2AuthUser | null }>(),
-  { frozenRoundId: undefined, authUser: null },
+  defineProps<{
+    frozenRoundId?: string;
+    authUser?: V2AuthUser | null;
+    focusKind?: string;
+    focusId?: string;
+  }>(),
+  { frozenRoundId: undefined, authUser: null, focusKind: '', focusId: '' },
 );
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -188,6 +201,28 @@ const technicalReturnedCount = computed(
 );
 const molecularResults = computed(() => workspace.value?.molecularResults ?? []);
 const timelineEntries = ref<V2WorkspaceTimelineEntry[]>([]);
+const patientHistory = ref<V2PatientHistoryItem[]>([]);
+const historyDrawerOpen = ref(false);
+const workbenchCases = ref<PoolCase[]>([]);
+const technicalAttentionCount = computed(
+  () =>
+    (workspace.value?.technicalOrders ?? [])
+      .flatMap((order) => order.items)
+      .filter((item) => Boolean(item.result) && !technicalResultAcknowledged(item.itemId)).length,
+);
+const canAcknowledgeTechnicalResults = computed(
+  () =>
+    !props.authUser ||
+    !currentResponsibility.value ||
+    props.authUser.doctor?.id === currentResponsibility.value.doctorId,
+);
+
+function technicalResultAcknowledged(itemId: string) {
+  return timelineEntries.value.some(
+    (entry) =>
+      entry.targetId === itemId && entry.operationCode === 'PIS-V2-PX02B-TECHNICAL-RESULT-ACK',
+  );
+}
 
 function molecularResultSummary(resultData: string) {
   try {
@@ -214,6 +249,30 @@ const reportStatus = computed(() => {
   if (workspace.value?.actions.readyForSignOut) return '待签发';
   return workspace.value?.diagnosis ? '诊断中' : '未开始';
 });
+
+function reportLabel(reportId: string) {
+  const reports = workspace.value?.reports ?? [];
+  const report = reports.find((item) => item.reportId === reportId);
+  if (!report) return '报告';
+  const chronological = (left: (typeof reports)[number], right: (typeof reports)[number]) => {
+    const leftNumber = Number(left.reportNo.match(/\d+/)?.[0] ?? Number.MAX_SAFE_INTEGER);
+    const rightNumber = Number(right.reportNo.match(/\d+/)?.[0] ?? Number.MAX_SAFE_INTEGER);
+    if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+    return left.signedAt.localeCompare(right.signedAt);
+  };
+  if (report.supplemental) {
+    const index =
+      [...reports.filter((item) => item.supplemental)]
+        .sort(chronological)
+        .findIndex((item) => item.reportId === reportId) + 1;
+    return `补充报告 ${index}`;
+  }
+  const index =
+    [...reports.filter((item) => !item.supplemental)]
+      .sort(chronological)
+      .findIndex((item) => item.reportId === reportId) + 1;
+  return `报告 ${index}`;
+}
 const previewDocument = computed<ReportPreviewDocument | null>(() => {
   if (!reportPreview.value?.renderedContent) return null;
   try {
@@ -314,6 +373,23 @@ async function loadWorkspace() {
     ]);
     workspace.value = loadedWorkspace;
     timelineEntries.value = caseContext.timeline;
+    try {
+      patientHistory.value =
+        (await getV2PatientHistory(loadedWorkspace.patient.patientReference)).items ?? [];
+    } catch {
+      patientHistory.value = [];
+    }
+    void getV2MyWorkbench()
+      .then((result) => {
+        workbenchCases.value = [...result.myWork, ...result.publicPool].map((item) => ({
+          caseId: item.caseId,
+          pathologyNo: item.pathologyNo,
+          businessTypeCode: item.businessTypeCode,
+        }));
+      })
+      .catch(() => {
+        workbenchCases.value = [];
+      });
     const diagnosis = workspace.value.diagnosis;
     structuredData.value = diagnosis?.structuredData ?? '{}';
     structuredValues.value = parseStructuredValues(structuredData.value);
@@ -333,6 +409,7 @@ async function loadWorkspace() {
     if (firstProject && !technicalDrafts.value[0]?.projectId) {
       technicalDrafts.value[0] = createTechnicalDraft(firstProject);
     }
+    applyFocus();
   } catch (requestError) {
     workspace.value = null;
     error.value = friendlyError(requestError, '诊断工作区加载失败，请检查病例后重试。');
@@ -425,6 +502,14 @@ async function createTechnicalOrderCommand() {
     technicalDrafts.value = [createTechnicalDraft(technicalProjects.value[0])];
     await loadWorkspace();
     notice.value = '技术医嘱已开立，技术人员可在工作台处理。';
+  });
+}
+
+async function acknowledgeResult(itemId: string) {
+  await submit(async () => {
+    await acknowledgeV2TechnicalResult(itemId);
+    await loadWorkspace();
+    notice.value = '技术结果已标记为已查看。';
   });
 }
 
@@ -685,6 +770,53 @@ function openViewer(digital: {
   activeContext.value = 'digital';
 }
 
+const viewerDigitalSlides = computed(() => workspace.value?.digitalSlides ?? []);
+
+function digitalSlideLabel(digital: { slideId?: string | null; digitalSlideId: string }) {
+  const slide = allSlides.value.find((item) => item.slideId === digital.slideId);
+  return slide?.slideCode ?? digital.digitalSlideId.slice(0, 8);
+}
+
+function selectViewerOffset(offset: number) {
+  if (!viewerDigitalSlides.value.length) return;
+  const current = viewerDigitalSlides.value.findIndex(
+    (item) => item.digitalSlideId === selectedViewer.value?.digitalSlideId,
+  );
+  const nextIndex =
+    current < 0
+      ? 0
+      : (current + offset + viewerDigitalSlides.value.length) % viewerDigitalSlides.value.length;
+  const next = viewerDigitalSlides.value[nextIndex];
+  if (next) openViewer(next);
+}
+
+function applyFocus() {
+  if (!workspace.value || !props.focusKind) return;
+  if (props.focusKind === 'patient-history') {
+    activeContext.value = 'history';
+    return;
+  }
+  if (props.focusKind === 'report') {
+    activeContext.value = 'history';
+    return;
+  }
+  if (props.focusKind === 'slide' && props.focusId) {
+    const digital = viewerDigitalSlides.value.find((item) => item.slideId === props.focusId);
+    if (digital) openViewer(digital);
+    else activeContext.value = 'slides';
+  }
+}
+
+function navigateCase(offset: number) {
+  const current = workbenchCases.value.findIndex((item) => item.caseId === caseId.value);
+  if (current < 0 || workbenchCases.value.length < 2) return;
+  const next =
+    workbenchCases.value[
+      (current + offset + workbenchCases.value.length) % workbenchCases.value.length
+    ];
+  if (next) emit('navigate', `/v2/diagnosis/${next.caseId}`);
+}
+
 function handleShortcut(event: KeyboardEvent) {
   if (
     (event.ctrlKey || event.metaKey) &&
@@ -697,6 +829,23 @@ function handleShortcut(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     technicalPanelOpen.value = false;
     previewOpen.value = false;
+    historyDrawerOpen.value = false;
+  }
+  if (event.altKey && event.key === 'ArrowLeft') {
+    event.preventDefault();
+    selectViewerOffset(-1);
+  }
+  if (event.altKey && event.key === 'ArrowRight') {
+    event.preventDefault();
+    selectViewerOffset(1);
+  }
+  if (event.altKey && event.key === 'ArrowUp') {
+    event.preventDefault();
+    navigateCase(-1);
+  }
+  if (event.altKey && event.key === 'ArrowDown') {
+    event.preventDefault();
+    navigateCase(1);
   }
 }
 
@@ -762,7 +911,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
         :report-status="reportStatus"
         :progress="productionSummary"
         @open-case="emit('navigate', `/v2/cases/${workspace.caseSummary.caseId}`)"
-      />
+      >
+        <template #actions>
+          <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+            历史记录
+          </button>
+        </template>
+      </V2CaseHeader>
 
       <p v-if="error" class="feedback error diagnosis-feedback" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success diagnosis-feedback" role="status">{{ notice }}</p>
@@ -802,8 +957,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                     </dd>
                   </div>
                   <div>
-                    <dt>申请项目</dt>
-                    <dd>{{ workspace.application.applicationItemCode }}</dd>
+                    <dt>业务类型</dt>
+                    <dd>{{ businessTypeName(workspace.caseSummary.businessTypeCode) }}</dd>
                   </div>
                 </dl>
                 <ul v-else-if="activeContext === 'specimens'" class="context-material-list">
@@ -846,15 +1001,39 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   </p>
                 </div>
                 <div v-else-if="activeContext === 'history'" class="context-history-list">
-                  <article v-for="entry in timelineEntries" :key="entry.eventId">
-                    <time>{{ formatDateTime(entry.occurredAt) }}</time>
+                  <article
+                    v-for="item in patientHistory"
+                    :key="item.caseId"
+                    class="patient-history-item"
+                  >
+                    <time>{{ formatDateTime(item.occurredAt) }}</time>
                     <div>
-                      <strong>{{ entry.title }}</strong>
-                      <span>{{ entry.actorName || entry.actorRef || '系统记录' }}</span>
-                      <small v-if="entry.detail">{{ entry.detail }}</small>
+                      <strong>{{ item.pathologyNo }}</strong>
+                      <span>{{ item.businessTypeName }}</span>
+                      <small
+                        >{{ item.diagnosisSummary || '暂无诊断摘要' }} ·
+                        {{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '未签发' }}</small
+                      >
                     </div>
+                    <button
+                      class="text-button"
+                      type="button"
+                      @click="
+                        emit(
+                          'navigate',
+                          `/v2/reports/${item.caseId}${item.reportId ? `?reportId=${item.reportId}` : ''}`,
+                        )
+                      "
+                    >
+                      打开报告
+                    </button>
                   </article>
-                  <p v-if="!timelineEntries.length" class="muted">当前病例还没有业务历史。</p>
+                  <p v-if="!patientHistory.length" class="muted">
+                    当前患者还没有其他历史病理记录。
+                  </p>
+                  <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+                    查看当前病例完整历史
+                  </button>
                 </div>
                 <div v-else class="empty-state compact">
                   <strong>暂无历史病理记录</strong><span>患者历史接入后显示在这里。</span>
@@ -878,6 +1057,24 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   收起阅片
                 </button>
               </header>
+              <div class="diagnosis-slide-strip" aria-label="数字切片列表">
+                <button
+                  v-for="digital in viewerDigitalSlides"
+                  :key="digital.digitalSlideId"
+                  type="button"
+                  :class="{ active: selectedViewer.digitalSlideId === digital.digitalSlideId }"
+                  @click="openViewer(digital)"
+                >
+                  <strong>{{ digitalSlideLabel(digital) }}</strong>
+                  <small>{{ digital.sourcePlatform }}</small>
+                </button>
+                <button class="text-button" type="button" @click="selectViewerOffset(-1)">
+                  上一张
+                </button>
+                <button class="text-button" type="button" @click="selectViewerOffset(1)">
+                  下一张
+                </button>
+              </div>
               <V2ImageViewer
                 :source="selectedViewer.viewerReference"
                 :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
@@ -1089,8 +1286,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             <section class="inspector-section">
               <header class="panel-title-row">
                 <h3>技术医嘱</h3>
-                <span v-if="technicalReturnedCount" class="status-pill success"
-                  >{{ technicalReturnedCount }} 项结果已返回</span
+                <span v-if="technicalAttentionCount" class="status-pill warning"
+                  >{{ technicalAttentionCount }} 项新结果</span
+                ><span v-else-if="technicalReturnedCount" class="status-pill success"
+                  >结果已返回</span
                 >
               </header>
               <div v-if="workspace.technicalOrders.length" class="technical-result-list">
@@ -1121,7 +1320,38 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   <span>{{ statusName(order.status) }}</span>
                 </div>
               </div>
-              <p v-else class="muted">当前没有技术医嘱。</p>
+              <div
+                v-for="order in workspace.technicalOrders"
+                :key="`results-${order.orderId}`"
+                class="technical-item-attention-list"
+              >
+                <div
+                  v-for="item in order.items.filter((candidate) => candidate.result)"
+                  :key="item.itemId"
+                  class="technical-attention-row"
+                >
+                  <span
+                    ><strong>{{ item.projectName }}</strong
+                    ><small>{{
+                      item.result ? molecularResultSummary(item.result.resultData) : ''
+                    }}</small></span
+                  >
+                  <span v-if="technicalResultAcknowledged(item.itemId)" class="status-pill success"
+                    >已查看</span
+                  >
+                  <button
+                    v-else-if="canAcknowledgeTechnicalResults"
+                    class="secondary-button"
+                    type="button"
+                    :disabled="submitting"
+                    @click="acknowledgeResult(item.itemId)"
+                  >
+                    标记已查看
+                  </button>
+                  <span v-else class="muted">当前责任医生查看</span>
+                </div>
+              </div>
+              <p v-if="!workspace.technicalOrders.length" class="muted">当前没有技术医嘱。</p>
             </section>
 
             <section class="inspector-section">
@@ -1150,10 +1380,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               <div class="report-history-list">
                 <article v-for="report in workspace.reports" :key="report.reportId">
                   <span
-                    ><strong>{{ report.reportNo }}</strong
+                    ><strong>{{ reportLabel(report.reportId) }} · {{ report.reportNo }}</strong
                     ><small
                       >{{ report.supplemental ? '补充报告' : '正式报告' }} ·
-                      {{ report.status === 'EFFECTIVE' ? '生效' : '已撤回' }}</small
+                      {{ report.status === 'EFFECTIVE' ? '生效' : '已撤回' }} ·
+                      {{ report.signedBy }} · {{ formatDateTime(report.signedAt) }}</small
+                    ><small v-if="report.withdrawalReason"
+                      >撤回原因：{{ report.withdrawalReason }}</small
                     ></span
                   >
                   <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
@@ -1502,5 +1735,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
         </button>
       </aside>
     </div>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="workspace?.caseSummary.caseId"
+      :entries="timelineEntries"
+      title="病例历史"
+      target-label="当前病例"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

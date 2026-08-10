@@ -106,7 +106,7 @@ public class V2CaseWorkspaceApplicationService {
     private TimelineEntry timeline(AuditRow row) {
         return new TimelineEntry(row.eventId(), row.occurredAt(), row.actorName(), row.actorRef(),
                 eventTitle(row.operationCode()),
-                eventDetail(row.operationCode()), row.operationCode(), row.targetKind(), row.targetId());
+                eventDetail(row.operationCode(), row.reason()), row.operationCode(), row.targetKind(), row.targetId());
     }
 
     private static String eventTitle(String operation) {
@@ -143,16 +143,24 @@ public class V2CaseWorkspaceApplicationService {
         return "完成业务操作";
     }
 
-    private static String eventDetail(String operation) {
+    private static String eventDetail(String operation, String reason) {
         if (operation == null) return "";
         if (operation.contains("CASE-CREATE")) return "病例已建立，病理号已生成";
         if (operation.contains("GROSSING")) return "病例取材事实已记录";
         if (operation.contains("SLIDE-COMPLETE")) return "玻片已标记为完成";
-        if (operation.contains("HISTOLOGY-EXCEPTION")) return "技术人员已记录异常，原始事实仍保留";
+        if (operation.contains("HISTOLOGY-EXCEPTION")) return appendReason("技术人员已记录异常，原始事实仍保留", reason);
+        if (operation.contains("DIAGNOSIS-EDIT")) return "诊断内容已修改，历史记录已保留";
+        if (operation.contains("RESPONSIBILITY-COMPLETE")) return "责任节点已完成，诊断快照已保留";
         if (operation.contains("REPORT-SIGN-OUT")) return "正式报告已生成，可查看 PDF";
-        if (operation.contains("REPORT-WITHDRAW")) return "报告已撤回，原始记录保留";
-        if (operation.contains("REPORT-SUPPLEMENT")) return "补充报告已关联原报告";
-        return "";
+        if (operation.contains("REPORT-WITHDRAW")) return appendReason("报告已撤回，原始记录保留", reason);
+        if (operation.contains("REPORT-SUPPLEMENT")) return appendReason("补充报告已关联原报告", reason);
+        if (reason != null && (reason.contains("beforeDigest=") || reason.contains("afterDigest=")
+                || reason.contains("role="))) return "业务记录已更新，历史快照已保留";
+        return reason == null ? "" : reason;
+    }
+
+    private static String appendReason(String message, String reason) {
+        return reason == null || reason.isBlank() ? message : message + "；原因：" + reason;
     }
 
     private static String phaseLabel(String operation) {

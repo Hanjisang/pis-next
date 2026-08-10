@@ -79,6 +79,28 @@ public class JdbcV2RegistrationRepository {
                 rs.getString("display_name"), rs.getString("modality_code")));
     }
 
+    public List<RegistrationCaseRow> findRecentRegistrations(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT c.id, c.case_no, c.external_application_id, c.application_item_code,
+                       bt.business_type_code, bt.display_name, ctx.patient_reference, c.created_at
+                FROM pis_v2.pathology_case c
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.case_context_snapshot ctx
+                  ON ctx.case_id = c.id
+                 AND ctx.snapshot_version_no = (
+                     SELECT MAX(ctx2.snapshot_version_no)
+                     FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND c.created_at >= CURRENT_DATE
+                ORDER BY c.created_at DESC, c.id DESC
+                FETCH FIRST 50 ROWS ONLY
+                """, (rs, rowNum) -> new RegistrationCaseRow(rs.getObject("id", UUID.class),
+                rs.getString("case_no"), rs.getString("external_application_id"),
+                rs.getString("application_item_code"), rs.getString("business_type_code"),
+                rs.getString("display_name"), rs.getString("patient_reference"),
+                rs.getTimestamp("created_at").toInstant()), organizationReference);
+    }
+
     public String allocateNumber(String organizationReference, String businessTypeCode, String numberKindCode,
             Instant now) {
         NumberRuleRow row = jdbcTemplate.query("""
@@ -264,6 +286,10 @@ public class JdbcV2RegistrationRepository {
 
     public record ApplicationMappingOption(String applicationItemCode, String defaultSpecimenKindCode,
             String businessTypeCode, String businessTypeName, String modalityCode) { }
+
+    public record RegistrationCaseRow(UUID caseId, String caseNo, String applicationNo,
+            String applicationItemCode, String businessTypeCode, String businessTypeName,
+            String patientReference, Instant registeredAt) { }
 
     public record IdempotencyResult(String payloadDigest, String resultKindCode, UUID resultCaseId,
             UUID resultSpecimenId) { }

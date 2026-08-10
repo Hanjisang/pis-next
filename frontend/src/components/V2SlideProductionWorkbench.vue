@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 
-import { businessTypeName, friendlyError, formatDateTime, idempotencyKey } from '../uiText';
+import { friendlyError, formatDateTime, idempotencyKey } from '../uiText';
 import {
   completeV2Slide,
-  completeV2Slides,
   createV2DirectCytologySlide,
   getV2MaterialTree,
   getV2ProductionWorkbench,
@@ -13,6 +12,7 @@ import {
   type V2ProductionSlide,
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 import {
   completeV2HistologyPhase,
   getV2HistologyWorkbench,
@@ -27,14 +27,12 @@ import {
   type V2HistologySlide,
 } from '../v2HistologyApi';
 
-type ProductionTab = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 type HistologyQueueView = HistologyPhaseCode | 'COMPLETED' | 'EXCEPTIONS';
 
 const caseId = defineModel<string>('caseId', { default: '' });
 const emit = defineEmits<{ navigate: [path: string] }>();
 const slides = ref<V2ProductionSlide[]>([]);
 const materialTree = ref<V2MaterialTree | null>(null);
-const activeTab = ref<ProductionTab>('PENDING');
 const selectedSlideIds = ref<string[]>([]);
 const scanCode = ref('');
 const scanInput = ref<HTMLInputElement | null>(null);
@@ -66,6 +64,7 @@ const activeHistologyQueue = ref<HistologyQueueView>('DEHYDRATION');
 const exceptionFormOpen = ref(false);
 const exceptionCode = ref('');
 const exceptionNote = ref('');
+const historyDrawerOpen = ref(false);
 
 const caseSlides = computed(() =>
   caseId.value ? slides.value.filter((slide) => slide.caseId === caseId.value) : slides.value,
@@ -75,48 +74,6 @@ const caseMaterialProgress = computed(() => {
   if (!caseSlides.value.length) return '0/0';
   return `${caseSlides.value.filter((slide) => slide.completedAt).length}/${caseSlides.value.length}`;
 });
-function completedToday(slide: V2ProductionSlide) {
-  if (!slide.completedAt) return false;
-  const completed = new Date(slide.completedAt);
-  const today = new Date();
-  return (
-    completed.getFullYear() === today.getFullYear() &&
-    completed.getMonth() === today.getMonth() &&
-    completed.getDate() === today.getDate()
-  );
-}
-const visibleSlides = computed(() =>
-  caseSlides.value.filter((slide) => {
-    if (activeTab.value === 'COMPLETED') return completedToday(slide);
-    const process = histologySlides.value.find((item) => item.slideId === slide.slideId);
-    const processInProgress = process?.phases.some(
-      (phase) => phase.startedAt && !phase.completedAt,
-    );
-    if (activeTab.value === 'IN_PROGRESS') return !slide.completedAt && Boolean(processInProgress);
-    return !slide.completedAt && !processInProgress;
-  }),
-);
-const tabCounts = computed(() => ({
-  PENDING: caseSlides.value.filter((slide) => {
-    const process = histologySlides.value.find((item) => item.slideId === slide.slideId);
-    return (
-      !slide.completedAt && !process?.phases.some((phase) => phase.startedAt && !phase.completedAt)
-    );
-  }).length,
-  IN_PROGRESS: caseSlides.value.filter((slide) => {
-    const process = histologySlides.value.find((item) => item.slideId === slide.slideId);
-    return (
-      !slide.completedAt &&
-      Boolean(process?.phases.some((phase) => phase.startedAt && !phase.completedAt))
-    );
-  }).length,
-  COMPLETED: caseSlides.value.filter(completedToday).length,
-}));
-const allVisibleSelected = computed(
-  () =>
-    visibleSlides.value.length > 0 &&
-    visibleSlides.value.every((slide) => selectedSlideIds.value.includes(slide.slideId)),
-);
 const supportsDirectSlide = computed(() =>
   ['CYTOLOGY_NON_GYN', 'CYTOLOGY'].includes(materialTree.value?.businessTypeCode ?? ''),
 );
@@ -148,6 +105,19 @@ const visibleHistologySlides = computed(() =>
     return !current?.completedAt && (!previousCode || Boolean(previous?.completedAt));
   }),
 );
+
+function currentPhase(slide: V2HistologySlide) {
+  return (
+    histologyPhases.find((phase) => {
+      const fact = slide.phases.find((item) => item.phaseCode === phase.code);
+      return !fact?.completedAt;
+    })?.code ?? 'MOUNTING'
+  );
+}
+
+function currentPhaseFact(slide: V2HistologySlide) {
+  return slide.phases.find((phase) => phase.phaseCode === currentPhase(slide)) ?? null;
+}
 
 watch(
   () => caseId.value,
@@ -225,17 +195,6 @@ function toggleSlide(slideId: string) {
     : [...selectedSlideIds.value, slideId];
 }
 
-function toggleAllVisible() {
-  if (allVisibleSelected.value) {
-    const visible = new Set(visibleSlides.value.map((slide) => slide.slideId));
-    selectedSlideIds.value = selectedSlideIds.value.filter((id) => !visible.has(id));
-  } else {
-    selectedSlideIds.value = [
-      ...new Set([...selectedSlideIds.value, ...visibleSlides.value.map((slide) => slide.slideId)]),
-    ];
-  }
-}
-
 function printSlide(slide: V2ProductionSlide) {
   void run(async () => {
     await printV2Slide({
@@ -248,60 +207,70 @@ function printSlide(slide: V2ProductionSlide) {
   });
 }
 
-function completeSlide(slide: V2ProductionSlide) {
-  if (slide.completedAt) return;
-  void run(async () => {
-    await completeV2Slide({
-      slideId: slide.slideId,
-      expectedVersion: slide.concurrencyVersion,
-      idempotencyKey: idempotencyKey('ux01-slide-complete'),
-    });
-    notice.value = `玻片 ${slide.slideCode} 已完成。`;
-    await loadQueue();
-  });
-}
-
-function completeSelected() {
-  const selected = slides.value.filter(
-    (slide) => selectedSlideIds.value.includes(slide.slideId) && !slide.completedAt,
+function findCaseSlide(code: string): V2ProductionSlide | null {
+  const normalized = code.toUpperCase();
+  const queued = slides.value.find(
+    (item) =>
+      item.slideCode.toUpperCase() === normalized &&
+      (!caseId.value || item.caseId === caseId.value),
   );
-  if (!selected.length) return;
-  void run(async () => {
-    const result = await completeV2Slides({
-      slides: selected.map((slide) => ({
-        slideId: slide.slideId,
-        expectedVersion: slide.concurrencyVersion,
-      })),
-      idempotencyKey: idempotencyKey('ux01-slide-complete-batch'),
-    });
-    notice.value = `已完成 ${result.changedCount} 张玻片。`;
-    await loadQueue();
-  });
+  if (queued) return queued;
+
+  const tree = materialTree.value;
+  if (!tree) return null;
+  for (const specimen of tree.specimens) {
+    const candidates = [
+      ...specimen.directSlides.map((slide) => ({ slide, blockCode: null as string | null })),
+      ...specimen.blocks.flatMap((block) =>
+        block.slides.map((slide) => ({ slide, blockCode: block.blockCode })),
+      ),
+    ];
+    const match = candidates.find(({ slide }) => slide.slideCode.toUpperCase() === normalized);
+    if (match) {
+      return {
+        slideId: match.slide.slideId,
+        caseId: tree.caseId,
+        caseNo: tree.caseNo,
+        patientReference: '',
+        businessTypeCode: tree.businessTypeCode,
+        specimenCode: specimen.specimenCode,
+        blockCode: match.blockCode,
+        slideCode: match.slide.slideCode,
+        slideType: match.slide.slideType,
+        sourceContextType: '',
+        completedAt: match.slide.completedAt,
+        concurrencyVersion: match.slide.concurrencyVersion,
+        printCount: 0,
+      };
+    }
+  }
+  return null;
 }
 
 function submitScan() {
-  const code = scanCode.value.trim().toUpperCase();
-  if (!code) return;
-  const slide = slides.value.find((item) => item.slideCode.toUpperCase() === code);
-  if (!slide) {
-    scanFeedback.value = {
-      tone: 'error',
-      message: `未找到玻片“${scanCode.value.trim()}”，请检查条码。`,
-    };
-    scanCode.value = '';
-    scanInput.value?.focus();
-    return;
-  }
-  if (slide.completedAt) {
-    scanFeedback.value = {
-      tone: 'warning',
-      message: `玻片 ${slide.slideCode} 已于 ${formatDateTime(slide.completedAt)} 完成，无需重复操作。`,
-    };
-    scanCode.value = '';
-    scanInput.value?.focus();
-    return;
-  }
+  const rawCode = scanCode.value.trim();
+  if (!rawCode) return;
   void run(async () => {
+    if (caseId.value && !materialTree.value) await loadMaterialTree();
+    const slide = findCaseSlide(rawCode.toUpperCase());
+    if (!slide) {
+      scanFeedback.value = {
+        tone: 'error',
+        message: `未找到玻片“${rawCode}”，请检查条码。`,
+      };
+      scanCode.value = '';
+      scanInput.value?.focus();
+      return;
+    }
+    if (slide.completedAt) {
+      scanFeedback.value = {
+        tone: 'warning',
+        message: `玻片 ${slide.slideCode} 已于 ${formatDateTime(slide.completedAt)} 完成，无需重复操作。`,
+      };
+      scanCode.value = '';
+      scanInput.value?.focus();
+      return;
+    }
     await completeV2Slide({
       slideId: slide.slideId,
       expectedVersion: slide.concurrencyVersion,
@@ -431,10 +400,10 @@ onMounted(() => {
         <button
           class="primary-button"
           type="button"
-          :disabled="!selectedSlideIds.length || busy"
-          @click="completeSelected"
+          :disabled="!selectedHistologySlideIds().length || busy"
+          @click="completeHistologyPhaseBatch"
         >
-          批量完成（{{ selectedSlideIds.length }}）
+          完成所选环节（{{ selectedHistologySlideIds().length }}）
         </button>
       </div>
     </header>
@@ -460,6 +429,9 @@ onMounted(() => {
           @click="emit('navigate', `/v2/grossing/${caseHeaderSlide.caseId}`)"
         >
           查看取材
+        </button>
+        <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+          历史记录
         </button>
       </template>
     </V2CaseHeader>
@@ -560,10 +532,7 @@ onMounted(() => {
           type="button"
           :aria-pressed="activeHistologyQueue === 'COMPLETED'"
           :class="{ active: activeHistologyQueue === 'COMPLETED' }"
-          @click="
-            activeHistologyQueue = 'COMPLETED';
-            activeTab = 'COMPLETED';
-          "
+          @click="activeHistologyQueue = 'COMPLETED'"
         >
           已完成 <b>{{ histologyQueues.completed }}</b>
         </button>
@@ -646,28 +615,84 @@ onMounted(() => {
         <strong>当前没有可记录技术过程的玻片</strong>
         <span>先建立玻片，之后可在这里记录每个环节。</span>
       </div>
-      <div v-else class="histology-fact-layout">
-        <div class="histology-slide-selector" aria-label="选择玻片">
-          <span class="field-label">选择玻片</span>
-          <button
+      <div v-else>
+        <div
+          v-if="visibleHistologySlides.length"
+          class="histology-work-list"
+          role="table"
+          aria-label="技术环节材料列表"
+        >
+          <div class="histology-work-row header" role="row">
+            <span>选择</span><span>病理号 / 患者</span><span>玻片</span><span>当前环节</span
+            ><span>开始时间</span><span>操作人</span><span>操作</span>
+          </div>
+          <div
             v-for="slide in visibleHistologySlides"
-            :key="slide.slideId"
-            type="button"
-            :class="{ active: selectedHistologySlide?.slideId === slide.slideId }"
+            :key="`work-${slide.slideId}`"
+            class="histology-work-row"
+            :class="{ selected: selectedHistologySlide?.slideId === slide.slideId }"
+            role="row"
             @click="activeHistologySlideId = slide.slideId"
           >
-            <input
-              type="checkbox"
-              :aria-label="`选择技术玻片 ${slide.slideCode}`"
-              :checked="selectedSlideIds.includes(slide.slideId)"
-              @click.stop
-              @change="toggleSlide(slide.slideId)"
-            />
-            <strong>{{ slide.slideCode }}</strong>
-            <small>{{ slide.caseNo }} · {{ slide.patientReference }}</small>
-          </button>
+            <span
+              ><input
+                type="checkbox"
+                :aria-label="`选择技术玻片 ${slide.slideCode}`"
+                :checked="selectedSlideIds.includes(slide.slideId)"
+                @click.stop
+                @change="toggleSlide(slide.slideId)"
+            /></span>
+            <span
+              ><strong>{{ slide.caseNo }}</strong
+              ><small>{{ slide.patientReference }}</small></span
+            >
+            <span
+              ><strong>{{ slide.slideCode }}</strong
+              ><small>{{ slide.slideType }}</small></span
+            >
+            <span>{{
+              activeHistologyQueue === 'COMPLETED'
+                ? '已完成'
+                : activeHistologyQueue === 'EXCEPTIONS'
+                  ? '异常'
+                  : phaseLabel(currentPhase(slide))
+            }}</span>
+            <span>{{
+              currentPhaseFact(slide)?.startedAt
+                ? formatDateTime(currentPhaseFact(slide)!.startedAt!)
+                : '—'
+            }}</span>
+            <span>{{ currentPhaseFact(slide)?.operatorRef || '—' }}</span>
+            <span class="inline-actions">
+              <button
+                class="text-button"
+                type="button"
+                @click.stop="activeHistologySlideId = slide.slideId"
+              >
+                处理
+              </button>
+              <button
+                class="text-button"
+                type="button"
+                @click.stop="printSlide(slide as unknown as V2ProductionSlide)"
+              >
+                打印/补打
+              </button>
+              <button
+                class="text-button"
+                type="button"
+                @click.stop="emit('navigate', `/v2/cases/${slide.caseId}`)"
+              >
+                病例
+              </button>
+            </span>
+          </div>
         </div>
-        <div class="histology-fact-content">
+        <div v-else class="empty-state compact">
+          <strong>当前环节没有待处理材料</strong>
+          <span>可以切换上方环节，或刷新队列。</span>
+        </div>
+        <div v-if="selectedHistologySlide" class="histology-fact-content">
           <div class="histology-phase-tabs" role="tablist" aria-label="技术环节">
             <button
               v-for="phase in histologyPhases"
@@ -792,91 +817,12 @@ onMounted(() => {
         </div>
       </div>
     </section>
-
-    <div class="production-tabs" role="tablist" aria-label="制片队列状态">
-      <button
-        v-for="tab in ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const"
-        :key="tab"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === tab"
-        :class="{ active: activeTab === tab }"
-        @click="activeTab = tab"
-      >
-        {{ tab === 'PENDING' ? '待制片' : tab === 'IN_PROGRESS' ? '进行中' : '今日完成' }}
-        <span class="count-pill">{{ tabCounts[tab] }}</span>
-      </button>
-    </div>
-
-    <div class="production-list" role="table" aria-label="玻片生产列表">
-      <div class="production-row header" role="row">
-        <span role="columnheader">
-          <input
-            type="checkbox"
-            aria-label="选择当前列表全部玻片"
-            :checked="allVisibleSelected"
-            @change="toggleAllVisible"
-          />
-        </span>
-        <span role="columnheader">病理号 / 患者</span>
-        <span role="columnheader">玻片号</span>
-        <span role="columnheader">染色 / 项目</span>
-        <span role="columnheader">来源</span>
-        <span role="columnheader">状态</span>
-        <span role="columnheader">操作</span>
-      </div>
-      <div v-if="loading" class="list-skeleton"><span></span><span></span><span></span></div>
-      <div v-else-if="!visibleSlides.length" class="empty-state">
-        <strong>
-          {{
-            activeTab === 'PENDING'
-              ? '当前没有待制片玻片'
-              : activeTab === 'IN_PROGRESS'
-                ? '当前没有进行中的玻片'
-                : '今天还没有完成记录'
-          }}
-        </strong>
-        <span>切换状态可查看其他玻片。</span>
-      </div>
-      <div v-for="slide in visibleSlides" :key="slide.slideId" class="production-row" role="row">
-        <span role="cell">
-          <input
-            type="checkbox"
-            :aria-label="`选择玻片 ${slide.slideCode}`"
-            :checked="selectedSlideIds.includes(slide.slideId)"
-            @change="toggleSlide(slide.slideId)"
-          />
-        </span>
-        <span role="cell"
-          ><strong>{{ slide.caseNo }}</strong
-          ><small>{{ slide.patientReference }}</small></span
-        >
-        <span role="cell"
-          ><strong>{{ slide.slideCode }}</strong
-          ><small>{{ businessTypeName(slide.businessTypeCode) }}</small></span
-        >
-        <span role="cell">{{ slide.slideType }}</span>
-        <span role="cell">{{ slide.blockCode ?? slide.specimenCode ?? '直接材料' }}</span>
-        <span role="cell">
-          <span v-if="slide.completedAt" class="status-pill success">已完成</span>
-          <span v-else-if="slide.printCount" class="status-pill current">已打印</span>
-          <span v-else class="status-pill">待打印</span>
-        </span>
-        <span class="inline-actions" role="cell">
-          <button class="text-button" type="button" @click="printSlide(slide)">
-            {{ slide.printCount ? '补打' : '打印' }}
-          </button>
-          <button
-            v-if="!slide.completedAt"
-            class="text-button"
-            type="button"
-            @click="completeSlide(slide)"
-          >
-            完成
-          </button>
-          <small v-else class="muted">{{ formatDateTime(slide.completedAt) }}</small>
-        </span>
-      </div>
-    </div>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="caseHeaderSlide?.caseId"
+      title="制片历史"
+      target-label="技术环节"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

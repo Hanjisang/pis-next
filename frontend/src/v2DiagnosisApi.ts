@@ -353,6 +353,14 @@ export function enterV2TechnicalResult(input: {
   });
 }
 
+export function acknowledgeV2TechnicalResult(itemId: string) {
+  return diagnosisRequest<{
+    itemId: string;
+    acknowledgedBy: string;
+    acknowledgedAt: string;
+  }>(`/technical-order-items/${itemId}/acknowledge`, { method: 'POST' });
+}
+
 export function claimV2Diagnosis(caseId: string, idempotencyKey: string) {
   return diagnosisRequest<{ diagnosisId: string; responsibilityId: string; duplicate: boolean }>(
     '/diagnoses/self-claim',

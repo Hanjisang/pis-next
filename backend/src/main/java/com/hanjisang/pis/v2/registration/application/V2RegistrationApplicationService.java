@@ -91,6 +91,17 @@ public class V2RegistrationApplicationService {
         return repository.findActiveApplicationMappings(actor.hospitalScope());
     }
 
+    @Transactional(readOnly = true)
+    public RegistrationQueueResult registrationQueue() {
+        ActorContext actor = authorization.require("P14-PERM-004");
+        List<RegistrationCaseView> recent = repository.findRecentRegistrations(actor.hospitalScope()).stream()
+                .map(row -> new RegistrationCaseView(row.caseId(), row.caseNo(), row.applicationNo(),
+                        row.applicationItemCode(), row.businessTypeCode(), row.businessTypeName(),
+                        row.patientReference(), row.registeredAt()))
+                .toList();
+        return new RegistrationQueueResult(List.of(), recent, Instant.now());
+    }
+
     @Transactional
     public SpecimenResult registerSpecimen(RegisterSpecimenCommand command) {
         ActorContext actor = authorization.require("P14-PERM-008");
@@ -297,6 +308,16 @@ public class V2RegistrationApplicationService {
             return created(pathologyCase, false, "PIS-V2-CASE-READ");
         }
     }
+
+    public record RegistrationQueueResult(List<PendingApplicationView> pendingApplications,
+            List<RegistrationCaseView> recentRegistrations, Instant refreshedAt) { }
+
+    public record PendingApplicationView(String applicationNo, String patientReference,
+            String applicationItemCode, Instant receivedAt) { }
+
+    public record RegistrationCaseView(UUID caseId, String caseNo, String applicationNo,
+            String applicationItemCode, String businessTypeCode, String businessTypeName,
+            String patientReference, Instant registeredAt) { }
 
     public record SpecimenResult(UUID specimenId, UUID caseId, String specimenNo, String specimenCode,
             String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,

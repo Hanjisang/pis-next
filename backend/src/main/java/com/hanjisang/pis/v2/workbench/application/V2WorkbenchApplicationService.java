@@ -47,7 +47,7 @@ public class V2WorkbenchApplicationService {
                     .map(row -> workItem(row, availableActions(row.workCode(), user))).toList());
         }
         if (hasAny(user, DIAGNOSIS_INITIAL, DIAGNOSIS_AUDIT)) {
-            myWork.addAll(repository.findTechnicalAttention(actor.hospitalScope(), Instant.now()).stream()
+            myWork.addAll(repository.findTechnicalAttention(actor.hospitalScope(), actorReference).stream()
                     .map(row -> workItem(row, availableActions(row.workCode(), user))).toList());
         }
         if (hasAny(user, REPORT_SIGN_OUT)) {

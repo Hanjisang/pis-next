@@ -6,6 +6,7 @@ import { formatDateTime, friendlyError, idempotencyKey, statusName } from '../ui
 import { getV2Case, type V2CaseResult } from '../v2Api';
 import { operationsRequest, type FrozenWorkspace } from '../v2OperationsApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 const props = defineProps<{ caseId?: string; authUser?: V2AuthUser | null }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
@@ -20,6 +21,7 @@ const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
+const historyDrawerOpen = ref(false);
 
 const selectedRound = computed(
   () => workspace.value?.rounds.find((item) => item.roundId === selectedRoundId.value) ?? null,
@@ -225,6 +227,9 @@ function roundStatus(round: FrozenWorkspace['rounds'][number]) {
           >
             查看冰剩常规
           </button>
+          <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+            历史记录
+          </button>
         </template>
       </V2CaseHeader>
 
@@ -416,5 +421,12 @@ function roundStatus(round: FrozenWorkspace['rounds'][number]) {
         </div>
       </template>
     </template>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="frozenCaseSummary?.caseId || props.caseId"
+      title="冰冻历史"
+      target-label="冰冻工作台"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

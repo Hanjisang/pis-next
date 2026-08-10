@@ -87,7 +87,9 @@ function targetForResult(result: SearchResult) {
     case 'BLOCK':
       return `/v2/cases/${caseId}?focus=block&focusId=${id}`;
     case 'SLIDE':
-      return `/v2/cases/${caseId}?focus=slide&focusId=${id}`;
+      return `/v2/diagnosis/${caseId}?focus=slide&focusId=${id}`;
+    case 'PATIENT':
+      return `/v2/diagnosis/${caseId}?focus=patient-history`;
     case 'REPORT':
       return `/v2/reports/${caseId}?reportId=${id}`;
     case 'TECHNICAL_ORDER':
@@ -198,7 +200,16 @@ onUnmounted(() => {
               ><small>{{ result.summary }}</small></span
             >
             <span class="result-meta"
-              >{{ result.resultKind === 'REPORT' ? '查看报告' : '打开上下文' }} →</span
+              >{{
+                result.resultKind === 'REPORT'
+                  ? '查看报告'
+                  : result.resultKind === 'SLIDE'
+                    ? '打开阅片'
+                    : result.resultKind === 'PATIENT'
+                      ? '查看患者历史'
+                      : '打开上下文'
+              }}
+              →</span
             >
           </button>
         </section>

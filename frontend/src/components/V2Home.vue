@@ -121,13 +121,6 @@ const summaryCards = computed(() => {
 const queueCards = computed(() => {
   const queues = workbench.value.queues;
   const cards = [] as Array<{ label: string; count: number; path: string; permission: string }>;
-  if (can('P14-PERM-014'))
-    cards.push({
-      label: '待制片玻片',
-      count: queues.histology,
-      path: '/v2/production',
-      permission: 'P14-PERM-014',
-    });
   if (can('P14-PERM-017')) {
     cards.push(
       {

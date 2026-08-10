@@ -149,6 +149,15 @@ public class V2CustodyApplicationService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<LocationResult> locations() {
+        ActorContext actor = authorization.require(QUERY_PERMISSION);
+        return repository.findLocations(actor.hospitalScope()).stream()
+                .map(row -> new LocationResult(row.locationId(), row.parentId(), row.locationCode(),
+                        row.locationName(), row.locationKindCode()))
+                .toList();
+    }
+
     private CustodyBatchResult replay(String operation, String key, String digest, ActorContext actor) {
         var existing = repository.findIdempotency(operation, key).orElse(null);
         if (existing == null) return null;

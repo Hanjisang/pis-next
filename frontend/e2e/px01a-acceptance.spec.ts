@@ -23,6 +23,7 @@ async function registerCase(
 ): Promise<CaseRef> {
   const suffix = uniqueSuffix(testInfo);
   await page.getByRole('button', { name: '登记', exact: true }).click();
+  await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByLabel('患者编号').fill(`PX01A-${suffix}`);
   await page.getByLabel('就诊号').fill(`VISIT-${suffix}`);
   await page.getByLabel('申请号').fill(`APPLICATION-${suffix}`);
@@ -113,23 +114,49 @@ async function completeGrossing(
 async function completeProduction(page: Page, caseRef: CaseRef) {
   await page.goto(`/v2/production/${caseRef.caseId}`);
   await expect(page.getByLabel('玻片制片工作台')).toBeVisible();
-  const pendingTab = page.getByRole('tab', { name: /待制片/ });
-  if ((await pendingTab.innerText()).replace(/\D/g, '') === '0') {
-    await page.getByRole('tab', { name: /进行中/ }).click();
+  const workList = page.getByRole('table', { name: '技术环节材料列表' });
+  await expect(workList).toBeVisible();
+  const slideCodes = await workList
+    .locator('.histology-work-row:not(.header) > span:nth-child(3) > strong')
+    .allTextContents();
+  expect(slideCodes.length).toBeGreaterThan(0);
+  for (const [phase, queue] of [
+    ['脱水', '待脱水'],
+    ['包埋', '待包埋'],
+    ['切片', '待切片'],
+    ['染色', '待染色'],
+    ['封片', '待封片'],
+  ]) {
+    await page.getByRole('button', { name: new RegExp(`^${queue}`) }).click();
+    const checks = page.locator(
+      '[aria-label="技术环节材料列表"] .histology-work-row:not(.header) input[type="checkbox"]',
+    );
+    for (let index = 0; index < (await checks.count()); index += 1) {
+      const checkbox = checks.nth(index);
+      if (!(await checkbox.isChecked())) await checkbox.check();
+    }
+    await page.getByRole('button', { name: `开始所选${phase}`, exact: true }).click();
+    await page.getByRole('button', { name: `完成所选${phase}`, exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: `已完成` }).last()).toBeVisible();
   }
-  const selectAll = page.getByRole('checkbox', { name: '选择当前列表全部玻片' });
-  await expect(selectAll).toBeVisible();
-  await selectAll.check();
-  const completeBatch = page.getByRole('button', { name: /^批量完成（/ });
-  await expect(completeBatch).toBeEnabled();
-  await completeBatch.click();
-  await expect(page.getByRole('status').filter({ hasText: '已完成' })).toBeVisible();
+  const scan = page.getByRole('textbox', { name: '扫码完成玻片' });
+  for (const code of slideCodes) {
+    await scan.fill(code.trim());
+    await scan.press('Enter');
+    await expect(
+      page.getByRole('status').filter({ hasText: `玻片 ${code.trim()} 已完成` }),
+    ).toBeVisible();
+  }
 }
 
 async function completeHistology(page: Page, caseRef: CaseRef) {
   await page.goto(`/v2/production/${caseRef.caseId}`);
   await expect(page.getByLabel('脱水、包埋、切片、染色、封片')).toBeVisible();
-  await page.locator('[aria-label="选择玻片"] button').first().click();
+  const workList = page.getByRole('table', { name: '技术环节材料列表' });
+  const slideCodes = await workList
+    .locator('.histology-work-row:not(.header) > span:nth-child(3) > strong')
+    .allTextContents();
+  expect(slideCodes.length).toBeGreaterThan(0);
 
   async function completePhase(label: string) {
     await page.getByRole('tab', { name: new RegExp(`^${label}`) }).click();
@@ -155,7 +182,14 @@ async function completeHistology(page: Page, caseRef: CaseRef) {
   await expect(page.getByRole('status').filter({ hasText: '切片已完成' })).toBeVisible();
   await completePhase('染色');
   await completePhase('封片');
-  await completeProduction(page, caseRef);
+  const scan = page.getByRole('textbox', { name: '扫码完成玻片' });
+  for (const code of slideCodes) {
+    await scan.fill(code.trim());
+    await scan.press('Enter');
+    await expect(
+      page.getByRole('status').filter({ hasText: `玻片 ${code.trim()} 已完成` }),
+    ).toBeVisible();
+  }
 }
 
 async function openHistory(page: Page) {
@@ -231,7 +265,7 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await logout(page);
   await login(page, 'doctor-a');
   await page.goto(`/v2/diagnosis/${caseRef.caseId}`);
-  await expect(page.getByText('1 项结果已返回')).toBeVisible();
+  await expect(page.getByText('1 项新结果')).toBeVisible();
   await page.getByLabel('下一步').selectOption('REVIEW');
   await page.getByLabel('复诊医生').selectOption({ label: 'Doctor B · 主治医师' });
   await page.getByRole('button', { name: '提交复诊' }).click();
@@ -240,8 +274,9 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await logout(page);
   await login(page, 'doctor-b');
   await page.goto(`/v2/diagnosis/${caseRef.caseId}`);
-  await page.getByRole('button', { name: '历史病理' }).click();
+  await page.getByRole('button', { name: '历史记录', exact: true }).click();
   await expect(page.getByText('修改诊断', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭历史记录' }).click();
   await editor.getByLabel('镜下所见').fill('PX01A 复诊修改后的镜下所见。');
   await editor.getByLabel('诊断意见').fill('PX01A 复诊修改后的病理诊断。');
   await page.getByLabel('下一步').selectOption('AUDIT');
@@ -252,7 +287,8 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await logout(page);
   await login(page, 'doctor-c');
   await page.goto(`/v2/diagnosis/${caseRef.caseId}`);
-  await page.getByRole('button', { name: '历史病理' }).click();
+  await page.getByRole('button', { name: '历史记录', exact: true }).click();
+  await page.getByRole('button', { name: '关闭历史记录' }).click();
   await expect(page.getByRole('button', { name: '完成审核', exact: true })).toBeVisible();
   await editor.getByLabel('镜下所见').fill('PX01A 审核修改后的镜下所见。');
   await editor.getByLabel('诊断意见').fill('PX01A 审核修改后的正式诊断。');
@@ -263,7 +299,7 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await expect(preview.getByText('预览有效，可以签发。')).toBeVisible();
   await preview.getByRole('button', { name: '确认签发' }).click();
   await expect(page.getByRole('status').filter({ hasText: '已签发' })).toBeVisible();
-  await expect(page.getByText('R001', { exact: true })).toBeVisible();
+  await expect(page.getByText('报告 1 · R001', { exact: true })).toBeVisible();
   await expect(
     page.getByLabel('责任、医嘱与报告').getByText('Doctor C', { exact: true }).first(),
   ).toBeVisible();
@@ -292,7 +328,7 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await expect(resignPreview.getByText('预览有效，可以签发。')).toBeVisible();
   await resignPreview.getByRole('button', { name: '确认签发', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '已签发' })).toBeVisible();
-  await expect(page.getByText('R002', { exact: true })).toBeVisible();
+  await expect(page.getByText('报告 2 · R002', { exact: true })).toBeVisible();
 
   await logout(page);
   await login(page, 'technician');
@@ -317,12 +353,12 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
   await logout(page);
   await login(page, 'doctor-c');
   await page.goto(`/v2/diagnosis/${caseRef.caseId}`);
-  await expect(page.getByText('2 项结果已返回')).toBeVisible();
+  await expect(page.getByText('2 项新结果')).toBeVisible();
   await page.getByRole('button', { name: '补充报告', exact: true }).click();
   await page.getByLabel('补充内容').fill('PX01A 补充报告回归验证内容。');
   await page.getByRole('button', { name: '签发补充报告', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '补充报告已签发' })).toBeVisible();
-  await expect(page.getByText('S001', { exact: true })).toBeVisible();
+  await expect(page.getByText('补充报告 1 · S001', { exact: true })).toBeVisible();
 }
 
 async function signFrozenRound(page: Page, caseRef: CaseRef, roundNo: number) {

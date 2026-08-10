@@ -6,6 +6,7 @@ import { getV2Case, type V2CaseResult } from '../v2Api';
 import { getV2MaterialTree, type V2MaterialTree } from '../v2MaterialApi';
 import { operationsRequest, type DigitalSlide } from '../v2OperationsApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 import V2ImageViewer from './V2ImageViewer.vue';
 
 const props = defineProps<{ caseId?: string; selectedSlideId?: string }>();
@@ -26,6 +27,7 @@ const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
+const historyDrawerOpen = ref(false);
 
 const blocks = computed(
   () => materials.value?.specimens.flatMap((specimen) => specimen.blocks) ?? [],
@@ -189,7 +191,13 @@ function slideCode(id?: string) {
         :progress="`物理 ${physicalSlides.length} 张 · 数字 ${slides.length} 张`"
         notice="数字扫描默认不阻塞物理制片或报告签发"
         @open-case="emit('navigate', `/v2/cases/${materials.caseId}`)"
-      />
+      >
+        <template #actions>
+          <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+            历史记录
+          </button>
+        </template>
+      </V2CaseHeader>
       <section v-if="slides.length" class="workspace-panel">
         <header class="panel-title-row">
           <div>
@@ -311,6 +319,14 @@ function slideCode(id?: string) {
           </div>
         </section>
       </div>
+      <V2HistoryDrawer
+        :open="historyDrawerOpen"
+        :case-id="materials.caseId"
+        :target-id="selectedDigitalSlide?.digitalSlideId"
+        title="数字切片历史"
+        target-label="数字切片"
+        @close="historyDrawerOpen = false"
+      />
     </template>
   </section>
 </template>

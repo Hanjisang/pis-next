@@ -18,6 +18,7 @@ async function logout(page: Page) {
 async function registerRoutineCase(page: Page, testInfo: TestInfo): Promise<CaseRef> {
   const suffix = uniqueSuffix(testInfo);
   await page.getByRole('button', { name: '登记', exact: true }).click();
+  await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByLabel('患者编号').fill(`PX02-${suffix}`);
   await page.getByLabel('就诊号').fill(`PX02-VISIT-${suffix}`);
   await page.getByLabel('申请号').fill(`PX02-APPLICATION-${suffix}`);

@@ -254,11 +254,15 @@ onUnmounted(() => {
           v-model:case-id="routeCaseId"
           :auth-user="authUser"
           :frozen-round-id="route.roundId || undefined"
+          :focus-kind="route.focusKind"
+          :focus-id="route.focusId"
           @navigate="navigate"
         />
         <V2TechnicalWorkbench
           v-else-if="route.name === 'technical-orders'"
           v-model:case-id="routeCaseId"
+          :focus-kind="route.focusKind"
+          :focus-id="route.focusId"
           @navigate="navigate"
         />
         <V2FrozenWorkspace

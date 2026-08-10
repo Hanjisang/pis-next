@@ -7,6 +7,11 @@ import {
   updateV2Configuration,
   type V2ConfigurationSnapshot,
 } from '../v2ConfigurationApi';
+import {
+  createV2ArchiveLocation,
+  getV2ArchiveLocations,
+  type V2ArchiveLocation,
+} from '../v2CustodyApi';
 
 type ConfigSection =
   | 'businessTypes'
@@ -14,7 +19,8 @@ type ConfigSection =
   | 'pathologyNumberRules'
   | 'technicalProjects'
   | 'diagnosisTemplates'
-  | 'reportTemplates';
+  | 'reportTemplates'
+  | 'archiveLocations';
 
 const sectionOptions: Array<{ key: ConfigSection; label: string; group: string }> = [
   { key: 'businessTypes', label: '业务类型', group: '业务配置' },
@@ -23,6 +29,7 @@ const sectionOptions: Array<{ key: ConfigSection; label: string; group: string }
   { key: 'diagnosisTemplates', label: '诊断模板', group: '诊断配置' },
   { key: 'reportTemplates', label: '报告模板', group: '诊断配置' },
   { key: 'technicalProjects', label: '技术项目', group: '诊断配置' },
+  { key: 'archiveLocations', label: '归档库位', group: '生产配置' },
 ];
 
 const snapshot = ref<V2ConfigurationSnapshot | null>(null);
@@ -31,6 +38,13 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 const notice = ref('');
+const archiveLocations = ref<V2ArchiveLocation[]>([]);
+const archiveDraft = ref({
+  parentId: '',
+  locationCode: '',
+  locationName: '',
+  locationKindCode: 'SLOT',
+});
 
 const activeLabel = computed(
   () => sectionOptions.find((item) => item.key === activeSection.value)?.label ?? '配置',
@@ -40,11 +54,42 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    snapshot.value = await getV2Configuration();
+    [snapshot.value, archiveLocations.value] = await Promise.all([
+      getV2Configuration(),
+      getV2ArchiveLocations(),
+    ]);
   } catch (requestError) {
     error.value = friendlyError(requestError, '配置暂时无法加载，请稍后重试。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function saveArchiveLocation() {
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const created = await createV2ArchiveLocation({
+      parentId: archiveDraft.value.parentId || undefined,
+      locationCode: archiveDraft.value.locationCode.trim(),
+      locationName: archiveDraft.value.locationName.trim(),
+      locationKindCode: archiveDraft.value.locationKindCode,
+    });
+    archiveLocations.value = [...archiveLocations.value, created].sort((a, b) =>
+      a.locationCode.localeCompare(b.locationCode),
+    );
+    archiveDraft.value = {
+      parentId: '',
+      locationCode: '',
+      locationName: '',
+      locationKindCode: 'SLOT',
+    };
+    notice.value = '归档库位已保存，归档操作将从配置中选择。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '归档库位保存失败，请检查编码是否重复。');
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -227,6 +272,57 @@ onMounted(() => void load());
             >
               保存
             </button>
+          </div>
+        </div>
+        <div v-else-if="activeSection === 'archiveLocations'" class="archive-location-config">
+          <form class="config-inline-form" @submit.prevent="saveArchiveLocation">
+            <label
+              >上级库位
+              <select v-model="archiveDraft.parentId">
+                <option value="">顶层</option>
+                <option
+                  v-for="item in archiveLocations"
+                  :key="item.locationId"
+                  :value="item.locationId"
+                >
+                  {{ item.locationCode }} · {{ item.locationName }}
+                </option>
+              </select>
+            </label>
+            <label>编码<input v-model="archiveDraft.locationCode" required /></label>
+            <label>名称<input v-model="archiveDraft.locationName" required /></label>
+            <label
+              >类型
+              <select v-model="archiveDraft.locationKindCode">
+                <option value="ROOM">房间</option>
+                <option value="CABINET">柜</option>
+                <option value="SHELF">层架</option>
+                <option value="SLOT">格位</option>
+              </select>
+            </label>
+            <button
+              class="primary-button"
+              type="submit"
+              :disabled="
+                saving || !archiveDraft.locationCode.trim() || !archiveDraft.locationName.trim()
+              "
+            >
+              新增库位
+            </button>
+          </form>
+          <div class="config-table">
+            <div class="config-row header">
+              <span>编码</span><span>名称</span><span>类型</span><span>上级</span>
+            </div>
+            <div v-for="item in archiveLocations" :key="item.locationId" class="config-row">
+              <code>{{ item.locationCode }}</code
+              ><span>{{ item.locationName }}</span
+              ><span>{{ item.locationKindCode }}</span
+              ><span>{{
+                archiveLocations.find((parent) => parent.locationId === item.parentId)
+                  ?.locationName || '顶层'
+              }}</span>
+            </div>
           </div>
         </div>
         <div v-else-if="activeSection === 'diagnosisTemplates'" class="config-table">

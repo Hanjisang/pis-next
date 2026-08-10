@@ -26,6 +26,17 @@ public class JdbcV2SearchRepository {
                 ORDER BY c.created_at DESC LIMIT 20
                 """, (rs, rowNum) -> row(rs), organizationReference, pattern, pattern, pattern, pattern));
         rows.addAll(jdbcTemplate.query("""
+                SELECT c.id, c.id AS case_id, 'PATIENT' AS result_kind, ctx.patient_reference AS display_code,
+                       CONCAT(COUNT(*) OVER (PARTITION BY ctx.patient_reference), ' 个相关病例') AS summary
+                FROM pis_v2.pathology_case c
+                JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
+                 AND ctx.snapshot_version_no = (SELECT MAX(ctx2.snapshot_version_no)
+                     FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND ctx.patient_reference ILIKE ?
+                ORDER BY c.created_at DESC LIMIT 20
+                """, (rs, rowNum) -> row(rs), organizationReference, pattern));
+        rows.addAll(jdbcTemplate.query("""
                 SELECT s.id, s.case_id, 'SPECIMEN', s.specimen_no, s.specimen_code
                 FROM pis_v2.specimen s WHERE s.organization_reference = ? AND s.deleted_at IS NULL
                   AND (s.specimen_no ILIKE ? OR s.specimen_code ILIKE ? OR s.source_reference ILIKE ?)

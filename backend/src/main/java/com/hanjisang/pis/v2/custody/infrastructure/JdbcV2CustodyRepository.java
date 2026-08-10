@@ -34,6 +34,17 @@ public class JdbcV2CustodyRepository {
         return count != null && count == 1;
     }
 
+    public List<LocationRow> findLocations(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, parent_id, location_code, location_name, location_kind_code
+                FROM pis_v2.archive_location
+                WHERE organization_reference = ? AND active = TRUE
+                ORDER BY location_code, id
+                """, (rs, rowNum) -> new LocationRow(rs.getObject("id", UUID.class),
+                rs.getObject("parent_id", UUID.class), rs.getString("location_code"),
+                rs.getString("location_name"), rs.getString("location_kind_code")), organizationReference);
+    }
+
     public void archiveBlock(UUID blockId, UUID locationId, String eventCode, String reason,
             String actorRef, Instant now) {
         jdbcTemplate.update("DELETE FROM pis_v2.block_archive_current WHERE block_id = ?", blockId);
@@ -196,6 +207,8 @@ public class JdbcV2CustodyRepository {
     }
 
     public record IdempotencyResult(String payloadDigest, UUID resultEntityId) { }
+    public record LocationRow(UUID locationId, UUID parentId, String locationCode, String locationName,
+            String locationKindCode) { }
     public record CustodyMaterialRow(String materialKind, UUID materialId, String materialCode, UUID locationId,
             String locationCode, String locationName, UUID loanId, String borrowerReference, Instant destroyedAt) { }
 
