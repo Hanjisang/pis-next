@@ -2,10 +2,12 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import type { V2AuthUser } from '../auth';
-import { createV2Case, registerV2Specimen, type V2CaseResult } from '../v2Api';
+import { getV2Case, registerV2Specimen, type V2CaseResult } from '../v2Api';
 import { businessTypeName, friendlyError } from '../uiText';
 import {
+  createV2Application,
   getV2RegistrationQueue,
+  registerV2Application,
   registerV2InboundApplication,
   type V2RegistrationQueue,
 } from '../v2RegistrationApi';
@@ -243,16 +245,32 @@ async function submitRegistration() {
   completedCase.value = null;
   try {
     progress.value = '正在生成病理号…';
-    const createdCase = inboundApplicationId.value
-      ? await registerV2InboundApplication(inboundApplicationId.value)
-      : await createV2Case({
-          sourceSystemCode: 'MANUAL',
-          externalApplicationId: draft.applicationNo.trim(),
-          applicationItemCode: selectedBusiness.value.applicationItemCode,
-          patientReference: draft.patientReference.trim(),
-          visitReference: draft.visitReference.trim(),
-          idempotencyKey: `px02-registration-${registrationRunId}`,
-        });
+    let createdCase: V2CaseResult;
+    if (inboundApplicationId.value) {
+      createdCase = await registerV2InboundApplication(inboundApplicationId.value);
+    } else {
+      progress.value = '姝ｅ湪淇濆瓨鐢宠鍜岀櫥璁拌褰?';
+      const application = await createV2Application({
+        applicationNo: draft.applicationNo.trim(),
+        sourceTypeCode: 'MANUAL',
+        sourceSystemCode: 'PIS-V2-MANUAL',
+        patientReference: draft.patientReference.trim(),
+        visitReference: draft.visitReference.trim(),
+        applicantReference: props.authUser?.displayName ?? 'CURRENT_USER',
+        items: [
+          {
+            externalItemCode: selectedBusiness.value.applicationItemCode,
+            itemName: selectedBusiness.value.businessTypeName,
+            specimenKindCode: selectedBusiness.value.defaultSpecimenKindCode,
+            sequenceNo: 1,
+          },
+        ],
+      });
+      const registration = await registerV2Application(application.applicationId);
+      const firstCase = registration.cases[0];
+      if (!firstCase) throw new Error('鐢宠鐧昏鏈垱寤虹梾渚?');
+      createdCase = await getV2Case(firstCase.caseId);
+    }
     for (const [index, specimen] of specimens.value.entries()) {
       progress.value = `正在登记标本 ${index + 1}/${specimens.value.length}…`;
       await registerV2Specimen({

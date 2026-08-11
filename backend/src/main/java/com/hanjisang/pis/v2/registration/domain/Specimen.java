@@ -1,5 +1,6 @@
 package com.hanjisang.pis.v2.registration.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,6 +16,13 @@ public final class Specimen {
     private String sourceReference;
     private String collectionSite;
     private String collectionMethodCode;
+    private String lateralityCode;
+    private BigDecimal quantityValue;
+    private String quantityUnitCode;
+    private String description;
+    private Instant removedAt;
+    private Instant fixedAt;
+    private Instant receivedAt;
     private String labelCode;
     private Instant deletedAt;
     private String deletionReason;
@@ -22,24 +30,34 @@ public final class Specimen {
 
     private Specimen(UUID id, UUID caseId, String specimenNo, String specimenCode, String specimenKindCode,
             String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
-            String labelCode, Instant deletedAt, String deletionReason, long concurrencyVersion) {
-        this.id = Objects.requireNonNull(id, "标本内部ID不能为空");
-        this.caseId = Objects.requireNonNull(caseId, "标本所属病例不能为空");
-        this.specimenNo = required(specimenNo, "标本编号不能为空");
-        this.specimenCode = required(specimenCode, "标本代码不能为空");
-        this.specimenKindCode = required(specimenKindCode, "标本类型不能为空");
-        this.sourceKindCode = required(sourceKindCode, "标本来源类型不能为空");
-        this.sourceReference = required(sourceReference, "标本来源引用不能为空");
-        this.collectionSite = required(collectionSite, "标本来源部位不能为空");
-        this.collectionMethodCode = required(collectionMethodCode, "标本采集方式不能为空");
+            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, Instant deletedAt,
+            String deletionReason, long concurrencyVersion) {
+        this.id = Objects.requireNonNull(id, "Specimen id is required");
+        this.caseId = Objects.requireNonNull(caseId, "Specimen case is required");
+        this.specimenNo = required(specimenNo, "Specimen number is required");
+        this.specimenCode = required(specimenCode, "Specimen code is required");
+        this.specimenKindCode = required(specimenKindCode, "Specimen kind is required");
+        this.sourceKindCode = required(sourceKindCode, "Specimen source kind is required");
+        this.sourceReference = required(sourceReference, "Specimen source reference is required");
+        this.collectionSite = required(collectionSite, "Specimen site is required");
+        this.collectionMethodCode = required(collectionMethodCode, "Specimen collection method is required");
+        this.lateralityCode = optional(lateralityCode);
+        this.quantityValue = validQuantity(quantityValue);
+        this.quantityUnitCode = quantityValue == null ? optional(quantityUnitCode)
+                : required(quantityUnitCode, "Specimen quantity unit is required");
+        this.description = optional(description);
+        this.removedAt = removedAt;
+        this.fixedAt = fixedAt;
+        this.receivedAt = receivedAt;
         this.labelCode = optional(labelCode);
         this.deletedAt = deletedAt;
         this.deletionReason = optional(deletionReason);
         if (deletedAt == null && this.deletionReason != null) {
-            throw new IllegalArgumentException("未软删除标本不能存在删除原因");
+            throw new IllegalArgumentException("An active specimen cannot have a deletion reason");
         }
         if (concurrencyVersion < 0) {
-            throw new IllegalArgumentException("标本并发版本不能为负数");
+            throw new IllegalArgumentException("Specimen version cannot be negative");
         }
         this.concurrencyVersion = concurrencyVersion;
     }
@@ -47,38 +65,75 @@ public final class Specimen {
     public static Specimen register(UUID id, UUID caseId, String specimenNo, String specimenCode,
             String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
             String collectionMethodCode, String labelCode) {
+        return register(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode, sourceReference,
+                collectionSite, collectionMethodCode, null, null, null, null, null, null, null, labelCode);
+    }
+
+    public static Specimen register(UUID id, UUID caseId, String specimenNo, String specimenCode,
+            String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
+            String collectionMethodCode, String lateralityCode, BigDecimal quantityValue, String quantityUnitCode,
+            String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode) {
         return new Specimen(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode, sourceReference,
-                collectionSite, collectionMethodCode, labelCode, null, null, 0);
+                collectionSite, collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description,
+                removedAt, fixedAt, receivedAt, labelCode, null, null, 0);
     }
 
     public static Specimen persisted(UUID id, UUID caseId, String specimenNo, String specimenCode,
             String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
             String collectionMethodCode, String labelCode, Instant deletedAt, String deletionReason,
             long concurrencyVersion) {
+        return persisted(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode, sourceReference,
+                collectionSite, collectionMethodCode, null, null, null, null, null, null, null, labelCode,
+                deletedAt, deletionReason, concurrencyVersion);
+    }
+
+    public static Specimen persisted(UUID id, UUID caseId, String specimenNo, String specimenCode,
+            String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
+            String collectionMethodCode, String lateralityCode, BigDecimal quantityValue, String quantityUnitCode,
+            String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode,
+            Instant deletedAt, String deletionReason, long concurrencyVersion) {
         return new Specimen(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode,
-                sourceReference, collectionSite, collectionMethodCode, labelCode, deletedAt, deletionReason,
-                concurrencyVersion);
+                sourceReference, collectionSite, collectionMethodCode, lateralityCode, quantityValue,
+                quantityUnitCode, description, removedAt, fixedAt, receivedAt, labelCode, deletedAt,
+                deletionReason, concurrencyVersion);
     }
 
     public void updateDetails(String specimenCode, String specimenKindCode, String sourceKindCode,
             String sourceReference, String collectionSite, String collectionMethodCode, String labelCode,
             Instant updatedAt) {
+        updateDetails(specimenCode, specimenKindCode, sourceKindCode, sourceReference, collectionSite,
+                collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt,
+                fixedAt, receivedAt, labelCode, updatedAt);
+    }
+
+    public void updateDetails(String specimenCode, String specimenKindCode, String sourceKindCode,
+            String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
+            BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
+            Instant fixedAt, Instant receivedAt, String labelCode, Instant updatedAt) {
         ensureNotDeleted();
-        this.specimenCode = required(specimenCode, "标本代码不能为空");
-        this.specimenKindCode = required(specimenKindCode, "标本类型不能为空");
-        this.sourceKindCode = required(sourceKindCode, "标本来源类型不能为空");
-        this.sourceReference = required(sourceReference, "标本来源引用不能为空");
-        this.collectionSite = required(collectionSite, "标本来源部位不能为空");
-        this.collectionMethodCode = required(collectionMethodCode, "标本采集方式不能为空");
+        this.specimenCode = required(specimenCode, "Specimen code is required");
+        this.specimenKindCode = required(specimenKindCode, "Specimen kind is required");
+        this.sourceKindCode = required(sourceKindCode, "Specimen source kind is required");
+        this.sourceReference = required(sourceReference, "Specimen source reference is required");
+        this.collectionSite = required(collectionSite, "Specimen site is required");
+        this.collectionMethodCode = required(collectionMethodCode, "Specimen collection method is required");
+        this.lateralityCode = optional(lateralityCode);
+        this.quantityValue = validQuantity(quantityValue);
+        this.quantityUnitCode = quantityValue == null ? optional(quantityUnitCode)
+                : required(quantityUnitCode, "Specimen quantity unit is required");
+        this.description = optional(description);
+        this.removedAt = removedAt;
+        this.fixedAt = fixedAt;
+        this.receivedAt = receivedAt;
         this.labelCode = optional(labelCode);
-        Objects.requireNonNull(updatedAt, "标本修改时间不能为空");
+        Objects.requireNonNull(updatedAt, "Specimen update time is required");
         concurrencyVersion++;
     }
 
     public void softDelete(String reason, Instant deletedAt) {
         ensureNotDeleted();
-        this.deletionReason = required(reason, "标本软删除原因不能为空");
-        this.deletedAt = Objects.requireNonNull(deletedAt, "标本软删除时间不能为空");
+        this.deletionReason = required(reason, "Specimen deletion reason is required");
+        this.deletedAt = Objects.requireNonNull(deletedAt, "Specimen deletion time is required");
         concurrencyVersion++;
     }
 
@@ -92,6 +147,13 @@ public final class Specimen {
     public String sourceReference() { return sourceReference; }
     public String collectionSite() { return collectionSite; }
     public String collectionMethodCode() { return collectionMethodCode; }
+    public String lateralityCode() { return lateralityCode; }
+    public BigDecimal quantityValue() { return quantityValue; }
+    public String quantityUnitCode() { return quantityUnitCode; }
+    public String description() { return description; }
+    public Instant removedAt() { return removedAt; }
+    public Instant fixedAt() { return fixedAt; }
+    public Instant receivedAt() { return receivedAt; }
     public String labelCode() { return labelCode; }
     public Instant deletedAt() { return deletedAt; }
     public String deletionReason() { return deletionReason; }
@@ -99,7 +161,7 @@ public final class Specimen {
 
     private void ensureNotDeleted() {
         if (deleted()) {
-            throw new IllegalStateException("已软删除标本不能继续修改");
+            throw new IllegalStateException("A deleted specimen cannot be changed");
         }
     }
 
@@ -112,5 +174,12 @@ public final class Specimen {
 
     private static String optional(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static BigDecimal validQuantity(BigDecimal value) {
+        if (value != null && value.signum() <= 0) {
+            throw new IllegalArgumentException("Specimen quantity must be greater than zero");
+        }
+        return value;
     }
 }

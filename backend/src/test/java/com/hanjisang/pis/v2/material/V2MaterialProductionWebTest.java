@@ -244,6 +244,48 @@ class V2MaterialProductionWebTest {
                 .contains("完成登记", "登记标本", "开始取材", "新增蜡块", "完成取材");
     }
 
+    @Test
+    void grossingImageCaptureAnnotationsAndMeasurementArePersistedAndAudited() throws Exception {
+        String caseId = createCase("APP-IMAGE-001");
+        String specimenId = createSpecimen(caseId, "A", "specimen-image-001");
+        String grossingId = createGrossing(caseId, "grossing-image-001");
+        associateSpecimen(grossingId, specimenId, "associate-image-001");
+
+        JsonNode image = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/material/grossings/%s/images/capture".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"deviceReference\":\"SIMULATOR-GROSS-IMAGING\"}"
+                        .formatted(specimenId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String imageId = image.get("imageId").asText();
+        assertThat(image.get("storageReference").asText()).startsWith("simulator://");
+
+        JsonNode annotation = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/material/grossings/images/%s/annotations".formatted(imageId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"annotationTypeCode\":\"RECTANGLE\",\"geometryJson\":\"{\\\"x\\\":1}\",\"label\":\"lesion\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String annotationId = annotation.get("annotationId").asText();
+
+        JsonNode measurement = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/material/grossings/images/%s/measurements".formatted(imageId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"geometryJson\":\"{\\\"x1\\\":1,\\\"x2\\\":5}\",\"value\":4.0,\"unitCode\":\"MM\",\"measurementModeCode\":\"IMAGE_COORDINATE\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(measurement.get("value").asDouble()).isEqualTo(4.0);
+        assertThat(mockMvc.perform(get("/api/v2/material/grossings/%s/images".formatted(grossingId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(imageId);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(
+                "/api/v2/material/grossings/images/%s/annotations/%s".formatted(imageId, annotationId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/material/grossings/images/%s/delete".formatted(imageId))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"synthetic image correction\"}"))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing_image WHERE deleted_at IS NOT NULL",
+                Integer.class)).isEqualTo(1);
+    }
+
     private String createCase(String suffix) throws Exception {
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/cases")
                 .contentType(MediaType.APPLICATION_JSON)

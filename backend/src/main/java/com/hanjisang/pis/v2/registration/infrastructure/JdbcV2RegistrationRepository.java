@@ -1,6 +1,7 @@
 package com.hanjisang.pis.v2.registration.infrastructure;
 
 import java.sql.Timestamp;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -199,28 +200,55 @@ public class JdbcV2RegistrationRepository {
                         rs.getObject("business_type_id", UUID.class), rs.getString("business_type_code"),
                         rs.getString("patient_reference"), rs.getString("visit_reference"),
                         rs.getObject("frozen_source_case_id", UUID.class), rs.getString("lifecycle_state_code"),
-                        rs.getBoolean("number_binding_active"),
+                rs.getBoolean("number_binding_active"),
                         rs.getLong("concurrency_version"))) : Optional.empty(), caseId, organizationReference);
+    }
+
+    public boolean cancelCase(UUID caseId, String organizationReference, long expectedVersion, String reason,
+            String actorReference, Instant now) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.pathology_case
+                   SET lifecycle_state_code = 'CANCELLED', number_binding_active = FALSE,
+                       cancelled_at = ?, cancelled_by_ref = ?, cancellation_reason = ?,
+                       concurrency_version = concurrency_version + 1
+                 WHERE id = ? AND organization_reference = ? AND lifecycle_state_code = 'ACTIVE'
+                   AND concurrency_version = ?
+                """, Timestamp.from(now), actorReference, reason, caseId, organizationReference, expectedVersion) == 1;
+    }
+
+    public Optional<CaseCancellation> findCaseCancellation(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT cancelled_at, cancelled_by_ref, cancellation_reason
+                FROM pis_v2.pathology_case
+                WHERE id = ? AND organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new CaseCancellation(
+                        rs.getTimestamp("cancelled_at") == null ? null : rs.getTimestamp("cancelled_at").toInstant(),
+                        rs.getString("cancelled_by_ref"), rs.getString("cancellation_reason"))) : Optional.empty(),
+                caseId, organizationReference);
     }
 
     public void insertSpecimen(Specimen specimen, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.specimen
                     (id, case_id, specimen_no, specimen_code, specimen_kind_code, source_kind_code, source_reference,
-                     collection_site, collection_method_code, label_code, concurrency_version, organization_reference,
-                     created_at, created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     collection_site, collection_method_code, laterality_code, quantity_value, quantity_unit_code,
+                     description, removed_at, fixed_at, received_at, label_code, concurrency_version,
+                     organization_reference, created_at, created_by_ref, updated_at, updated_by_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, specimen.id(), specimen.caseId(), specimen.specimenNo(), specimen.specimenCode(),
                 specimen.specimenKindCode(), specimen.sourceKindCode(), specimen.sourceReference(),
-                specimen.collectionSite(), specimen.collectionMethodCode(), specimen.labelCode(),
-                specimen.concurrencyVersion(), organizationReference, Timestamp.from(now), actorRef,
-                Timestamp.from(now), actorRef);
+                specimen.collectionSite(), specimen.collectionMethodCode(), specimen.lateralityCode(),
+                specimen.quantityValue(), specimen.quantityUnitCode(), specimen.description(),
+                timestamp(specimen.removedAt()), timestamp(specimen.fixedAt()), timestamp(specimen.receivedAt()),
+                specimen.labelCode(), specimen.concurrencyVersion(), organizationReference, Timestamp.from(now),
+                actorRef, Timestamp.from(now), actorRef);
     }
 
     public Optional<Specimen> findSpecimen(UUID specimenId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id, case_id, specimen_no, specimen_code, specimen_kind_code, source_kind_code, source_reference,
-                       collection_site, collection_method_code, label_code, deleted_at, deletion_reason,
+                       collection_site, collection_method_code, laterality_code, quantity_value, quantity_unit_code,
+                       description, removed_at, fixed_at, received_at, label_code, deleted_at, deletion_reason,
                        concurrency_version
                 FROM pis_v2.specimen
                 WHERE id = ? AND organization_reference = ?
@@ -229,6 +257,9 @@ public class JdbcV2RegistrationRepository {
                         rs.getString("specimen_code"), rs.getString("specimen_kind_code"),
                         rs.getString("source_kind_code"), rs.getString("source_reference"),
                         rs.getString("collection_site"), rs.getString("collection_method_code"),
+                        rs.getString("laterality_code"), rs.getBigDecimal("quantity_value"),
+                        rs.getString("quantity_unit_code"), rs.getString("description"),
+                        instant(rs, "removed_at"), instant(rs, "fixed_at"), instant(rs, "received_at"),
                         rs.getString("label_code"), rs.getTimestamp("deleted_at") == null ? null
                                 : rs.getTimestamp("deleted_at").toInstant(),
                         rs.getString("deletion_reason"), rs.getLong("concurrency_version"))) : Optional.empty(),
@@ -258,15 +289,62 @@ public class JdbcV2RegistrationRepository {
         int changed = jdbcTemplate.update("""
                 UPDATE pis_v2.specimen
                    SET specimen_code = ?, specimen_kind_code = ?, source_kind_code = ?, source_reference = ?,
-                       collection_site = ?, collection_method_code = ?, label_code = ?,
+                       collection_site = ?, collection_method_code = ?, laterality_code = ?, quantity_value = ?,
+                       quantity_unit_code = ?, description = ?, removed_at = ?, fixed_at = ?, received_at = ?,
+                       label_code = ?,
                        concurrency_version = concurrency_version + 1, updated_at = ?, updated_by_ref = ?
                  WHERE id = ? AND organization_reference = ? AND deleted_at IS NULL
                    AND concurrency_version = ?
                 """, specimen.specimenCode(), specimen.specimenKindCode(), specimen.sourceKindCode(),
                 specimen.sourceReference(), specimen.collectionSite(), specimen.collectionMethodCode(),
-                specimen.labelCode(), Timestamp.from(now), actorRef, specimen.id(), organizationReference,
-                expectedVersion);
+                specimen.lateralityCode(), specimen.quantityValue(), specimen.quantityUnitCode(),
+                specimen.description(), timestamp(specimen.removedAt()), timestamp(specimen.fixedAt()),
+                timestamp(specimen.receivedAt()), specimen.labelCode(), Timestamp.from(now), actorRef,
+                specimen.id(), organizationReference, expectedVersion);
         return changed == 1;
+    }
+
+    public boolean markSpecimenReceived(UUID specimenId, String organizationReference, long expectedVersion,
+            Instant receivedAt, String actorRef, Instant now) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.specimen
+                   SET received_at = ?, concurrency_version = concurrency_version + 1,
+                       updated_at = ?, updated_by_ref = ?
+                 WHERE id = ? AND organization_reference = ? AND deleted_at IS NULL
+                   AND concurrency_version = ?
+                """, Timestamp.from(receivedAt), Timestamp.from(now), actorRef, specimenId,
+                organizationReference, expectedVersion) == 1;
+    }
+
+    public void insertSpecimenSplit(UUID sourceSpecimenId, UUID childSpecimenId, BigDecimal quantity,
+            String reason, String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.specimen_split
+                    (id, source_specimen_id, child_specimen_id, quantity_value, reason,
+                     organization_reference, created_at, created_by_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), sourceSpecimenId, childSpecimenId, quantity, reason,
+                organizationReference, Timestamp.from(now), actorRef);
+    }
+
+    public void insertSpecimenReceipt(UUID specimenId, String verificationCode, String actualDescription,
+            String reason, String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.specimen_receiving_fact
+                    (id, specimen_id, verification_code, actual_description, reason,
+                     received_at, received_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), specimenId, verificationCode, actualDescription, reason,
+                Timestamp.from(now), actorRef, organizationReference);
+    }
+
+    private static Timestamp timestamp(Instant value) {
+        return value == null ? null : Timestamp.from(value);
+    }
+
+    private static Instant instant(java.sql.ResultSet resultSet, String column) throws java.sql.SQLException {
+        Timestamp value = resultSet.getTimestamp(column);
+        return value == null ? null : value.toInstant();
     }
 
     public boolean softDeleteSpecimen(UUID specimenId, String organizationReference, long expectedVersion,
@@ -293,6 +371,8 @@ public class JdbcV2RegistrationRepository {
 
     public record IdempotencyResult(String payloadDigest, String resultKindCode, UUID resultCaseId,
             UUID resultSpecimenId) { }
+
+    public record CaseCancellation(Instant cancelledAt, String cancelledByRef, String cancellationReason) { }
 
     private record NumberRuleRow(UUID businessTypeId, String prefix, String scopeCode, int paddingWidth,
             boolean active, long nextSerial) { }

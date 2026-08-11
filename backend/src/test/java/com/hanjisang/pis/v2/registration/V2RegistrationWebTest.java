@@ -120,6 +120,65 @@ class V2RegistrationWebTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 
+    @Test
+    void caseCancellationKeepsIdentityReleasesNumberBindingAndIsAudited() throws Exception {
+        String caseId = createCase("APP-I01-CANCEL", "SYNTH-PATIENT-CANCEL", "case-i01-cancel");
+        JsonNode cancelled = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/registration/cases/%s/cancel".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"reason\":\"synthetic receiving rejection\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(cancelled.get("caseId").asText()).isEqualTo(caseId);
+        assertThat(cancelled.get("lifecycleStateCode").asText()).isEqualTo("CANCELLED");
+        assertThat(cancelled.get("numberBindingActive").asBoolean()).isFalse();
+        assertThat(jdbcTemplate.queryForObject("SELECT cancellation_reason FROM pis_v2.pathology_case WHERE id = ?",
+                String.class, java.util.UUID.fromString(caseId))).isEqualTo("synthetic receiving rejection");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis.audit_event WHERE operation_code = 'PIS-V2-CASE-CANCEL'",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void specimenFactsReceivingAndSplitLineageArePersisted() throws Exception {
+        String caseId = createCase("APP-I01-SPECIMEN-FACTS", "SYNTH-PATIENT-SPECIMEN", "case-i01-specimen-facts");
+        String specimenRequest = """
+                {"caseId":"%s","specimenCode":"A","specimenKindCode":"FLUID","sourceKindCode":"LOCAL",
+                 "sourceReference":"SYNTH-SOURCE-FACTS","collectionSite":"synthetic pleura",
+                 "collectionMethodCode":"ASPIRATION","lateralityCode":"LEFT","quantityValue":2.5,
+                 "quantityUnitCode":"ML","description":"synthetic fluid","removedAt":"2026-08-12T01:00:00Z",
+                 "fixedAt":"2026-08-12T02:00:00Z","labelCode":"SYNTH-LABEL-FACTS",
+                 "idempotencyKey":"specimen-i01-facts"}
+                """.formatted(caseId);
+        JsonNode created = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/specimens")
+                .contentType(MediaType.APPLICATION_JSON).content(specimenRequest))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String specimenId = created.get("specimenId").asText();
+        assertThat(created.get("lateralityCode").asText()).isEqualTo("LEFT");
+        assertThat(created.get("quantityValue").asDouble()).isEqualTo(2.5D);
+
+        JsonNode received = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/registration/specimens/%s/receive".formatted(specimenId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"verificationCode\":\"MATCHED\",\"actualDescription\":\"synthetic fluid\","
+                        + "\"reason\":\"barcode and material matched\",\"expectedVersion\":0}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(received.get("receivedAt").isNull()).isFalse();
+        assertThat(received.get("concurrencyVersion").asLong()).isEqualTo(1);
+
+        JsonNode child = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/registration/specimens/%s/split".formatted(specimenId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"childSpecimenCode\":\"A1\",\"quantityValue\":1.0,"
+                        + "\"quantityUnitCode\":\"ML\",\"reason\":\"synthetic aliquot\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(child.get("specimenCode").asText()).isEqualTo("A1");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.specimen_split WHERE source_specimen_id = ?", Integer.class,
+                java.util.UUID.fromString(specimenId))).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.specimen_receiving_fact WHERE specimen_id = ?", Integer.class,
+                java.util.UUID.fromString(specimenId))).isEqualTo(1);
+    }
+
     private String createCase(String applicationId, String patientReference, String idempotencyKey) throws Exception {
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/cases")
                 .contentType(MediaType.APPLICATION_JSON)

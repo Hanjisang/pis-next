@@ -547,3 +547,81 @@ CREATE TABLE IF NOT EXISTS pis_v2.frozen_end (
     idempotency_key VARCHAR(256) NOT NULL UNIQUE, ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
     ended_by_ref VARCHAR(128) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_application (
+    id UUID PRIMARY KEY, application_no VARCHAR(128) NOT NULL, source_type_code VARCHAR(32) NOT NULL,
+    source_system_code VARCHAR(128) NOT NULL, patient_reference VARCHAR(256) NOT NULL, patient_name VARCHAR(256),
+    patient_sex_code VARCHAR(32), patient_birth_date DATE, visit_reference VARCHAR(256), visit_type_code VARCHAR(32),
+    application_department VARCHAR(256), applicant_reference VARCHAR(256), applied_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    clinical_diagnosis VARCHAR(4000), medical_history VARCHAR(10000), operation_finding VARCHAR(10000),
+    examination_purpose VARCHAR(4000), specimen_description VARCHAR(10000), note VARCHAR(10000),
+    status_code VARCHAR(32) NOT NULL, cancelled_at TIMESTAMP WITH TIME ZONE, cancelled_by_ref VARCHAR(128),
+    cancellation_reason VARCHAR(2000), organization_reference VARCHAR(128) NOT NULL, concurrency_version BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, application_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_application_item (
+    id UUID PRIMARY KEY, application_id UUID NOT NULL, external_item_code VARCHAR(128) NOT NULL,
+    item_name VARCHAR(256), mapping_id UUID, business_type_id UUID, specimen_kind_code VARCHAR(64),
+    specimen_description VARCHAR(4000), sequence_no INTEGER NOT NULL, status_code VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_application_case (
+    id UUID PRIMARY KEY, application_id UUID NOT NULL, application_item_id UUID NOT NULL UNIQUE,
+    case_id UUID NOT NULL UNIQUE, linked_at TIMESTAMP WITH TIME ZONE NOT NULL, linked_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_application_delivery (
+    id UUID PRIMARY KEY, application_id UUID NOT NULL, application_item_id UUID, specimen_label_code VARCHAR(256),
+    patient_reference VARCHAR(256) NOT NULL, actual_specimen_description VARCHAR(10000),
+    verification_status_code VARCHAR(32) NOT NULL, rejection_reason VARCHAR(2000), delivered_by_ref VARCHAR(128) NOT NULL,
+    delivered_at TIMESTAMP WITH TIME ZONE NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_application_barcode_print (
+    id UUID PRIMARY KEY, application_id UUID NOT NULL, application_item_id UUID, barcode_value VARCHAR(256) NOT NULL,
+    print_version INTEGER NOT NULL, printer_profile_code VARCHAR(128) NOT NULL, result_code VARCHAR(32) NOT NULL,
+    failure_reason VARCHAR(2000), requested_at TIMESTAMP WITH TIME ZONE NOT NULL, requested_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_registration_receipt_print (
+    id UUID PRIMARY KEY, application_id UUID NOT NULL, case_id UUID, receipt_kind_code VARCHAR(32) NOT NULL,
+    printer_profile_code VARCHAR(128) NOT NULL, result_code VARCHAR(32) NOT NULL, failure_reason VARCHAR(2000),
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, requested_by_ref VARCHAR(128) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_image (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, grossing_id UUID NOT NULL, specimen_id UUID,
+    image_name VARCHAR(256) NOT NULL, media_type VARCHAR(128) NOT NULL, storage_reference VARCHAR(1024) NOT NULL,
+    metadata_json VARCHAR(20000), captured_at TIMESTAMP WITH TIME ZONE NOT NULL, captured_by_ref VARCHAR(128) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128), deletion_reason VARCHAR(2000),
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_image_annotation (
+    id UUID PRIMARY KEY, image_id UUID NOT NULL, annotation_type_code VARCHAR(32) NOT NULL,
+    geometry_json VARCHAR(20000) NOT NULL, label VARCHAR(256), note VARCHAR(2000),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_image_measurement (
+    id UUID PRIMARY KEY, image_id UUID NOT NULL, geometry_json VARCHAR(20000) NOT NULL,
+    "value" NUMERIC(18,6) NOT NULL, unit_code VARCHAR(32) NOT NULL, measurement_mode_code VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS laterality_code VARCHAR(32);
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS quantity_value NUMERIC(12,3);
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS quantity_unit_code VARCHAR(32);
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS description VARCHAR(4000);
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS removed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS fixed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS received_at TIMESTAMP WITH TIME ZONE;
+CREATE TABLE IF NOT EXISTS pis_v2.specimen_receiving_fact (
+    id UUID PRIMARY KEY, specimen_id UUID NOT NULL, verification_code VARCHAR(64) NOT NULL,
+    actual_description VARCHAR(4000), reason VARCHAR(2000), received_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    received_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.specimen_split (
+    id UUID PRIMARY KEY, source_specimen_id UUID NOT NULL, child_specimen_id UUID NOT NULL UNIQUE,
+    quantity_value NUMERIC(12,3), reason VARCHAR(2000) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
