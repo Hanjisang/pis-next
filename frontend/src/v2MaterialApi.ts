@@ -92,22 +92,6 @@ export type V2GrossingWorkspace = {
   };
 };
 
-export type V2ProductionSlide = {
-  slideId: string;
-  caseId: string;
-  caseNo: string;
-  patientReference: string;
-  businessTypeCode: string;
-  specimenCode: string | null;
-  blockCode: string | null;
-  slideCode: string;
-  slideType: string;
-  sourceContextType: string;
-  completedAt: string | null;
-  concurrencyVersion: number;
-  printCount: number;
-};
-
 async function materialRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/v2${path}`, {
     ...init,
@@ -312,8 +296,4 @@ export function getV2GrossingWorkspace(
   const query = new URLSearchParams({ sourceType });
   if (sourceReferenceId) query.set('sourceReferenceId', sourceReferenceId);
   return materialRequest(`/cases/${caseId}/grossing-workspace?${query.toString()}`);
-}
-
-export function getV2ProductionWorkbench(): Promise<{ slides: V2ProductionSlide[] }> {
-  return materialRequest('/slides/production-workbench');
 }

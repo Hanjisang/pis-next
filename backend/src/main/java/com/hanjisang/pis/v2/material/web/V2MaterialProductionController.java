@@ -152,11 +152,6 @@ public class V2MaterialProductionController {
         return service.grossingWorkspace(caseId, sourceType, sourceReferenceId);
     }
 
-    @GetMapping("/slides/production-workbench")
-    public V2MaterialProductionApplicationService.ProductionWorkbenchResult productionWorkbench() {
-        return service.productionWorkbench();
-    }
-
     public record CreateGrossingRequest(String sourceType, UUID sourceReferenceId, String grossDescription,
             String grossingInstruction, String grossingDoctorId, String recorderId, String idempotencyKey) { }
 

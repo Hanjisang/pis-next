@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS pis.audit_event (
     authorization_outcome VARCHAR(32) NOT NULL,
     processing_outcome VARCHAR(32) NOT NULL,
     correlation_id VARCHAR(128) NOT NULL,
-    reason VARCHAR(500),
+    reason VARCHAR(500), category_code VARCHAR(32), changes_json TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 

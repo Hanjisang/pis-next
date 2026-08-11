@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.diagnosis.domain.Diagnosis;
@@ -166,8 +167,11 @@ public class V2ReportApplicationService {
         }
         Report updated = repository.findReport(reportId, actor.hospitalScope()).orElseThrow();
         repository.insertIdempotency(operation, command.idempotencyKey(), digest, reportId, now, actor.actorId());
-        audit.append("PIS-V2-I05-REPORT-WITHDRAW", REPORT_SIGN_OUT, actor, "ALLOWED", "COMPLETED", reportId,
-                "V2-REPORT", UUID.randomUUID().toString(), command.reason());
+        audit.appendWithChanges("PIS-V2-I05-REPORT-WITHDRAW", REPORT_SIGN_OUT, actor, "COMPLETED", reportId,
+                "V2-REPORT", UUID.randomUUID().toString(), command.reason(),
+                List.of(new AuditChange("reportStatus", "报告状态", ReportStatus.EFFECTIVE.name(),
+                        ReportStatus.WITHDRAWN.name()),
+                        new AuditChange("withdrawalReason", "撤回原因", null, command.reason())));
         publish("V2-I05-REPORT-WITHDRAWN", reportId, updated.version(), actor, digest);
         return reportResult(updated, false);
     }

@@ -426,32 +426,6 @@ public class JdbcV2MaterialRepository {
                 organizationReference, caseId, organizationReference);
     }
 
-    public List<ProductionSlideRow> findProductionSlides(String organizationReference) {
-        return jdbcTemplate.query("""
-                SELECT sl.id AS slide_id, c.id AS case_id, c.case_no, context.patient_reference,
-                       bt.business_type_code, s.specimen_code, b.block_code, sl.slide_code, sl.slide_type,
-                       sl.source_context_type, sl.completed_at, sl.concurrency_version,
-                       (SELECT COUNT(*) FROM pis_v2.print_log pl
-                         WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS print_count
-                FROM pis_v2.slide sl
-                JOIN pis_v2.pathology_case c ON c.id = sl.case_id
-                JOIN pis_v2.case_context_snapshot context
-                  ON context.case_id = c.id AND context.snapshot_version_no = 1
-                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
-                LEFT JOIN pis_v2.block b ON b.id = sl.block_id
-                LEFT JOIN pis_v2.specimen s ON s.id = COALESCE(sl.specimen_id, b.specimen_id)
-                WHERE sl.organization_reference = ? AND sl.deleted_at IS NULL
-                  AND c.lifecycle_state_code = 'ACTIVE'
-                ORDER BY CASE WHEN sl.completed_at IS NULL THEN 0 ELSE 1 END,
-                         c.case_no, sl.slide_code, sl.id
-                """, (rs, rowNum) -> new ProductionSlideRow(rs.getObject("slide_id", UUID.class),
-                rs.getObject("case_id", UUID.class), rs.getString("case_no"), rs.getString("patient_reference"),
-                rs.getString("business_type_code"), rs.getString("specimen_code"), rs.getString("block_code"),
-                rs.getString("slide_code"), rs.getString("slide_type"), rs.getString("source_context_type"),
-                instant(rs, "completed_at"), rs.getLong("concurrency_version"), rs.getInt("print_count")),
-                organizationReference);
-    }
-
     public boolean insertMaterialIdempotency(String operationCode, String idempotencyKey, String payloadDigest,
             String resultKindCode, UUID resultEntityId, Integer resultCount, String actorRef, Instant now) {
         return jdbcTemplate.update("""
@@ -508,10 +482,6 @@ public class JdbcV2MaterialRepository {
             String slideCode, String slideType,
             String sourceContextType, Instant completedAt, String completedByRef, Boolean required,
             long concurrencyVersion) { }
-
-    public record ProductionSlideRow(UUID slideId, UUID caseId, String caseNo, String patientReference,
-            String businessTypeCode, String specimenCode, String blockCode, String slideCode, String slideType,
-            String sourceContextType, Instant completedAt, long concurrencyVersion, int printCount) { }
 
     public record PrintServiceResult(String resultCode, String failureReason) { }
 

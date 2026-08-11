@@ -202,8 +202,19 @@ export type V2WorkspaceTimelineEntry = {
   title: string;
   detail: string;
   operationCode: string;
+  categoryCode?: string | null;
   targetKind: string | null;
   targetId: string | null;
+  targetDisplayCode?: string | null;
+  targetDisplayName?: string | null;
+  changes?: V2TimelineChange[];
+};
+
+export type V2TimelineChange = {
+  fieldCode: string;
+  fieldLabel: string;
+  beforeValue: string | null;
+  afterValue: string | null;
 };
 
 export async function getV2CaseWorkspace(caseId: string): Promise<V2CaseWorkspace> {
@@ -231,11 +242,16 @@ export type V2PatientHistoryItem = {
   reportNo?: string | null;
   reportStatus?: string | null;
   signedAt?: string | null;
+  digitalSlideId?: string | null;
+  physicalSlideId?: string | null;
 };
 
-export async function getV2PatientHistory(patientReference: string) {
+export async function getV2PatientHistory(patientReference: string, currentCaseId?: string) {
+  const currentCaseQuery = currentCaseId
+    ? `&currentCaseId=${encodeURIComponent(currentCaseId)}`
+    : '';
   const response = await fetch(
-    `/api/v2/patient-history?patientReference=${encodeURIComponent(patientReference)}`,
+    `/api/v2/patient-history?patientReference=${encodeURIComponent(patientReference)}${currentCaseQuery}`,
   );
   const body = (await response.json()) as {
     message?: string;

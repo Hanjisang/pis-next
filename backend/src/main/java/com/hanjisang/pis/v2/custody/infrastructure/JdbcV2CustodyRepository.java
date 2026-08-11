@@ -73,13 +73,15 @@ public class JdbcV2CustodyRepository {
                 """, UUID.randomUUID(), slideId, locationId, eventCode, Timestamp.from(now), actorRef, reason);
     }
 
-    public void insertLoan(UUID loanId, String borrower, String purpose, String organizationReference,
-            String actorRef, Instant now) {
+    public void insertLoan(UUID loanId, String borrower, String borrowerDepartment, String purpose,
+            Instant expectedReturnAt, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.loan
-                    (id, borrower_reference, purpose, status_code, borrowed_at, borrowed_by_ref, organization_reference)
-                VALUES (?, ?, ?, 'BORROWED', ?, ?, ?)
-                """, loanId, borrower, purpose, Timestamp.from(now), actorRef, organizationReference);
+                    (id, borrower_reference, borrower_department, purpose, expected_return_at, status_code,
+                     borrowed_at, borrowed_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, 'BORROWED', ?, ?, ?)
+                """, loanId, borrower, borrowerDepartment, purpose, Timestamp.from(expectedReturnAt),
+                Timestamp.from(now), actorRef, organizationReference);
     }
 
     public void insertLoanBlockItem(UUID loanId, UUID blockId) {
@@ -109,6 +111,38 @@ public class JdbcV2CustodyRepository {
                 WHERE loan_id = ? AND returned_at IS NULL
                 """, Timestamp.from(now), actorRef, loanId);
         return true;
+    }
+
+    public List<LoanRow> findLoans(String organizationReference) {
+        List<LoanBaseRow> loans = jdbcTemplate.query("""
+                SELECT id, borrower_reference, borrower_department, purpose, borrowed_at, expected_return_at,
+                       returned_at, returned_by_ref
+                FROM pis_v2.loan
+                WHERE organization_reference = ?
+                ORDER BY CASE WHEN returned_at IS NULL THEN 0 ELSE 1 END,
+                         expected_return_at NULLS LAST, borrowed_at DESC, id DESC
+                FETCH FIRST 200 ROWS ONLY
+                """, (rs, rowNum) -> new LoanBaseRow(rs.getObject("id", UUID.class),
+                rs.getString("borrower_reference"), rs.getString("borrower_department"), rs.getString("purpose"),
+                instant(rs, "borrowed_at"), instant(rs, "expected_return_at"), instant(rs, "returned_at"),
+                rs.getString("returned_by_ref")), organizationReference);
+        return loans.stream().map(loan -> new LoanRow(loan.loanId(), loan.borrowerReference(),
+                loan.borrowerDepartment(), loan.purpose(), loan.borrowedAt(), loan.expectedReturnAt(),
+                loan.returnedAt(), loan.returnedByRef(), jdbcTemplate.query("""
+                        SELECT CASE WHEN li.block_id IS NOT NULL THEN 'BLOCK' ELSE 'SLIDE' END AS material_kind,
+                               COALESCE(b.id, sl.id) AS material_id,
+                               COALESCE(b.block_code, sl.slide_code) AS material_code,
+                               c.id AS case_id, c.case_no, li.returned_at
+                        FROM pis_v2.loan_item li
+                        LEFT JOIN pis_v2.block b ON b.id = li.block_id
+                        LEFT JOIN pis_v2.slide sl ON sl.id = li.slide_id
+                        JOIN pis_v2.pathology_case c ON c.id = COALESCE(b.case_id, sl.case_id)
+                        WHERE li.loan_id = ?
+                        ORDER BY material_kind, material_code
+                        """, (rs, rowNum) -> new LoanItemRow(rs.getString("material_kind"),
+                        rs.getObject("material_id", UUID.class), rs.getString("material_code"),
+                        rs.getObject("case_id", UUID.class), rs.getString("case_no"),
+                        instant(rs, "returned_at")), loan.loanId()))).toList();
     }
 
     public boolean isDestroyedBlock(UUID blockId) {
@@ -207,6 +241,13 @@ public class JdbcV2CustodyRepository {
     }
 
     public record IdempotencyResult(String payloadDigest, UUID resultEntityId) { }
+    public record LoanRow(UUID loanId, String borrowerReference, String borrowerDepartment, String purpose,
+            Instant borrowedAt, Instant expectedReturnAt, Instant returnedAt, String returnedByRef,
+            List<LoanItemRow> items) { }
+    public record LoanItemRow(String materialKind, UUID materialId, String materialCode, UUID caseId,
+            String pathologyNo, Instant returnedAt) { }
+    private record LoanBaseRow(UUID loanId, String borrowerReference, String borrowerDepartment, String purpose,
+            Instant borrowedAt, Instant expectedReturnAt, Instant returnedAt, String returnedByRef) { }
     public record LocationRow(UUID locationId, UUID parentId, String locationCode, String locationName,
             String locationKindCode) { }
     public record CustodyMaterialRow(String materialKind, UUID materialId, String materialCode, UUID locationId,

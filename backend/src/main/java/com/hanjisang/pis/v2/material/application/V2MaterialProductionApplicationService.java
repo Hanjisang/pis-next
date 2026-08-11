@@ -19,6 +19,7 @@ import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.integration.device.LabelPrintService;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.registration.domain.Case;
@@ -32,7 +33,6 @@ import com.hanjisang.pis.v2.material.domain.SlideRule;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialIdempotencyResult;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
-import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.ProductionSlideRow;
 
 @Service
 public class V2MaterialProductionApplicationService {
@@ -320,8 +320,10 @@ public class V2MaterialProductionApplicationService {
             renameRelatedSlides(block, actor);
         }
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
-        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", block.id(), "V2-BLOCK",
-                UUID.randomUUID().toString(), "V2蜡块事实已修改");
+        audit.appendWithChanges(operation, MATERIAL_PERMISSION, actor, "COMPLETED", block.id(), "V2-BLOCK",
+                UUID.randomUUID().toString(), "蜡块信息已修改",
+                List.of(new AuditChange("blockCode", "蜡块编号", oldCode, block.blockCode()),
+                        new AuditChange("blockType", "蜡块类型", null, command.blockType())));
         return BlockResult.of(block, false);
     }
 
@@ -631,15 +633,6 @@ public class V2MaterialProductionApplicationService {
                 pathologyCase.externalApplicationId(), workspaceSpecimens, grossing);
     }
 
-    @Transactional(readOnly = true)
-    public ProductionWorkbenchResult productionWorkbench() {
-        ActorContext actor = authorization.require(QUERY_PERMISSION);
-        List<ProductionSlideItem> slides = repository.findProductionSlides(actor.hospitalScope()).stream()
-                .map(ProductionSlideItem::from)
-                .toList();
-        return new ProductionWorkbenchResult(slides);
-    }
-
     private PrintResult recordPrint(UUID caseId, String entityKind, UUID entityId, String businessCode,
             PrintRule rule, ActorContext actor, Instant now) {
         LabelPrintService.PrintResult serviceResult = labelPrintService.print(new LabelPrintService.PrintRequest(
@@ -933,18 +926,6 @@ public class V2MaterialProductionApplicationService {
                     grossing.sourceReferenceId(), grossing.grossDescription(), grossing.grossingInstruction(),
                     grossing.grossingDoctorId(), grossing.recorderId(), grossing.startedAt(), grossing.completedAt(),
                     grossing.concurrencyVersion());
-        }
-    }
-
-    public record ProductionWorkbenchResult(List<ProductionSlideItem> slides) { }
-
-    public record ProductionSlideItem(UUID slideId, UUID caseId, String caseNo, String patientReference,
-            String businessTypeCode, String specimenCode, String blockCode, String slideCode, String slideType,
-            String sourceContextType, Instant completedAt, long concurrencyVersion, int printCount) {
-        static ProductionSlideItem from(ProductionSlideRow row) {
-            return new ProductionSlideItem(row.slideId(), row.caseId(), row.caseNo(), row.patientReference(),
-                    row.businessTypeCode(), row.specimenCode(), row.blockCode(), row.slideCode(), row.slideType(),
-                    row.sourceContextType(), row.completedAt(), row.concurrencyVersion(), row.printCount());
         }
     }
 

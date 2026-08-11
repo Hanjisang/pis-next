@@ -78,7 +78,7 @@ test('PX02B：Histology 单一阶段队列、异常事实和统一历史', async
 
   const workList = page.getByRole('table', { name: '技术环节材料列表' });
   const firstRow = workList.locator('.histology-work-row:not(.header)').first();
-  const slideCode = (await firstRow.locator('span').nth(2).locator('strong').innerText()).trim();
+  const slideCode = (await firstRow.locator('span').nth(3).locator('strong').innerText()).trim();
   await firstRow.click();
   await completePhase(page, '脱水');
   await completePhase(page, '包埋');

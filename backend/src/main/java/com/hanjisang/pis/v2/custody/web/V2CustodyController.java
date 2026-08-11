@@ -2,6 +2,7 @@ package com.hanjisang.pis.v2.custody.web;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,7 +44,16 @@ public class V2CustodyController {
     @PostMapping("/loans")
     public V2CustodyApplicationService.LoanResult borrow(@RequestBody BorrowRequest request) {
         return service.borrow(new BorrowCommand(request.blockIds(), request.slideIds(), request.borrowerReference(),
-                request.purpose()));
+                request.purpose(), request.borrowerDepartment(), request.expectedReturnAt()));
+    }
+
+    @GetMapping("/loans")
+    public List<V2CustodyApplicationService.LoanView> loans(
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String status,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String borrower,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String department,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String query) {
+        return service.loans(status, borrower, department, query);
     }
 
     @PostMapping("/loans/{loanId}/return")
@@ -65,6 +75,7 @@ public class V2CustodyController {
     public record CreateLocationRequest(UUID parentId, String locationCode, String locationName, String locationKindCode) { }
     public record ArchiveRequest(List<UUID> blockIds, List<UUID> slideIds, UUID locationId, String reason,
             String idempotencyKey) { }
-    public record BorrowRequest(List<UUID> blockIds, List<UUID> slideIds, String borrowerReference, String purpose) { }
+    public record BorrowRequest(List<UUID> blockIds, List<UUID> slideIds, String borrowerReference, String purpose,
+            String borrowerDepartment, Instant expectedReturnAt) { }
     public record DestroyRequest(List<UUID> blockIds, List<UUID> slideIds, String reason, String batchReference) { }
 }

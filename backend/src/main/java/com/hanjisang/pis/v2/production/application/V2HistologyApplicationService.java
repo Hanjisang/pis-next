@@ -37,8 +37,10 @@ public class V2HistologyApplicationService {
         var grouped = new LinkedHashMap<UUID, SlideBuilder>();
         for (ProcessRow row : repository.findWorkbench(actor.hospitalScope(), caseId)) {
             SlideBuilder builder = grouped.computeIfAbsent(row.slideId(), ignored ->
-                    new SlideBuilder(row.slideId(), row.caseId(), row.caseNo(), row.patientReference(), row.slideCode(),
-                            row.slideType(), row.slideCompletedAt()));
+                    new SlideBuilder(row.slideId(), row.caseId(), row.caseNo(), row.patientReference(),
+                            row.businessTypeCode(), row.specimenCode(), row.blockCode(), row.sourceContextType(),
+                            row.slideCode(), row.slideType(), row.slideCompletedAt(), row.concurrencyVersion(),
+                            row.printCount()));
             builder.phases.add(new PhaseFact(row.phaseCode(), row.startedAt(), row.completedAt(), row.operatorRef(),
                     row.deviceReference(), row.batchReference(), row.exceptionCode(), row.exceptionNote()));
         }
@@ -146,25 +148,77 @@ public class V2HistologyApplicationService {
         private final UUID caseId;
         private final String caseNo;
         private final String patientReference;
+        private final String businessTypeCode;
+        private final String specimenCode;
+        private final String blockCode;
+        private final String sourceContextType;
         private final String slideCode;
         private final String slideType;
         private final Instant slideCompletedAt;
+        private final long concurrencyVersion;
+        private final int printCount;
         private final List<PhaseFact> phases = new ArrayList<>();
         private SlideBuilder(UUID slideId, UUID caseId, String caseNo, String patientReference, String slideCode,
                 String slideType, Instant slideCompletedAt) {
-            this.slideId = slideId; this.caseId = caseId; this.caseNo = caseNo; this.patientReference = patientReference;
-            this.slideCode = slideCode; this.slideType = slideType; this.slideCompletedAt = slideCompletedAt;
+            this(slideId, caseId, caseNo, patientReference, null, null, null, null, slideCode, slideType,
+                    slideCompletedAt, 0, 0);
         }
-        private SlideWorkItem build() { return new SlideWorkItem(slideId, caseId, caseNo, patientReference, slideCode,
-                slideType, slideCompletedAt, phases); }
+        private SlideBuilder(UUID slideId, UUID caseId, String caseNo, String patientReference,
+                String businessTypeCode, String specimenCode, String blockCode, String sourceContextType,
+                String slideCode, String slideType, Instant slideCompletedAt, long concurrencyVersion,
+                int printCount) {
+            this.slideId = slideId; this.caseId = caseId; this.caseNo = caseNo; this.patientReference = patientReference;
+            this.businessTypeCode = businessTypeCode; this.specimenCode = specimenCode; this.blockCode = blockCode;
+            this.sourceContextType = sourceContextType; this.slideCode = slideCode; this.slideType = slideType;
+            this.slideCompletedAt = slideCompletedAt; this.concurrencyVersion = concurrencyVersion;
+            this.printCount = printCount;
+        }
+        private SlideWorkItem build() {
+            String queue = queueCode(derivedQueue(phases, slideCompletedAt));
+            return new SlideWorkItem(slideId, caseId, caseNo, patientReference, slideCode, slideType,
+                    businessTypeCode, specimenCode, blockCode, sourceContextType, slideCompletedAt,
+                    concurrencyVersion, printCount, queue, queue, phases);
+        }
     }
+
+    private static String derivedQueue(List<PhaseFact> phases, Instant slideCompletedAt) {
+        if (hasException(phases)) return "EXCEPTIONS";
+        if (slideCompletedAt != null) return "COMPLETED";
+        for (int index = 0; index < PHASE_ORDER.length; index++) {
+            String phaseCode = PHASE_ORDER[index];
+            PhaseFact current = phases.stream().filter(fact -> phaseCode.equals(fact.phaseCode())).findFirst().orElse(null);
+            String previousCode = index == 0 ? null : PHASE_ORDER[index - 1];
+            PhaseFact previous = previousCode == null ? null : phases.stream()
+                    .filter(fact -> previousCode.equals(fact.phaseCode())).findFirst().orElse(null);
+            if (current == null || current.completedAt() == null) {
+                if (previous == null || previous.completedAt() != null) return phaseCode;
+            }
+        }
+        return "COMPLETED";
+    }
+
+    private static String queueCode(String phaseCode) {
+        return switch (phaseCode) {
+            case "SECTIONING" -> "CUTTING";
+            case "MOUNTING" -> "COVERSLIPPING";
+            default -> phaseCode;
+        };
+    }
+
+    private static boolean hasException(List<PhaseFact> phases) {
+        return phases.stream().anyMatch(fact -> fact.exceptionCode() != null && !fact.exceptionCode().isBlank());
+    }
+
+    private static final String[] PHASE_ORDER = { "DEHYDRATION", "EMBEDDING", "SECTIONING", "STAINING", "MOUNTING" };
 
     public record HistologyWorkbenchResult(List<SlideWorkItem> slides, HistologyQueueSummary queues,
             Instant refreshedAt) { }
     public record HistologyQueueSummary(int dehydration, int embedding, int cutting, int staining,
             int coverslipping, int completed, int exceptions) { }
     public record SlideWorkItem(UUID slideId, UUID caseId, String caseNo, String patientReference, String slideCode,
-            String slideType, Instant slideCompletedAt, List<PhaseFact> phases) { }
+            String slideType, String businessTypeCode, String specimenCode, String blockCode,
+            String sourceContextType, Instant slideCompletedAt, long concurrencyVersion, int printCount,
+            String currentPhase, String derivedQueue, List<PhaseFact> phases) { }
     public record PhaseFact(String phaseCode, Instant startedAt, Instant completedAt, String operatorRef,
             String deviceReference, String batchReference, String exceptionCode, String exceptionNote) { }
 }

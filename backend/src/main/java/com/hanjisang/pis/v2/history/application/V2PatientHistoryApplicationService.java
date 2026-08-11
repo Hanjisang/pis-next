@@ -28,14 +28,20 @@ public class V2PatientHistoryApplicationService {
 
     @Transactional(readOnly = true)
     public PatientHistoryResult find(String patientReference) {
+        return find(patientReference, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PatientHistoryResult find(String patientReference, UUID currentCaseId) {
         ActorContext actor = authorization.require(QUERY_PERMISSION);
         if (patientReference == null || patientReference.isBlank()) {
             throw new P15BusinessException("V2-PATIENT-HISTORY-INVALID", "患者引用不能为空");
         }
-        List<PatientHistoryItem> items = repository.find(actor.hospitalScope(), patientReference.trim()).stream()
+        List<PatientHistoryItem> items = repository.find(actor.hospitalScope(), patientReference.trim(), currentCaseId).stream()
                 .map(row -> new PatientHistoryItem(row.caseId(), row.pathologyNo(), row.businessTypeCode(),
                         row.businessTypeName(), row.occurredAt(), firstText(row.diagnosisText(), row.microscopicDescription()),
-                        row.reportId(), row.reportNo(), row.reportStatus(), row.signedAt()))
+                        row.reportId(), row.reportNo(), row.reportStatus(), row.signedAt(), row.digitalSlideId(),
+                        row.physicalSlideId()))
                 .toList();
         return new PatientHistoryResult(patientReference.trim(), items, Instant.now());
     }
@@ -50,5 +56,5 @@ public class V2PatientHistoryApplicationService {
 
     public record PatientHistoryItem(UUID caseId, String pathologyNo, String businessTypeCode,
             String businessTypeName, Instant occurredAt, String diagnosisSummary, UUID reportId,
-            String reportNo, String reportStatus, Instant signedAt) { }
+            String reportNo, String reportStatus, Instant signedAt, UUID digitalSlideId, UUID physicalSlideId) { }
 }

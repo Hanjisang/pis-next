@@ -23,12 +23,20 @@ public class JdbcV2HistologyRepository {
     public List<ProcessRow> findWorkbench(String organizationReference, UUID caseId) {
         String caseFilter = caseId == null ? "" : " AND c.id = ? ";
         String sql = """
-                SELECT sl.id AS slide_id, sl.case_id, c.case_no, context.patient_reference, sl.slide_code,
-                       sl.slide_type, sl.completed_at AS slide_completed_at, p.phase_code, p.started_at,
+                SELECT sl.id AS slide_id, sl.case_id, c.case_no, context.patient_reference,
+                       bt.business_type_code, s.specimen_code, b.block_code, sl.source_context_type,
+                       sl.slide_code, sl.slide_type, sl.completed_at AS slide_completed_at,
+                       sl.concurrency_version,
+                       (SELECT COUNT(*) FROM pis_v2.print_log pl
+                         WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS print_count,
+                       p.phase_code, p.started_at,
                        p.completed_at, p.operator_ref, p.device_reference, p.batch_reference,
                        p.exception_code, p.exception_note
                 FROM pis_v2.slide sl
                 JOIN pis_v2.pathology_case c ON c.id = sl.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.block b ON b.id = sl.block_id
+                LEFT JOIN pis_v2.specimen s ON s.id = COALESCE(sl.specimen_id, b.specimen_id)
                 LEFT JOIN pis_v2.case_context_snapshot context
                     ON context.case_id = c.id
                     AND context.snapshot_version_no = (SELECT MAX(snapshot_version_no)
@@ -153,8 +161,10 @@ public class JdbcV2HistologyRepository {
 
     private static ProcessRow row(ResultSet rs) throws SQLException {
         return new ProcessRow(rs.getObject("slide_id", UUID.class), rs.getObject("case_id", UUID.class),
-                rs.getString("case_no"), rs.getString("patient_reference"), rs.getString("slide_code"),
-                rs.getString("slide_type"), instant(rs, "slide_completed_at"), rs.getString("phase_code"),
+                rs.getString("case_no"), rs.getString("patient_reference"), rs.getString("business_type_code"),
+                rs.getString("specimen_code"), rs.getString("block_code"), rs.getString("source_context_type"),
+                rs.getString("slide_code"), rs.getString("slide_type"), instant(rs, "slide_completed_at"),
+                rs.getLong("concurrency_version"), rs.getInt("print_count"), rs.getString("phase_code"),
                 instant(rs, "started_at"), instant(rs, "completed_at"), rs.getString("operator_ref"),
                 rs.getString("device_reference"), rs.getString("batch_reference"), rs.getString("exception_code"),
                 rs.getString("exception_note"));
@@ -162,7 +172,8 @@ public class JdbcV2HistologyRepository {
 
     private static ProcessRow fact(ResultSet rs) throws SQLException {
         return new ProcessRow(rs.getObject("slide_id", UUID.class), rs.getObject("case_id", UUID.class), null,
-                null, null, null, null, rs.getString("phase_code"), instant(rs, "started_at"),
+                null, null, null, null, null, null, null, null, 0L, 0, rs.getString("phase_code"),
+                instant(rs, "started_at"),
                 instant(rs, "completed_at"), rs.getString("operator_ref"), rs.getString("device_reference"),
                 rs.getString("batch_reference"), rs.getString("exception_code"), rs.getString("exception_note"));
     }
@@ -177,8 +188,10 @@ public class JdbcV2HistologyRepository {
     public static boolean supported(String phaseCode) { for (String phase : PHASES) if (phase.equals(phaseCode)) return true; return false; }
 
     public record SlideScope(UUID slideId, UUID caseId, String caseNo, String slideCode) { }
-    public record ProcessRow(UUID slideId, UUID caseId, String caseNo, String patientReference, String slideCode,
-            String slideType, Instant slideCompletedAt, String phaseCode, Instant startedAt, Instant completedAt,
+    public record ProcessRow(UUID slideId, UUID caseId, String caseNo, String patientReference, String businessTypeCode,
+            String specimenCode, String blockCode, String sourceContextType, String slideCode, String slideType,
+            Instant slideCompletedAt, long concurrencyVersion, int printCount, String phaseCode, Instant startedAt,
+            Instant completedAt,
             String operatorRef, String deviceReference, String batchReference, String exceptionCode,
             String exceptionNote) { }
 }

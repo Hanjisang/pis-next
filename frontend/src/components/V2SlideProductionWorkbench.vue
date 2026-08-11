@@ -6,10 +6,8 @@ import {
   completeV2Slide,
   createV2DirectCytologySlide,
   getV2MaterialTree,
-  getV2ProductionWorkbench,
   printV2Slide,
   type V2MaterialTree,
-  type V2ProductionSlide,
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
 import V2HistoryDrawer from './V2HistoryDrawer.vue';
@@ -27,11 +25,17 @@ import {
   type V2HistologySlide,
 } from '../v2HistologyApi';
 
-type HistologyQueueView = HistologyPhaseCode | 'COMPLETED' | 'EXCEPTIONS';
+type HistologyQueueView =
+  | 'DEHYDRATION'
+  | 'EMBEDDING'
+  | 'CUTTING'
+  | 'STAINING'
+  | 'COVERSLIPPING'
+  | 'COMPLETED'
+  | 'EXCEPTIONS';
 
 const caseId = defineModel<string>('caseId', { default: '' });
 const emit = defineEmits<{ navigate: [path: string] }>();
-const slides = ref<V2ProductionSlide[]>([]);
 const materialTree = ref<V2MaterialTree | null>(null);
 const selectedSlideIds = ref<string[]>([]);
 const scanCode = ref('');
@@ -67,12 +71,14 @@ const exceptionNote = ref('');
 const historyDrawerOpen = ref(false);
 
 const caseSlides = computed(() =>
-  caseId.value ? slides.value.filter((slide) => slide.caseId === caseId.value) : slides.value,
+  caseId.value
+    ? histologySlides.value.filter((slide) => slide.caseId === caseId.value)
+    : histologySlides.value,
 );
 const caseHeaderSlide = computed(() => caseSlides.value[0] ?? null);
 const caseMaterialProgress = computed(() => {
   if (!caseSlides.value.length) return '0/0';
-  return `${caseSlides.value.filter((slide) => slide.completedAt).length}/${caseSlides.value.length}`;
+  return `${caseSlides.value.filter((slide) => slide.slideCompletedAt).length}/${caseSlides.value.length}`;
 });
 const supportsDirectSlide = computed(() =>
   ['CYTOLOGY_NON_GYN', 'CYTOLOGY'].includes(materialTree.value?.businessTypeCode ?? ''),
@@ -85,38 +91,59 @@ const selectedHistologySlide = computed(
 );
 const activeHistologyPhaseFact = computed<V2HistologyPhase | null>(
   () =>
-    selectedHistologySlide.value?.phases.find(
+    selectedHistologySlide.value?.phases?.find(
       (phase) => phase.phaseCode === activeHistologyPhase.value,
     ) ?? null,
 );
 const visibleHistologySlides = computed(() =>
   histologySlides.value.filter((slide) => {
-    if (activeHistologyQueue.value === 'COMPLETED') return Boolean(slide.slideCompletedAt);
-    if (activeHistologyQueue.value === 'EXCEPTIONS')
-      return slide.phases.some((phase) => phase.exceptionCode);
-    const current = slide.phases.find((phase) => phase.phaseCode === activeHistologyQueue.value);
-    const phaseIndex = histologyPhases.findIndex(
-      (phase) => phase.code === activeHistologyQueue.value,
-    );
-    const previousCode = phaseIndex > 0 ? histologyPhases[phaseIndex - 1]?.code : undefined;
-    const previous = previousCode
-      ? slide.phases.find((phase) => phase.phaseCode === previousCode)
-      : undefined;
-    return !current?.completedAt && (!previousCode || Boolean(previous?.completedAt));
+    return queueOf(slide) === activeHistologyQueue.value;
   }),
 );
 
+function queueOf(slide: V2HistologySlide): HistologyQueueView {
+  const queue = slide.derivedQueue;
+  const phases = slide.phases ?? [];
+  if (queue === 'SECTIONING') return 'CUTTING';
+  if (queue === 'MOUNTING') return 'COVERSLIPPING';
+  if (
+    queue === 'DEHYDRATION' ||
+    queue === 'EMBEDDING' ||
+    queue === 'CUTTING' ||
+    queue === 'STAINING' ||
+    queue === 'COVERSLIPPING' ||
+    queue === 'COMPLETED' ||
+    queue === 'EXCEPTIONS'
+  ) {
+    return queue;
+  }
+  if (slide.slideCompletedAt) return 'COMPLETED';
+  const nextPhase = histologyPhases.find(
+    (phase) => !phases.find((item) => item.phaseCode === phase.code)?.completedAt,
+  );
+  return nextPhase?.code === 'SECTIONING'
+    ? 'CUTTING'
+    : nextPhase?.code === 'MOUNTING'
+      ? 'COVERSLIPPING'
+      : (nextPhase?.code ?? 'COVERSLIPPING');
+}
+
 function currentPhase(slide: V2HistologySlide) {
+  const queue = queueOf(slide);
+  if (queue === 'CUTTING') return 'SECTIONING';
+  if (queue === 'COVERSLIPPING') return 'MOUNTING';
+  if (histologyPhases.some((phase) => phase.code === queue)) return queue as HistologyPhaseCode;
+  const phases = slide.phases ?? [];
   return (
     histologyPhases.find((phase) => {
-      const fact = slide.phases.find((item) => item.phaseCode === phase.code);
+      const fact = phases.find((item) => item.phaseCode === phase.code);
       return !fact?.completedAt;
     })?.code ?? 'MOUNTING'
   );
 }
 
 function currentPhaseFact(slide: V2HistologySlide) {
-  return slide.phases.find((phase) => phase.phaseCode === currentPhase(slide)) ?? null;
+  return slide.phases?.find((phase) => phase.phaseCode === currentPhase(slide)) ?? null;
 }
 
 watch(
@@ -140,20 +167,6 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-async function loadQueue() {
-  loading.value = true;
-  error.value = '';
-  try {
-    const response = await getV2ProductionWorkbench();
-    slides.value = response.slides;
-    selectedSlideIds.value = [];
-  } catch (requestError) {
-    error.value = friendlyError(requestError, '制片队列暂时无法加载，请稍后重试。');
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function loadMaterialTree() {
   if (!caseId.value) {
     materialTree.value = null;
@@ -169,6 +182,7 @@ async function loadMaterialTree() {
 }
 
 async function loadHistology() {
+  loading.value = true;
   histologyError.value = '';
   try {
     const response = await getV2HistologyWorkbench(caseId.value || undefined);
@@ -180,6 +194,8 @@ async function loadHistology() {
   } catch (requestError) {
     histologySlides.value = [];
     histologyError.value = friendlyError(requestError, '技术过程记录暂时无法加载。');
+  } finally {
+    loading.value = false;
   }
 }
 
@@ -195,7 +211,7 @@ function toggleSlide(slideId: string) {
     : [...selectedSlideIds.value, slideId];
 }
 
-function printSlide(slide: V2ProductionSlide) {
+function printSlide(slide: V2HistologySlide) {
   void run(async () => {
     await printV2Slide({
       slideId: slide.slideId,
@@ -203,48 +219,19 @@ function printSlide(slide: V2ProductionSlide) {
       idempotencyKey: idempotencyKey('ux01-slide-print'),
     });
     notice.value = `玻片 ${slide.slideCode} 标签已发送到当前打印机。`;
-    await loadQueue();
+    await loadHistology();
   });
 }
 
-function findCaseSlide(code: string): V2ProductionSlide | null {
+function findCaseSlide(code: string): V2HistologySlide | null {
   const normalized = code.toUpperCase();
-  const queued = slides.value.find(
-    (item) =>
-      item.slideCode.toUpperCase() === normalized &&
-      (!caseId.value || item.caseId === caseId.value),
+  return (
+    histologySlides.value.find(
+      (item) =>
+        item.slideCode.toUpperCase() === normalized &&
+        (!caseId.value || item.caseId === caseId.value),
+    ) ?? null
   );
-  if (queued) return queued;
-
-  const tree = materialTree.value;
-  if (!tree) return null;
-  for (const specimen of tree.specimens) {
-    const candidates = [
-      ...specimen.directSlides.map((slide) => ({ slide, blockCode: null as string | null })),
-      ...specimen.blocks.flatMap((block) =>
-        block.slides.map((slide) => ({ slide, blockCode: block.blockCode })),
-      ),
-    ];
-    const match = candidates.find(({ slide }) => slide.slideCode.toUpperCase() === normalized);
-    if (match) {
-      return {
-        slideId: match.slide.slideId,
-        caseId: tree.caseId,
-        caseNo: tree.caseNo,
-        patientReference: '',
-        businessTypeCode: tree.businessTypeCode,
-        specimenCode: specimen.specimenCode,
-        blockCode: match.blockCode,
-        slideCode: match.slide.slideCode,
-        slideType: match.slide.slideType,
-        sourceContextType: '',
-        completedAt: match.slide.completedAt,
-        concurrencyVersion: match.slide.concurrencyVersion,
-        printCount: 0,
-      };
-    }
-  }
-  return null;
 }
 
 function submitScan() {
@@ -262,10 +249,10 @@ function submitScan() {
       scanInput.value?.focus();
       return;
     }
-    if (slide.completedAt) {
+    if (slide.slideCompletedAt) {
       scanFeedback.value = {
         tone: 'warning',
-        message: `玻片 ${slide.slideCode} 已于 ${formatDateTime(slide.completedAt)} 完成，无需重复操作。`,
+        message: `玻片 ${slide.slideCode} 已于 ${formatDateTime(slide.slideCompletedAt)} 完成，无需重复操作。`,
       };
       scanCode.value = '';
       scanInput.value?.focus();
@@ -273,7 +260,7 @@ function submitScan() {
     }
     await completeV2Slide({
       slideId: slide.slideId,
-      expectedVersion: slide.concurrencyVersion,
+      expectedVersion: slide.concurrencyVersion ?? 0,
       idempotencyKey: idempotencyKey('ux01-slide-scan'),
     });
     scanFeedback.value = {
@@ -281,7 +268,7 @@ function submitScan() {
       message: `玻片 ${slide.slideCode} 已完成，请扫描下一张。`,
     };
     scanCode.value = '';
-    await loadQueue();
+    await loadHistology();
     scanInput.value?.focus();
   });
 }
@@ -298,7 +285,7 @@ function createDirectSlide() {
     });
     notice.value = `直接玻片 ${directSlideCode.value.trim()} 已建立，不需要蜡块。`;
     directSlideCode.value = '';
-    await Promise.all([loadQueue(), loadMaterialTree()]);
+    await Promise.all([loadHistology(), loadMaterialTree()]);
   });
 }
 
@@ -381,20 +368,20 @@ function submitHistologyException() {
 }
 
 onMounted(() => {
-  void Promise.all([loadQueue(), loadMaterialTree(), loadHistology()]);
+  void Promise.all([loadMaterialTree(), loadHistology()]);
 });
 </script>
 
 <template>
-  <section class="production-workspace" aria-label="玻片制片工作台">
+  <section class="production-workspace" aria-label="病理技术工作台">
     <header class="page-heading compact-heading">
       <div>
         <p class="section-kicker">制片</p>
-        <h2>今天有哪些玻片要完成</h2>
-        <p>围绕玻片处理打印、扫码完成和补打；物理流程记录不占据主工作台。</p>
+        <h2>病理技术工作台</h2>
+        <p>按技术环节处理材料，打印和扫码是快捷操作。</p>
       </div>
       <div class="heading-actions">
-        <button class="secondary-button" type="button" :disabled="loading" @click="loadQueue">
+        <button class="secondary-button" type="button" :disabled="loading" @click="loadHistology">
           {{ loading ? '刷新中…' : '刷新队列' }}
         </button>
         <button
@@ -416,7 +403,7 @@ onMounted(() => {
       :case-id="caseHeaderSlide.caseId"
       :pathology-no="caseHeaderSlide.caseNo"
       :patient-reference="caseHeaderSlide.patientReference"
-      :business-type-code="caseHeaderSlide.businessTypeCode"
+      :business-type-code="caseHeaderSlide.businessTypeCode ?? ''"
       current-responsibility="制片人员"
       report-status="制片处理中"
       :progress="`${caseMaterialProgress} 张玻片完成`"
@@ -497,10 +484,10 @@ onMounted(() => {
         </button>
         <button
           type="button"
-          :aria-pressed="activeHistologyQueue === 'SECTIONING'"
-          :class="{ active: activeHistologyQueue === 'SECTIONING' }"
+          :aria-pressed="activeHistologyQueue === 'CUTTING'"
+          :class="{ active: activeHistologyQueue === 'CUTTING' }"
           @click="
-            activeHistologyQueue = 'SECTIONING';
+            activeHistologyQueue = 'CUTTING';
             activeHistologyPhase = 'SECTIONING';
           "
         >
@@ -519,10 +506,10 @@ onMounted(() => {
         </button>
         <button
           type="button"
-          :aria-pressed="activeHistologyQueue === 'MOUNTING'"
-          :class="{ active: activeHistologyQueue === 'MOUNTING' }"
+          :aria-pressed="activeHistologyQueue === 'COVERSLIPPING'"
+          :class="{ active: activeHistologyQueue === 'COVERSLIPPING' }"
           @click="
-            activeHistologyQueue = 'MOUNTING';
+            activeHistologyQueue = 'COVERSLIPPING';
             activeHistologyPhase = 'MOUNTING';
           "
         >
@@ -623,8 +610,9 @@ onMounted(() => {
           aria-label="技术环节材料列表"
         >
           <div class="histology-work-row header" role="row">
-            <span>选择</span><span>病理号 / 患者</span><span>玻片</span><span>当前环节</span
-            ><span>开始时间</span><span>操作人</span><span>操作</span>
+            <span>选择</span><span>病理号 / 患者</span><span>标本 / 蜡块</span><span>玻片</span
+            ><span>当前环节</span><span>开始时间</span><span>操作人</span><span>异常</span
+            ><span>操作</span>
           </div>
           <div
             v-for="slide in visibleHistologySlides"
@@ -647,6 +635,10 @@ onMounted(() => {
               ><small>{{ slide.patientReference }}</small></span
             >
             <span
+              ><strong>{{ slide.specimenCode || '—' }}</strong
+              ><small>{{ slide.blockCode || '直接玻片' }}</small></span
+            >
+            <span
               ><strong>{{ slide.slideCode }}</strong
               ><small>{{ slide.slideType }}</small></span
             >
@@ -663,6 +655,7 @@ onMounted(() => {
                 : '—'
             }}</span>
             <span>{{ currentPhaseFact(slide)?.operatorRef || '—' }}</span>
+            <span>{{ currentPhaseFact(slide)?.exceptionNote || '—' }}</span>
             <span class="inline-actions">
               <button
                 class="text-button"
@@ -671,11 +664,7 @@ onMounted(() => {
               >
                 处理
               </button>
-              <button
-                class="text-button"
-                type="button"
-                @click.stop="printSlide(slide as unknown as V2ProductionSlide)"
-              >
+              <button class="text-button" type="button" @click.stop="printSlide(slide)">
                 打印/补打
               </button>
               <button
@@ -707,14 +696,14 @@ onMounted(() => {
               <span
                 :class="
                   phaseStatusClass(
-                    selectedHistologySlide?.phases.find((item) => item.phaseCode === phase.code) ??
+                    selectedHistologySlide?.phases?.find((item) => item.phaseCode === phase.code) ??
                       null,
                   )
                 "
               >
                 {{
                   phaseStatus(
-                    selectedHistologySlide?.phases.find((item) => item.phaseCode === phase.code) ??
+                    selectedHistologySlide?.phases?.find((item) => item.phaseCode === phase.code) ??
                       null,
                   )
                 }}

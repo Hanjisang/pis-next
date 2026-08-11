@@ -4,9 +4,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
@@ -21,6 +24,7 @@ public class V2CaseWorkspaceApplicationService {
 
     private final JdbcV2CaseWorkspaceRepository repository;
     private final P15AuthorizationService authorization;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public V2CaseWorkspaceApplicationService(JdbcV2CaseWorkspaceRepository repository,
             P15AuthorizationService authorization) {
@@ -104,9 +108,71 @@ public class V2CaseWorkspaceApplicationService {
     }
 
     private TimelineEntry timeline(AuditRow row) {
-        return new TimelineEntry(row.eventId(), row.occurredAt(), row.actorName(), row.actorRef(),
+        return new TimelineEntry(row.eventId(), row.occurredAt(), displayActor(row.actorName(), row.actorRef()), row.actorRef(),
                 eventTitle(row.operationCode()),
-                eventDetail(row.operationCode(), row.reason()), row.operationCode(), row.targetKind(), row.targetId());
+                eventDetail(row.operationCode(), row.reason()), row.operationCode(),
+                row.categoryCode() == null ? category(row.operationCode()) : row.categoryCode(), row.targetKind(),
+                row.targetId(), row.targetDisplayCode(), targetDisplayName(row.targetKind()), changes(row.changesJson()));
+    }
+
+    private static String displayActor(String actorName, String actorRef) {
+        String value = actorName == null || actorName.isBlank() ? actorRef : actorName;
+        if (value == null || value.isBlank()) return "系统用户";
+        if (value.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+            return "系统用户";
+        }
+        return value;
+    }
+
+    private List<TimelineChange> changes(String changesJson) {
+        if (changesJson == null || changesJson.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(changesJson, new TypeReference<List<AuditChange>>() { }).stream()
+                    .map(change -> new TimelineChange(change.fieldCode(), change.fieldLabel(), change.beforeValue(),
+                            change.afterValue()))
+                    .toList();
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private static String targetDisplayName(String targetKind) {
+        if (targetKind == null) return null;
+        return switch (targetKind) {
+            case "V2-CASE" -> "病例";
+            case "V2-APPLICATION" -> "申请";
+            case "V2-SPECIMEN" -> "标本";
+            case "V2-GROSSING" -> "取材记录";
+            case "V2-BLOCK" -> "蜡块";
+            case "V2-SLIDE" -> "玻片";
+            case "V2-DIGITAL-SLIDE" -> "数字切片";
+            case "V2-DIAGNOSIS" -> "诊断";
+            case "V2-RESPONSIBILITY" -> "责任链";
+            case "V2-TECHNICAL-ORDER", "V2-TECHNICAL-ORDER-ITEM" -> "技术医嘱";
+            case "V2-REPORT" -> "报告";
+            case "V2-FROZEN-ROUND" -> "冰冻轮次";
+            case "V2-ARCHIVE-BATCH", "V2-ARCHIVE-ITEM" -> "归档材料";
+            case "V2-LOAN" -> "借阅记录";
+            default -> "业务对象";
+        };
+    }
+
+    private static String category(String operationCode) {
+        if (operationCode == null) return "SYSTEM";
+        String code = operationCode.toUpperCase();
+        if (code.contains("CASE") || code.contains("SPECIMEN") || code.contains("REGISTRATION")
+                || code.contains("APPLICATION") || code.contains("INBOUND")) return "REGISTRATION";
+        if (code.contains("ARCHIVE") || code.contains("LOAN") || code.contains("CUSTODY")
+                || code.contains("DESTRUCTION")) return "ARCHIVE";
+        if (code.contains("GROSS") || code.contains("BLOCK") || code.contains("SLIDE") || code.contains("PRINT")
+                || code.contains("MATERIAL")) return "MATERIAL";
+        if (code.contains("TECHNICAL") || code.contains("HISTOLOGY")) return "TECHNICAL";
+        if (code.contains("DIAGNOSIS") || code.contains("RESPONSIBILITY")) return "DIAGNOSIS";
+        if (code.contains("REPORT") || code.contains("SIGN") || code.contains("WITHDRAW")
+                || code.contains("SUPPLEMENT")) return "REPORT";
+        if (code.contains("HIS") || code.contains("LIS") || code.contains("EMR")
+                || code.contains("INTEGRATION")) return "INTEGRATION";
+        return "SYSTEM";
     }
 
     private static String eventTitle(String operation) {
@@ -156,11 +222,23 @@ public class V2CaseWorkspaceApplicationService {
         if (operation.contains("REPORT-SUPPLEMENT")) return appendReason("补充报告已关联原报告", reason);
         if (reason != null && (reason.contains("beforeDigest=") || reason.contains("afterDigest=")
                 || reason.contains("role="))) return "业务记录已更新，历史快照已保留";
-        return reason == null ? "" : reason;
+        return safeReason(reason);
     }
 
     private static String appendReason(String message, String reason) {
-        return reason == null || reason.isBlank() ? message : message + "；原因：" + reason;
+        String safe = safeReason(reason);
+        return safe.isBlank() ? message : message + "；原因：" + safe;
+    }
+
+    private static String safeReason(String reason) {
+        if (reason == null || reason.isBlank()) return "";
+        String normalized = reason.trim();
+        if (normalized.matches("(?is).*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*")
+                || normalized.contains("beforeDigest=") || normalized.contains("afterDigest=")
+                || normalized.contains("old=") || normalized.contains("new=") || normalized.contains("role=")) {
+            return "业务记录已更新，历史快照已保留";
+        }
+        return normalized;
     }
 
     private static String phaseLabel(String operation) {
@@ -216,5 +294,7 @@ public class V2CaseWorkspaceApplicationService {
             String signedBy, Instant signedAt, String withdrawnBy, Instant withdrawnAt, String withdrawalReason,
             String pdfFileReference) { }
     public record TimelineEntry(UUID eventId, Instant occurredAt, String actorName, String actorRef, String title,
-            String detail, String operationCode, String targetKind, UUID targetId) { }
+            String detail, String operationCode, String categoryCode, String targetKind, UUID targetId,
+            String targetDisplayCode, String targetDisplayName, List<TimelineChange> changes) { }
+    public record TimelineChange(String fieldCode, String fieldLabel, String beforeValue, String afterValue) { }
 }

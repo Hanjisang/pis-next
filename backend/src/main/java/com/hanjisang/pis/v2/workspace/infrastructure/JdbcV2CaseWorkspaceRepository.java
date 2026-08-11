@@ -126,10 +126,43 @@ public class JdbcV2CaseWorkspaceRepository {
         return jdbc.query("""
                 SELECT ae.id, ae.created_at, ae.actor_ref,
                        COALESCE(doctor.display_name, user_account.display_name, ae.actor_ref) AS actor_name,
-                       ae.operation_code, ae.target_object_kind_code, ae.target_object_id, ae.reason
+                       ae.operation_code, ae.target_object_kind_code, ae.target_object_id, ae.reason,
+                       ae.category_code, ae.changes_json,
+                       CASE ae.target_object_kind_code
+                           WHEN 'V2-CASE' THEN target_case.case_no
+                           WHEN 'V2-SPECIMEN' THEN target_specimen.specimen_code
+                           WHEN 'V2-GROSSING' THEN target_grossing.grossing_no
+                           WHEN 'V2-BLOCK' THEN target_block.block_code
+                           WHEN 'V2-SLIDE' THEN target_slide.slide_code
+                           WHEN 'V2-DIGITAL-SLIDE' THEN NULL
+                           WHEN 'V2-TECHNICAL-ORDER' THEN target_order.order_no
+                           WHEN 'V2-TECHNICAL-ORDER-ITEM' THEN target_item_order.order_no
+                           WHEN 'V2-REPORT' THEN target_report.report_no
+                           WHEN 'V2-FROZEN-ROUND' THEN ('冰冻第 ' || target_round.round_no || ' 轮')
+                           ELSE NULL
+                       END AS target_display_code
                 FROM pis.audit_event ae
                 LEFT JOIN pis_v2.doctor_identity doctor ON CAST(doctor.id AS VARCHAR) = ae.actor_ref
                 LEFT JOIN pis_v2.auth_user user_account ON CAST(user_account.id AS VARCHAR) = ae.actor_ref
+                LEFT JOIN pis_v2.pathology_case target_case
+                    ON ae.target_object_kind_code = 'V2-CASE' AND target_case.id = ae.target_object_id
+                LEFT JOIN pis_v2.specimen target_specimen
+                    ON ae.target_object_kind_code = 'V2-SPECIMEN' AND target_specimen.id = ae.target_object_id
+                LEFT JOIN pis_v2.grossing target_grossing
+                    ON ae.target_object_kind_code = 'V2-GROSSING' AND target_grossing.id = ae.target_object_id
+                LEFT JOIN pis_v2.block target_block
+                    ON ae.target_object_kind_code = 'V2-BLOCK' AND target_block.id = ae.target_object_id
+                LEFT JOIN pis_v2.slide target_slide
+                    ON ae.target_object_kind_code = 'V2-SLIDE' AND target_slide.id = ae.target_object_id
+                LEFT JOIN pis_v2.technical_order target_order
+                    ON ae.target_object_kind_code = 'V2-TECHNICAL-ORDER' AND target_order.id = ae.target_object_id
+                LEFT JOIN pis_v2.technical_order_item target_item
+                    ON ae.target_object_kind_code = 'V2-TECHNICAL-ORDER-ITEM' AND target_item.id = ae.target_object_id
+                LEFT JOIN pis_v2.technical_order target_item_order ON target_item_order.id = target_item.order_id
+                LEFT JOIN pis_v2.report target_report
+                    ON ae.target_object_kind_code = 'V2-REPORT' AND target_report.id = ae.target_object_id
+                LEFT JOIN pis_v2.frozen_round target_round
+                    ON ae.target_object_kind_code = 'V2-FROZEN-ROUND' AND target_round.id = ae.target_object_id
                 WHERE ae.authorization_outcome = 'ALLOWED'
                   AND (
                     ae.target_object_id = ?
@@ -152,7 +185,8 @@ public class JdbcV2CaseWorkspaceRepository {
                 """, (rs, rowNum) -> new AuditRow(rs.getObject("id", UUID.class), instant(rs, "created_at"),
                 rs.getString("actor_ref"), rs.getString("actor_name"), rs.getString("operation_code"),
                 rs.getString("target_object_kind_code"), rs.getObject("target_object_id", UUID.class),
-                rs.getString("reason")), caseId,
+                rs.getString("reason"), rs.getString("category_code"), rs.getString("changes_json"),
+                rs.getString("target_display_code")), caseId,
                 caseId, caseId, caseId, caseId, caseId, caseId, caseId, caseId, caseId, caseId, caseId);
     }
 
@@ -191,5 +225,6 @@ public class JdbcV2CaseWorkspaceRepository {
             String pdfFileReference) { }
 
     public record AuditRow(UUID eventId, Instant occurredAt, String actorRef, String actorName, String operationCode,
-            String targetKind, UUID targetId, String reason) { }
+            String targetKind, UUID targetId, String reason, String categoryCode, String changesJson,
+            String targetDisplayCode) { }
 }

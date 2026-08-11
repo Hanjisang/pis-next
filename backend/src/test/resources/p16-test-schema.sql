@@ -89,7 +89,8 @@ CREATE TABLE IF NOT EXISTS pis.audit_event (
     id UUID PRIMARY KEY, operation_code VARCHAR(64) NOT NULL, permission_code VARCHAR(64) NOT NULL, actor_ref VARCHAR(128) NOT NULL,
     subject_type_code VARCHAR(32) NOT NULL, target_object_id UUID, target_object_kind_code VARCHAR(64),
     authorization_outcome VARCHAR(32) NOT NULL, processing_outcome VARCHAR(64) NOT NULL, correlation_id VARCHAR(128) NOT NULL,
-    reason VARCHAR(500), created_at TIMESTAMP WITH TIME ZONE NOT NULL
+    reason VARCHAR(500), category_code VARCHAR(32), changes_json TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pis.outbox_event (
     id UUID PRIMARY KEY, event_identity VARCHAR(128) NOT NULL UNIQUE, event_type_code VARCHAR(128) NOT NULL,

@@ -176,7 +176,7 @@ class V2MaterialProductionWebTest {
         createBlock(grossingId, specimenId, "A1", "block-ux01-query");
         completeGrossing(grossingId, 0, "complete-ux01-query");
 
-        JsonNode queue = objectMapper.readTree(mockMvc.perform(get("/api/v2/slides/production-workbench"))
+        JsonNode queue = objectMapper.readTree(mockMvc.perform(get("/api/v2/histology-workbench"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(queue.get("slides")).isNotEmpty();
         JsonNode slide = queue.get("slides").get(0);
@@ -197,7 +197,7 @@ class V2MaterialProductionWebTest {
                 UUID.fromString(blockId)).toString();
 
         JsonNode initial = objectMapper.readTree(mockMvc.perform(
-                get("/api/v2/histology/workbench").queryParam("caseId", caseId))
+                get("/api/v2/histology-workbench").queryParam("caseId", caseId))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(initial.get("slides")).hasSize(1);
         assertThat(initial.get("slides").get(0).get("phases")).hasSize(5);

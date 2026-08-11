@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS pis.audit_event (
     operation_code VARCHAR(128), permission_code VARCHAR(64), actor_ref VARCHAR(128),
     subject_type_code VARCHAR(64), target_object_id UUID, target_object_kind_code VARCHAR(64),
     authorization_outcome VARCHAR(32), processing_outcome VARCHAR(64), correlation_id VARCHAR(128),
-    reason VARCHAR(2000), created_at TIMESTAMP WITH TIME ZONE
+    reason VARCHAR(2000), category_code VARCHAR(32), changes_json TEXT,
+    created_at TIMESTAMP WITH TIME ZONE
 );
 CREATE TABLE IF NOT EXISTS pis.outbox_event (
     id UUID PRIMARY KEY,
@@ -454,7 +455,8 @@ CREATE TABLE IF NOT EXISTS pis_v2.loan (
     id UUID PRIMARY KEY, borrower_reference VARCHAR(256) NOT NULL, purpose VARCHAR(2000) NOT NULL,
     status_code VARCHAR(32) NOT NULL, borrowed_at TIMESTAMP WITH TIME ZONE NOT NULL,
     borrowed_by_ref VARCHAR(128) NOT NULL, returned_at TIMESTAMP WITH TIME ZONE,
-    returned_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL
+    returned_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL,
+    borrower_department VARCHAR(256), expected_return_at TIMESTAMP WITH TIME ZONE
 );
 CREATE TABLE IF NOT EXISTS pis_v2.loan_item (
     id UUID PRIMARY KEY, loan_id UUID NOT NULL, block_id UUID, slide_id UUID,

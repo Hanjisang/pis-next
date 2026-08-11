@@ -375,7 +375,8 @@ async function loadWorkspace() {
     timelineEntries.value = caseContext.timeline;
     try {
       patientHistory.value =
-        (await getV2PatientHistory(loadedWorkspace.patient.patientReference)).items ?? [];
+        (await getV2PatientHistory(loadedWorkspace.patient.patientReference, caseId.value)).items ??
+        [];
     } catch {
       patientHistory.value = [];
     }
@@ -1015,18 +1016,31 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                         {{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '未签发' }}</small
                       >
                     </div>
-                    <button
-                      class="text-button"
-                      type="button"
-                      @click="
-                        emit(
-                          'navigate',
-                          `/v2/reports/${item.caseId}${item.reportId ? `?reportId=${item.reportId}` : ''}`,
-                        )
-                      "
-                    >
-                      打开报告
-                    </button>
+                    <div class="inline-actions">
+                      <button
+                        v-if="item.reportId"
+                        class="text-button"
+                        type="button"
+                        @click="
+                          emit('navigate', `/v2/reports/${item.caseId}?reportId=${item.reportId}`)
+                        "
+                      >
+                        打开报告
+                      </button>
+                      <button
+                        v-if="item.digitalSlideId"
+                        class="text-button"
+                        type="button"
+                        @click="
+                          emit(
+                            'navigate',
+                            `/v2/digital-slides/${item.caseId}?slideId=${item.digitalSlideId}`,
+                          )
+                        "
+                      >
+                        查看旧切片
+                      </button>
+                    </div>
                   </article>
                   <p v-if="!patientHistory.length" class="muted">
                     当前患者还没有其他历史病理记录。

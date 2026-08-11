@@ -4,8 +4,13 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { V2AuthUser } from '../auth';
 import { createV2Case, registerV2Specimen, type V2CaseResult } from '../v2Api';
 import { businessTypeName, friendlyError } from '../uiText';
-import { getV2RegistrationQueue, type V2RegistrationQueue } from '../v2RegistrationApi';
+import {
+  getV2RegistrationQueue,
+  registerV2InboundApplication,
+  type V2RegistrationQueue,
+} from '../v2RegistrationApi';
 import V2CaseHeader from './V2CaseHeader.vue';
+import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 type SpecimenDraft = {
   key: string;
@@ -82,6 +87,13 @@ const registrationRunId = crypto.randomUUID();
 const queueMode = ref<'QUEUE' | 'MANUAL'>('QUEUE');
 const registrationQueue = ref<V2RegistrationQueue | null>(null);
 const queueLoading = ref(false);
+const historyDrawerOpen = ref(false);
+const inboundApplicationId = ref('');
+const selectedInboundApplication = computed(() =>
+  registrationQueue.value?.pendingApplications.find(
+    (item) => item.applicationId === inboundApplicationId.value,
+  ),
+);
 
 const selectedBusiness = computed(
   () =>
@@ -157,6 +169,28 @@ function changeBusinessType() {
   }
 }
 
+function openManualRegistration() {
+  inboundApplicationId.value = '';
+  queueMode.value = 'MANUAL';
+}
+
+function selectInboundApplication(applicationId: string) {
+  const item = registrationQueue.value?.pendingApplications.find(
+    (candidate) => candidate.applicationId === applicationId,
+  );
+  if (!item) return;
+  inboundApplicationId.value = item.applicationId;
+  draft.patientReference = item.patientReference;
+  draft.visitReference = item.visitReference ?? '';
+  draft.applicationNo = item.applicationNo;
+  const mappedOption = businessOptions.value.find(
+    (option) => option.applicationItemCode === item.applicationItemCode,
+  );
+  if (mappedOption) draft.businessTypeCode = mappedOption.code;
+  if (!specimens.value.length) specimens.value = [createSpecimenDraft(0)];
+  queueMode.value = 'MANUAL';
+}
+
 async function loadMappings() {
   mappingsLoading.value = true;
   try {
@@ -209,14 +243,16 @@ async function submitRegistration() {
   completedCase.value = null;
   try {
     progress.value = '正在生成病理号…';
-    const createdCase = await createV2Case({
-      sourceSystemCode: 'MANUAL',
-      externalApplicationId: draft.applicationNo.trim(),
-      applicationItemCode: selectedBusiness.value.applicationItemCode,
-      patientReference: draft.patientReference.trim(),
-      visitReference: draft.visitReference.trim(),
-      idempotencyKey: `px02-registration-${registrationRunId}`,
-    });
+    const createdCase = inboundApplicationId.value
+      ? await registerV2InboundApplication(inboundApplicationId.value)
+      : await createV2Case({
+          sourceSystemCode: 'MANUAL',
+          externalApplicationId: draft.applicationNo.trim(),
+          applicationItemCode: selectedBusiness.value.applicationItemCode,
+          patientReference: draft.patientReference.trim(),
+          visitReference: draft.visitReference.trim(),
+          idempotencyKey: `px02-registration-${registrationRunId}`,
+        });
     for (const [index, specimen] of specimens.value.entries()) {
       progress.value = `正在登记标本 ${index + 1}/${specimens.value.length}…`;
       await registerV2Specimen({
@@ -236,6 +272,7 @@ async function submitRegistration() {
     }
     completedCase.value = createdCase;
     progress.value = '';
+    await loadRegistrationQueue();
   } catch (requestError) {
     error.value = friendlyError(requestError, '登记未完成，请核对必填信息后重试。');
   } finally {
@@ -267,7 +304,7 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
       <div>
         <p class="section-kicker">病例登记</p>
         <h2>核对申请并登记</h2>
-        <p>申请项目先经过医院配置映射，再建立病例、病理号和初始标本；登记完成后交给下游工作区。</p>
+        <p>核对申请信息，建立病例、病理号和初始标本。</p>
       </div>
       <span class="status-pill">登记员：{{ props.authUser?.displayName ?? '当前用户' }}</span>
     </header>
@@ -297,7 +334,13 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
       report-status="已登记"
       :progress="`${specimens.length} 个标本已登记`"
       @open-case="emit('navigate', `/v2/cases/${completedCase.caseId}`)"
-    />
+    >
+      <template #actions>
+        <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
+          历史记录
+        </button>
+      </template>
+    </V2CaseHeader>
 
     <section
       v-if="queueMode === 'QUEUE'"
@@ -308,9 +351,7 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
         <div>
           <p class="section-kicker">登记工作台</p>
           <h2>先处理待登记申请</h2>
-          <p class="muted">
-            队列展示当前权限范围内的申请；没有外部申请源时，待登记列表会如实为空。
-          </p>
+          <p class="muted">队列展示当前权限范围内的申请；来源未连接时会明确提示。</p>
         </div>
         <div class="inline-actions">
           <button
@@ -321,7 +362,7 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
           >
             {{ queueLoading ? '刷新中…' : '刷新队列' }}
           </button>
-          <button class="primary-button" type="button" @click="queueMode = 'MANUAL'">
+          <button class="primary-button" type="button" @click="openManualRegistration">
             新增手工病例
           </button>
         </div>
@@ -341,14 +382,39 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
               :key="item.applicationNo"
               type="button"
               class="registration-queue-row"
+              @click="selectInboundApplication(item.applicationId)"
             >
               <strong>{{ item.applicationNo }}</strong
               ><span>{{ item.patientReference }}</span
-              ><small>待映射申请</small><span>登记</span>
+              ><small
+                >{{ item.businessTypeName || '待确认业务类型' }} ·
+                {{ item.department || '未填写科室' }}</small
+              ><span>登记</span>
             </button>
           </div>
           <div v-else class="empty-state compact">
-            <strong>当前没有待登记申请</strong><span>外部申请接入后，申请会按映射进入这里。</span>
+            <strong>{{
+              registrationQueue?.sourceAvailable ? '当前没有待登记申请' : '申请来源未连接'
+            }}</strong
+            ><span>{{ registrationQueue?.sourceMessage || '新的申请会按配置映射进入这里。' }}</span>
+          </div>
+          <div
+            v-if="registrationQueue?.cancelledApplications.length"
+            class="registration-cancelled-list"
+          >
+            <h4>已取消申请</h4>
+            <button
+              v-for="item in registrationQueue.cancelledApplications"
+              :key="item.applicationId"
+              type="button"
+              class="registration-queue-row cancelled"
+              disabled
+              :title="`${item.applicationNo} 已取消，不能登记`"
+            >
+              <strong>{{ item.applicationNo }}</strong
+              ><span>{{ item.patientReference }}</span
+              ><small>申请已取消</small><span>不可登记</span>
+            </button>
           </div>
         </section>
         <section class="workspace-panel registration-recent-panel">
@@ -390,7 +456,11 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
             </div>
           </header>
           <p class="feedback info compact-feedback">
-            当前环境录入患者编号与就诊号；医院申请接入后由申请数据带入。
+            {{
+              selectedInboundApplication
+                ? '已从申请带入患者和就诊信息，请核对后继续。'
+                : '手工登记请输入患者编号与本次就诊号。'
+            }}
           </p>
           <div class="field-grid">
             <label
@@ -558,5 +628,12 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
         </div>
       </div>
     </template>
+    <V2HistoryDrawer
+      :open="historyDrawerOpen"
+      :case-id="completedCase?.caseId"
+      title="登记历史"
+      target-label="登记"
+      @close="historyDrawerOpen = false"
+    />
   </section>
 </template>

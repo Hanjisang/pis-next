@@ -3,12 +3,10 @@ package com.hanjisang.pis.v2.production.web;
 import java.util.UUID;
 import java.util.List;
 
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hanjisang.pis.v2.production.application.V2HistologyApplicationService;
@@ -20,10 +18,6 @@ public class V2HistologyController {
     private final V2HistologyApplicationService service;
 
     public V2HistologyController(V2HistologyApplicationService service) { this.service = service; }
-
-    @GetMapping("/workbench")
-    public V2HistologyApplicationService.HistologyWorkbenchResult workbench(
-            @RequestParam(required = false) UUID caseId) { return service.workbench(caseId); }
 
     @PostMapping("/slides/{slideId}/phases/{phaseCode}/start")
     public V2HistologyApplicationService.PhaseFact start(@PathVariable UUID slideId, @PathVariable String phaseCode,

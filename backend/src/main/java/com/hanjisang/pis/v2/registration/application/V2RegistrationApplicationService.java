@@ -12,8 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hanjisang.pis.integration.OutboxPort;
+import com.hanjisang.pis.integration.InboundApplicationInbox;
+import com.hanjisang.pis.integration.InboundApplicationSource.InboundApplication;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.registration.domain.Case;
@@ -33,13 +36,16 @@ public class V2RegistrationApplicationService {
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
+    private final InboundApplicationInbox inboundInbox;
 
     public V2RegistrationApplicationService(JdbcV2RegistrationRepository repository,
-            P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox) {
+            P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
+            InboundApplicationInbox inboundInbox) {
         this.repository = repository;
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
+        this.inboundInbox = inboundInbox;
     }
 
     @Transactional
@@ -94,12 +100,41 @@ public class V2RegistrationApplicationService {
     @Transactional(readOnly = true)
     public RegistrationQueueResult registrationQueue() {
         ActorContext actor = authorization.require("P14-PERM-004");
+        var inbox = inboundInbox.snapshot();
+        List<PendingApplicationView> pending = inbox.pendingApplications().stream()
+                .map(item -> pendingApplication(item)).toList();
+        List<CancelledApplicationView> cancelled = inbox.cancelledApplications().stream()
+                .map(item -> new CancelledApplicationView(item.applicationId(), item.applicationNo(),
+                        item.patientReference(), item.visitReference(), item.department(), item.doctor(),
+                        item.applicationItemCode(), item.receivedAt())).toList();
         List<RegistrationCaseView> recent = repository.findRecentRegistrations(actor.hospitalScope()).stream()
                 .map(row -> new RegistrationCaseView(row.caseId(), row.caseNo(), row.applicationNo(),
                         row.applicationItemCode(), row.businessTypeCode(), row.businessTypeName(),
                         row.patientReference(), row.registeredAt()))
                 .toList();
-        return new RegistrationQueueResult(List.of(), recent, Instant.now());
+        return new RegistrationQueueResult(inbox.sourceAvailable(), inbox.sourceMessage(), pending, cancelled, recent,
+                Instant.now());
+    }
+
+    @Transactional
+    public CaseResult registerInboundApplication(UUID applicationId) {
+        ActorContext actor = authorization.require("P14-PERM-004");
+        InboundApplication item = inboundInbox.require(applicationId);
+        CaseResult result = createCase(new CreateCaseCommand(item.sourceSystemCode(), item.applicationNo(),
+                item.applicationItemCode(), item.patientReference(), item.visitReference(),
+                "inbound-application-" + item.applicationId()));
+        inboundInbox.markRegistered(item.applicationId(), result.caseId(), Instant.now());
+        audit.append("PIS-V2-I01-INBOUND-APPLICATION-REGISTER", "P14-PERM-004", actor, "ALLOWED", "COMPLETED",
+                result.caseId(), "V2-CASE", UUID.randomUUID().toString(), "申请已登记");
+        return result;
+    }
+
+    private PendingApplicationView pendingApplication(InboundApplication item) {
+        var routing = repository.findRouting(item.applicationItemCode());
+        return new PendingApplicationView(item.applicationId(), item.applicationNo(), item.patientReference(),
+                item.visitReference(), item.department(), item.doctor(), item.applicationItemCode(),
+                routing.map(value -> value.businessType().code()).orElse(null),
+                routing.map(value -> value.businessType().displayName()).orElse(null), item.receivedAt());
     }
 
     @Transactional
@@ -166,6 +201,8 @@ public class V2RegistrationApplicationService {
         validate(command.collectionMethodCode(), "标本采集方式不能为空");
         Specimen specimen = findSpecimen(specimenId, actor);
         requireExpectedVersion(specimen, command.expectedVersion());
+        String beforeSpecimenCode = specimen.specimenCode();
+        String beforeCollectionSite = specimen.collectionSite();
         if (repository.findSpecimenIdByCode(specimen.caseId(), command.specimenCode())
                 .filter(existingId -> !existingId.equals(specimenId)).isPresent()) {
             throw reject("P12-ERR-022", "同一病例下标本代码已存在");
@@ -185,8 +222,10 @@ public class V2RegistrationApplicationService {
         if (!repository.updateSpecimen(specimen, actor.hospitalScope(), command.expectedVersion(), actor.actorId(), now)) {
             throw reject("P12-ERR-010", "V2标本版本冲突，修改未生效");
         }
-        audit.append("PIS-V2-I01-SPECIMEN-UPDATE", "P14-PERM-008", actor, "ALLOWED", "COMPLETED", specimenId,
-                "V2-SPECIMEN", UUID.randomUUID().toString(), "V2标本事实已修改");
+        audit.appendWithChanges("PIS-V2-I01-SPECIMEN-UPDATE", "P14-PERM-008", actor, "COMPLETED", specimenId,
+                "V2-SPECIMEN", UUID.randomUUID().toString(), "标本信息已修改",
+                List.of(new AuditChange("specimenCode", "标本代码", beforeSpecimenCode, specimen.specimenCode()),
+                        new AuditChange("collectionSite", "标本部位", beforeCollectionSite, specimen.collectionSite())));
         return SpecimenResult.created(specimen, false, "PIS-V2-SPECIMEN-UPDATED");
     }
 
@@ -309,11 +348,17 @@ public class V2RegistrationApplicationService {
         }
     }
 
-    public record RegistrationQueueResult(List<PendingApplicationView> pendingApplications,
+    public record RegistrationQueueResult(boolean sourceAvailable, String sourceMessage,
+            List<PendingApplicationView> pendingApplications, List<CancelledApplicationView> cancelledApplications,
             List<RegistrationCaseView> recentRegistrations, Instant refreshedAt) { }
 
-    public record PendingApplicationView(String applicationNo, String patientReference,
-            String applicationItemCode, Instant receivedAt) { }
+    public record PendingApplicationView(UUID applicationId, String applicationNo, String patientReference,
+            String visitReference, String department, String doctor, String applicationItemCode,
+            String businessTypeCode, String businessTypeName, Instant receivedAt) { }
+
+    public record CancelledApplicationView(UUID applicationId, String applicationNo, String patientReference,
+            String visitReference, String department, String doctor, String applicationItemCode,
+            Instant receivedAt) { }
 
     public record RegistrationCaseView(UUID caseId, String caseNo, String applicationNo,
             String applicationItemCode, String businessTypeCode, String businessTypeName,

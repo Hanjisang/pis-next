@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.diagnosis.domain.AssignmentRule;
@@ -201,7 +202,9 @@ public class V2DiagnosisApplicationService {
         ResponsibilityUnit current = currentResponsibility(diagnosis, null, actor);
         requireCurrentDoctor(current, actor);
         authorizeRole(current.role(), actor);
-        String before = contentDigest(diagnosis);
+        String beforeMicroscopicDescription = diagnosis.microscopicDescription();
+        String beforeDiagnosisText = diagnosis.diagnosisText();
+        String beforeComment = diagnosis.comment();
         try {
             diagnosis.updateContent(diagnosis.templateVersionId(), command.structuredData(),
                     command.microscopicDescription(), command.diagnosisText(), command.comment(),
@@ -215,9 +218,12 @@ public class V2DiagnosisApplicationService {
         }
         repository.insertIdempotency(operation, command.idempotencyKey(), digest, "DIAGNOSIS", diagnosis.id(),
                 actor.actorId(), Instant.now());
-        audit.append("PIS-V2-I03-DIAGNOSIS-EDIT", permissionFor(current.role()), actor, "ALLOWED", "COMPLETED",
-                diagnosis.id(), "V2-DIAGNOSIS", UUID.randomUUID().toString(), "beforeDigest=" + before
-                        + ";afterDigest=" + contentDigest(diagnosis));
+        audit.appendWithChanges("PIS-V2-I03-DIAGNOSIS-EDIT", permissionFor(current.role()), actor, "COMPLETED",
+                diagnosis.id(), "V2-DIAGNOSIS", UUID.randomUUID().toString(), "诊断内容已修改，历史记录已保留",
+                List.of(new AuditChange("microscopicDescription", "镜下所见", beforeMicroscopicDescription,
+                        diagnosis.microscopicDescription()),
+                        new AuditChange("diagnosisText", "最终诊断", beforeDiagnosisText, diagnosis.diagnosisText()),
+                        new AuditChange("comment", "备注", beforeComment, diagnosis.comment())));
         publish("V2-I03-DIAGNOSIS-EDITED", diagnosis.id(), diagnosis.version(), actor, digest);
         return diagnosisResult(diagnosis, false);
     }

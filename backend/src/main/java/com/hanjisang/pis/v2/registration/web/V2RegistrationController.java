@@ -44,6 +44,12 @@ public class V2RegistrationController {
         return service.registrationQueue();
     }
 
+    @PostMapping("/inbox/{applicationId}/register")
+    public V2RegistrationApplicationService.CaseResult registerInboundApplication(
+            @PathVariable UUID applicationId) {
+        return service.registerInboundApplication(applicationId);
+    }
+
     @GetMapping("/cases/{caseId}")
     public V2RegistrationApplicationService.CaseResult getCase(@PathVariable UUID caseId) {
         return service.getCase(caseId);

@@ -77,6 +77,9 @@ function targetKindLabel(kind: string | null) {
 }
 
 function classify(entry: V2WorkspaceTimelineEntry): HistoryCategory {
+  if (entry.categoryCode && categories.some((item) => item.code === entry.categoryCode)) {
+    return entry.categoryCode as HistoryCategory;
+  }
   const code = `${entry.operationCode} ${entry.targetKind ?? ''}`.toUpperCase();
   if (code.includes('REGISTRATION') || code.includes('CASE-CREATE') || code.includes('SPECIMEN'))
     return 'REGISTRATION';
@@ -183,17 +186,33 @@ onUnmounted(() => window.removeEventListener('keydown', closeOnEscape));
           <div class="history-event-body">
             <div class="history-event-title">
               <strong>{{ entry.title }}</strong
-              ><span>{{ entry.actorName || entry.actorRef }}</span>
+              ><span>{{ entry.actorName || '系统用户' }}</span>
             </div>
             <p v-if="entry.detail">{{ entry.detail }}</p>
-            <dl v-if="entry.targetKind || entry.targetId" class="history-event-target">
-              <div v-if="entry.targetKind">
+            <dl
+              v-if="entry.targetKind || entry.targetDisplayCode || entry.targetDisplayName"
+              class="history-event-target"
+            >
+              <div v-if="entry.targetKind || entry.targetDisplayName">
                 <dt>对象</dt>
-                <dd>{{ targetKindLabel(entry.targetKind) }}</dd>
+                <dd>{{ entry.targetDisplayName || targetKindLabel(entry.targetKind) }}</dd>
               </div>
-              <div v-if="entry.targetId">
+              <div v-if="entry.targetDisplayCode">
                 <dt>编号</dt>
-                <dd>{{ entry.targetId }}</dd>
+                <dd>{{ entry.targetDisplayCode }}</dd>
+              </div>
+            </dl>
+            <dl v-if="entry.changes?.length" class="history-change-list">
+              <div
+                v-for="change in entry.changes"
+                :key="`${change.fieldCode}-${change.afterValue}`"
+              >
+                <dt>{{ change.fieldLabel }}</dt>
+                <dd>
+                  <span>{{ change.beforeValue || '—' }}</span>
+                  <span aria-hidden="true">→</span>
+                  <span>{{ change.afterValue || '—' }}</span>
+                </dd>
               </div>
             </dl>
           </div>

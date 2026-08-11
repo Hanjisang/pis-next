@@ -3800,6 +3800,31 @@ button.dense-report-row:hover {
 .history-event-target dd {
   margin: 0;
 }
+.history-change-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-muted, #f1f5f9);
+  border-left: 3px solid var(--accent, #2563eb);
+  font-size: 12px;
+}
+.history-change-list div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+}
+.history-change-list dt {
+  color: var(--muted, #64748b);
+  font-weight: 700;
+}
+.history-change-list dd {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  color: var(--text, #0f172a);
+  white-space: pre-wrap;
+}
 .history-loading {
   display: grid;
   gap: 10px;
@@ -3815,6 +3840,55 @@ button.dense-report-row:hover {
   margin: 20px;
 }
 
+.loan-workbench {
+  min-height: 360px;
+}
+.loan-list {
+  overflow: auto;
+  margin-top: 14px;
+}
+.loan-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.5fr 1.1fr 1fr 90px 64px;
+  gap: 12px;
+  align-items: center;
+  min-width: 900px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border-subtle, #edf0f4);
+  font-size: 13px;
+}
+.loan-row.header {
+  color: var(--muted, #64748b);
+  background: var(--surface-muted, #f8fafc);
+  font-size: 12px;
+  font-weight: 700;
+}
+.loan-row strong,
+.loan-row small {
+  display: block;
+}
+.loan-row small {
+  margin-top: 3px;
+  color: var(--muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.registration-cancelled-list {
+  margin-top: 18px;
+  border-top: 1px solid var(--border, #d8dee8);
+}
+.registration-cancelled-list h4 {
+  margin: 12px 0 8px;
+  color: var(--muted, #64748b);
+  font-size: 12px;
+}
+.registration-queue-row.cancelled {
+  color: var(--muted, #64748b);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .histology-work-list {
   margin-top: 18px;
   overflow: auto;
@@ -3822,10 +3896,9 @@ button.dense-report-row:hover {
 }
 .histology-work-row {
   display: grid;
-  grid-template-columns: 48px minmax(150px, 1.4fr) minmax(100px, 1fr) 100px 145px 110px minmax(
-      190px,
-      1.2fr
-    );
+  grid-template-columns:
+    48px minmax(150px, 1.25fr) minmax(110px, 0.9fr) minmax(100px, 1fr)
+    100px 125px 105px minmax(120px, 1fr) minmax(210px, 1.35fr);
   gap: 12px;
   align-items: center;
   min-height: 52px;
@@ -3989,9 +4062,8 @@ button.dense-report-row:hover {
     grid-template-columns: 1fr;
   }
   .histology-work-row {
-    grid-template-columns: 40px minmax(130px, 1.2fr) minmax(90px, 1fr) 80px 120px 90px minmax(
-        150px,
-        1fr
-      );
+    grid-template-columns:
+      40px minmax(130px, 1.1fr) minmax(90px, 0.8fr) minmax(90px, 0.9fr)
+      80px 110px 85px minmax(100px, 0.8fr) minmax(150px, 1fr);
   }
 }

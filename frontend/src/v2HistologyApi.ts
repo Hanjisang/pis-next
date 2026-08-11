@@ -24,9 +24,33 @@ export type V2HistologySlide = {
   caseId: string;
   caseNo: string;
   patientReference: string;
+  businessTypeCode?: string | null;
+  specimenCode?: string | null;
+  blockCode?: string | null;
   slideCode: string;
   slideType: string;
+  sourceContextType?: string | null;
   slideCompletedAt: string | null;
+  concurrencyVersion?: number;
+  printCount?: number;
+  currentPhase?:
+    | 'DEHYDRATION'
+    | 'EMBEDDING'
+    | 'CUTTING'
+    | 'STAINING'
+    | 'COVERSLIPPING'
+    | 'EXCEPTIONS'
+    | 'COMPLETED'
+    | string;
+  derivedQueue?:
+    | 'DEHYDRATION'
+    | 'EMBEDDING'
+    | 'CUTTING'
+    | 'STAINING'
+    | 'COVERSLIPPING'
+    | 'EXCEPTIONS'
+    | 'COMPLETED'
+    | string;
   phases: V2HistologyPhase[];
 };
 
@@ -42,7 +66,7 @@ export type V2HistologyQueues = {
 
 export async function getV2HistologyWorkbench(caseId?: string) {
   const query = caseId ? `?caseId=${encodeURIComponent(caseId)}` : '';
-  const response = await fetch(`/api/v2/histology/workbench${query}`);
+  const response = await fetch(`/api/v2/histology-workbench${query}`);
   const body = (await response.json()) as
     | { message?: string }
     | { slides: V2HistologySlide[]; queues?: V2HistologyQueues; refreshedAt: string };

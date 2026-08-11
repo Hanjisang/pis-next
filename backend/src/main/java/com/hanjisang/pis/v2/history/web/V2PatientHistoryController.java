@@ -4,6 +4,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.UUID;
 
 import com.hanjisang.pis.v2.history.application.V2PatientHistoryApplicationService;
 
@@ -19,7 +20,8 @@ public class V2PatientHistoryController {
 
     @GetMapping
     public V2PatientHistoryApplicationService.PatientHistoryResult find(
-            @RequestParam String patientReference) {
-        return service.find(patientReference);
+            @RequestParam String patientReference,
+            @RequestParam(required = false) UUID currentCaseId) {
+        return service.find(patientReference, currentCaseId);
     }
 }
