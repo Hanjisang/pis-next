@@ -21,7 +21,8 @@ public class V2HistologyWorkbenchQueryController {
 
     @GetMapping
     public V2HistologyApplicationService.HistologyWorkbenchResult workbench(
-            @RequestParam(required = false) UUID caseId) {
-        return service.workbench(caseId);
+            @RequestParam(required = false) UUID caseId,
+            @RequestParam(required = false) UUID roundId) {
+        return service.workbench(caseId, roundId);
     }
 }

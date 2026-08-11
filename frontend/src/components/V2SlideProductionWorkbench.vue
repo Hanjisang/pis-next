@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 
 import { friendlyError, formatDateTime, idempotencyKey } from '../uiText';
+import type { V2AuthUser } from '../auth';
 import {
   completeV2Slide,
   createV2DirectCytologySlide,
@@ -11,7 +12,11 @@ import {
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
 import V2HistoryDrawer from './V2HistoryDrawer.vue';
-import { getV2MyWorkbench, type V2WorkbenchItem } from '../v2WorkspaceApi';
+import {
+  getV2ProductionWorkbench,
+  type V2ProductionQueue,
+  type V2ProductionWorkbench,
+} from '../v2ProductionWorkbenchApi';
 import {
   completeV2HistologyPhase,
   getV2HistologyWorkbench,
@@ -36,6 +41,10 @@ type HistologyQueueView =
   | 'EXCEPTIONS';
 
 const caseId = defineModel<string>('caseId', { default: '' });
+const props = withDefaults(
+  defineProps<{ authUser?: V2AuthUser | null; frozenRoundId?: string }>(),
+  { authUser: null, frozenRoundId: '' },
+);
 const emit = defineEmits<{ navigate: [path: string] }>();
 const materialTree = ref<V2MaterialTree | null>(null);
 const selectedSlideIds = ref<string[]>([]);
@@ -70,7 +79,8 @@ const exceptionFormOpen = ref(false);
 const exceptionCode = ref('');
 const exceptionNote = ref('');
 const historyDrawerOpen = ref(false);
-const cytologyPreparationCases = ref<V2WorkbenchItem[]>([]);
+const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
+const productionError = ref('');
 
 const caseSlides = computed(() =>
   caseId.value
@@ -87,6 +97,30 @@ const supportsDirectSlide = computed(
 );
 const directSlides = computed(
   () => materialTree.value?.specimens.flatMap((specimen) => specimen.directSlides) ?? [],
+);
+const productionQueues = computed<V2ProductionQueue[]>(() => {
+  const queues = productionWorkbench.value?.queues;
+  if (!queues) return [];
+  const result: V2ProductionQueue[] = [];
+  const permissions = new Set(props.authUser?.permissions ?? []);
+  if (permissions.has('P14-PERM-014')) {
+    result.push(queues.routineProduction, queues.cytologyProduction, queues.incompleteSlides);
+  }
+  if (permissions.has('P14-PERM-008')) result.push(queues.frozenProduction);
+  if (permissions.has('P14-PERM-017')) result.push(queues.technicalOrders);
+  if (
+    permissions.has('P14-PERM-014') ||
+    permissions.has('P14-PERM-008') ||
+    permissions.has('P14-PERM-017')
+  ) {
+    result.push(queues.exceptions);
+  }
+  return result;
+});
+const caseProductionItems = computed(() =>
+  productionQueues.value
+    .flatMap((queue) => queue.items)
+    .filter((item) => item.caseId === caseId.value),
 );
 const selectedHistologySlide = computed(
   () =>
@@ -152,11 +186,11 @@ function currentPhaseFact(slide: V2HistologySlide) {
 }
 
 watch(
-  () => caseId.value,
+  () => [caseId.value, props.frozenRoundId],
   () => {
     void loadMaterialTree();
     void loadHistology();
-    void loadCytologyQueue();
+    void loadProductionWorkbench();
   },
 );
 
@@ -191,7 +225,10 @@ async function loadHistology() {
   loading.value = true;
   histologyError.value = '';
   try {
-    const response = await getV2HistologyWorkbench(caseId.value || undefined);
+    const response = await getV2HistologyWorkbench(
+      caseId.value || undefined,
+      props.frozenRoundId || undefined,
+    );
     histologySlides.value = response.slides;
     histologyQueues.value = response.queues;
     if (!histologySlides.value.some((slide) => slide.slideId === activeHistologySlideId.value)) {
@@ -205,16 +242,20 @@ async function loadHistology() {
   }
 }
 
-async function loadCytologyQueue() {
-  if (caseId.value) {
-    cytologyPreparationCases.value = [];
+async function loadProductionWorkbench() {
+  if (
+    !(props.authUser?.permissions ?? []).some((permission) =>
+      ['P14-PERM-014', 'P14-PERM-008', 'P14-PERM-017'].includes(permission),
+    )
+  ) {
     return;
   }
   try {
-    const response = await getV2MyWorkbench();
-    cytologyPreparationCases.value = response.queues.cytologyPreparationCases;
-  } catch {
-    cytologyPreparationCases.value = [];
+    productionWorkbench.value = await getV2ProductionWorkbench();
+    productionError.value = '';
+  } catch (requestError) {
+    productionWorkbench.value = null;
+    productionError.value = friendlyError(requestError, '生产任务暂时无法加载。');
   }
 }
 
@@ -288,6 +329,7 @@ function submitScan() {
     };
     scanCode.value = '';
     await loadHistology();
+    await loadProductionWorkbench();
     scanInput.value?.focus();
   });
 }
@@ -304,7 +346,7 @@ function createDirectSlide() {
     });
     notice.value = `直接玻片 ${directSlideCode.value.trim()} 已建立，不需要蜡块。`;
     directSlideCode.value = '';
-    await Promise.all([loadHistology(), loadMaterialTree()]);
+    await Promise.all([loadHistology(), loadMaterialTree(), loadProductionWorkbench()]);
   });
 }
 
@@ -317,7 +359,7 @@ function completeDirectSlide(slide: NonNullable<typeof directSlides.value>[numbe
       idempotencyKey: idempotencyKey('px03-cytology-slide-complete'),
     });
     notice.value = `直接玻片 ${slide.slideCode} 已完成，病例进入待诊断。`;
-    await loadMaterialTree();
+    await Promise.all([loadMaterialTree(), loadProductionWorkbench()]);
   });
 }
 
@@ -400,7 +442,7 @@ function submitHistologyException() {
 }
 
 onMounted(() => {
-  void Promise.all([loadMaterialTree(), loadHistology(), loadCytologyQueue()]);
+  void Promise.all([loadMaterialTree(), loadHistology(), loadProductionWorkbench()]);
 });
 </script>
 
@@ -410,19 +452,16 @@ onMounted(() => {
       <div>
         <p class="section-kicker">制片</p>
         <h2>病理技术工作台</h2>
-        <p>按技术环节处理材料，打印和扫码是快捷操作。</p>
+        <p>按常规制片、细胞制片、冰冻制片、技术医嘱和未完成玻片组织系统工作。</p>
       </div>
       <div class="heading-actions">
-        <button class="secondary-button" type="button" :disabled="loading" @click="loadHistology">
-          {{ loading ? '刷新中…' : '刷新队列' }}
-        </button>
         <button
-          class="primary-button"
+          class="secondary-button"
           type="button"
-          :disabled="!selectedHistologySlideIds().length || busy"
-          @click="completeHistologyPhaseBatch"
+          :disabled="loading"
+          @click="loadProductionWorkbench"
         >
-          完成所选环节（{{ selectedHistologySlideIds().length }}）
+          {{ loading ? '刷新中…' : '刷新生产任务' }}
         </button>
       </div>
     </header>
@@ -430,34 +469,59 @@ onMounted(() => {
     <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
     <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
 
-    <section
-      v-if="!caseId && cytologyPreparationCases.length"
-      class="workspace-panel cytology-preparation-queue"
-      aria-labelledby="cytology-preparation-heading"
-    >
-      <header class="panel-title-row">
+    <section v-if="!caseId" class="production-task-board" aria-label="生产任务">
+      <header class="page-heading compact-heading production-task-heading">
         <div>
-          <p class="section-kicker">CYTOLOGY</p>
-          <h3 id="cytology-preparation-heading">待细胞制片</h3>
-          <p class="panel-help">已登记并收到标本即可进入队列，建立直接玻片前不需要蜡块。</p>
+          <p class="section-kicker">PRODUCTION WORKBENCH</p>
+          <h3>生产任务</h3>
+          <p>按业务来源显示系统工作；脱水、包埋、切片、染色、封片只在可选技术记录中出现。</p>
         </div>
-        <span class="status-pill warning">{{ cytologyPreparationCases.length }} 例</span>
       </header>
-      <button
-        v-for="item in cytologyPreparationCases"
-        :key="item.caseId"
-        type="button"
-        class="personal-queue-row"
-        @click="emit('navigate', `/v2/production/${item.caseId}`)"
+      <p v-if="productionError" class="feedback warning" role="status">{{ productionError }}</p>
+      <div
+        v-if="!productionWorkbench && !productionError"
+        class="list-skeleton"
+        aria-label="正在加载生产任务"
       >
-        <span class="queue-row-main">
-          <strong>{{ item.pathologyNo }}</strong>
-          <small>{{ item.patientReference }} · {{ item.businessTypeName }}</small>
-        </span>
-        <span>{{ item.workLabel }}</span>
-        <small>{{ formatDateTime(item.enteredAt) }}</small>
-        <span class="queue-row-arrow" aria-hidden="true">→</span>
-      </button>
+        <span></span><span></span><span></span>
+      </div>
+      <div v-else class="production-queue-grid">
+        <section
+          v-for="queue in productionQueues"
+          :key="queue.code"
+          class="workspace-panel production-source-queue"
+          :aria-label="queue.label"
+        >
+          <header class="panel-title-row">
+            <div>
+              <p class="section-kicker">{{ queue.code }}</p>
+              <h3>{{ queue.label }}</h3>
+            </div>
+            <span class="status-pill">{{ queue.count }}</span>
+          </header>
+          <button
+            v-for="item in queue.items"
+            :key="`${queue.code}-${item.caseId}-${item.slideCode ?? item.orderId ?? ''}`"
+            type="button"
+            class="production-task-row"
+            @click="emit('navigate', item.deepLink)"
+          >
+            <span class="queue-row-main">
+              <strong>{{ item.pathologyNo }}</strong>
+              <small>{{ item.patientReference }} · {{ item.materialSummary }}</small>
+            </span>
+            <span
+              ><strong>{{ item.taskSummary }}</strong
+              ><small>{{ item.currentOperator || '待分派' }}</small></span
+            >
+            <small>{{ item.waitingMinutes }} 分钟</small>
+            <span class="queue-row-arrow" aria-hidden="true">→</span>
+          </button>
+          <div v-if="!queue.items.length" class="empty-state compact">
+            <strong>当前没有{{ queue.label }}任务</strong>
+          </div>
+        </section>
+      </div>
     </section>
 
     <V2CaseHeader
@@ -485,6 +549,40 @@ onMounted(() => {
       </template>
     </V2CaseHeader>
 
+    <section
+      v-if="caseProductionItems.length"
+      class="workspace-panel case-production-summary"
+      aria-label="当前病例生产摘要"
+    >
+      <header class="panel-title-row">
+        <div>
+          <p class="section-kicker">CASE PRODUCTION</p>
+          <h3>当前病例生产摘要</h3>
+        </div>
+        <span class="status-pill">{{ caseProductionItems.length }} 项工作</span>
+      </header>
+      <div class="production-case-task-list">
+        <article
+          v-for="item in caseProductionItems"
+          :key="`${item.productionContext}-${item.slideCode ?? item.orderId ?? item.taskSummary}`"
+          class="production-case-task"
+        >
+          <span
+            ><strong>{{ item.taskSummary }}</strong
+            ><small>{{ item.materialSummary }}</small></span
+          >
+          <span
+            ><strong>{{ item.completedCount }}/{{ item.requiredCount || '—' }}</strong
+            ><small>完成数量</small></span
+          >
+          <span
+            ><strong>{{ item.currentOperator || '待分派' }}</strong
+            ><small>{{ item.waitingMinutes }} 分钟</small></span
+          >
+        </article>
+      </div>
+    </section>
+
     <section class="scan-completion-panel" aria-labelledby="scan-heading">
       <div>
         <label id="scan-heading" for="slide-scan-input">扫码完成玻片</label>
@@ -507,113 +605,116 @@ onMounted(() => {
       </p>
     </section>
 
-    <section
-      class="workspace-panel histology-queue-panel"
-      aria-labelledby="histology-queue-heading"
-    >
-      <header class="panel-title-row">
-        <div>
-          <p class="section-kicker">Histology</p>
-          <h3 id="histology-queue-heading">按技术环节处理</h3>
-          <p class="panel-help">
-            状态由开始/完成时间事实推导；打印、扫码和异常不会改变技术环节状态。
-          </p>
+    <details class="optional-trace-panel">
+      <summary>展开可选技术记录（脱水、包埋、切片、染色、封片）</summary>
+      <section
+        class="workspace-panel histology-queue-panel"
+        aria-labelledby="histology-queue-heading"
+      >
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">Histology</p>
+            <h3 id="histology-queue-heading">按技术环节处理</h3>
+            <p class="panel-help">
+              状态由开始/完成时间事实推导；打印、扫码和异常不会改变技术环节状态。
+            </p>
+          </div>
+          <span class="status-pill">轻量事实</span>
+        </header>
+        <div class="histology-stage-queues" role="group" aria-label="技术环节队列">
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'DEHYDRATION'"
+            :class="{ active: activeHistologyQueue === 'DEHYDRATION' }"
+            @click="
+              activeHistologyQueue = 'DEHYDRATION';
+              activeHistologyPhase = 'DEHYDRATION';
+            "
+          >
+            待脱水 <b>{{ histologyQueues.dehydration }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'EMBEDDING'"
+            :class="{ active: activeHistologyQueue === 'EMBEDDING' }"
+            @click="
+              activeHistologyQueue = 'EMBEDDING';
+              activeHistologyPhase = 'EMBEDDING';
+            "
+          >
+            待包埋 <b>{{ histologyQueues.embedding }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'CUTTING'"
+            :class="{ active: activeHistologyQueue === 'CUTTING' }"
+            @click="
+              activeHistologyQueue = 'CUTTING';
+              activeHistologyPhase = 'SECTIONING';
+            "
+          >
+            待切片 <b>{{ histologyQueues.cutting }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'STAINING'"
+            :class="{ active: activeHistologyQueue === 'STAINING' }"
+            @click="
+              activeHistologyQueue = 'STAINING';
+              activeHistologyPhase = 'STAINING';
+            "
+          >
+            待染色 <b>{{ histologyQueues.staining }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'COVERSLIPPING'"
+            :class="{ active: activeHistologyQueue === 'COVERSLIPPING' }"
+            @click="
+              activeHistologyQueue = 'COVERSLIPPING';
+              activeHistologyPhase = 'MOUNTING';
+            "
+          >
+            待封片 <b>{{ histologyQueues.coverslipping }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'COMPLETED'"
+            :class="{ active: activeHistologyQueue === 'COMPLETED' }"
+            @click="activeHistologyQueue = 'COMPLETED'"
+          >
+            已完成 <b>{{ histologyQueues.completed }}</b>
+          </button>
+          <button
+            type="button"
+            :aria-pressed="activeHistologyQueue === 'EXCEPTIONS'"
+            :class="{ active: activeHistologyQueue === 'EXCEPTIONS' }"
+            @click="activeHistologyQueue = 'EXCEPTIONS'"
+          >
+            异常 <b>{{ histologyQueues.exceptions }}</b>
+          </button>
         </div>
-        <span class="status-pill">轻量事实</span>
-      </header>
-      <div class="histology-stage-queues" role="group" aria-label="技术环节队列">
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'DEHYDRATION'"
-          :class="{ active: activeHistologyQueue === 'DEHYDRATION' }"
-          @click="
-            activeHistologyQueue = 'DEHYDRATION';
-            activeHistologyPhase = 'DEHYDRATION';
-          "
-        >
-          待脱水 <b>{{ histologyQueues.dehydration }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'EMBEDDING'"
-          :class="{ active: activeHistologyQueue === 'EMBEDDING' }"
-          @click="
-            activeHistologyQueue = 'EMBEDDING';
-            activeHistologyPhase = 'EMBEDDING';
-          "
-        >
-          待包埋 <b>{{ histologyQueues.embedding }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'CUTTING'"
-          :class="{ active: activeHistologyQueue === 'CUTTING' }"
-          @click="
-            activeHistologyQueue = 'CUTTING';
-            activeHistologyPhase = 'SECTIONING';
-          "
-        >
-          待切片 <b>{{ histologyQueues.cutting }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'STAINING'"
-          :class="{ active: activeHistologyQueue === 'STAINING' }"
-          @click="
-            activeHistologyQueue = 'STAINING';
-            activeHistologyPhase = 'STAINING';
-          "
-        >
-          待染色 <b>{{ histologyQueues.staining }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'COVERSLIPPING'"
-          :class="{ active: activeHistologyQueue === 'COVERSLIPPING' }"
-          @click="
-            activeHistologyQueue = 'COVERSLIPPING';
-            activeHistologyPhase = 'MOUNTING';
-          "
-        >
-          待封片 <b>{{ histologyQueues.coverslipping }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'COMPLETED'"
-          :class="{ active: activeHistologyQueue === 'COMPLETED' }"
-          @click="activeHistologyQueue = 'COMPLETED'"
-        >
-          已完成 <b>{{ histologyQueues.completed }}</b>
-        </button>
-        <button
-          type="button"
-          :aria-pressed="activeHistologyQueue === 'EXCEPTIONS'"
-          :class="{ active: activeHistologyQueue === 'EXCEPTIONS' }"
-          @click="activeHistologyQueue = 'EXCEPTIONS'"
-        >
-          异常 <b>{{ histologyQueues.exceptions }}</b>
-        </button>
-      </div>
-      <div class="inline-actions histology-batch-actions">
-        <span class="muted">已选择 {{ selectedHistologySlideIds().length }} 张玻片</span>
-        <button
-          class="secondary-button"
-          type="button"
-          :disabled="busy || !selectedHistologySlideIds().length"
-          @click="startHistologyPhaseBatch"
-        >
-          开始所选{{ phaseLabel(activeHistologyPhase) }}
-        </button>
-        <button
-          class="secondary-button"
-          type="button"
-          :disabled="busy || !selectedHistologySlideIds().length"
-          @click="completeHistologyPhaseBatch"
-        >
-          完成所选{{ phaseLabel(activeHistologyPhase) }}
-        </button>
-      </div>
-    </section>
+        <div class="inline-actions histology-batch-actions">
+          <span class="muted">已选择 {{ selectedHistologySlideIds().length }} 张玻片</span>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="busy || !selectedHistologySlideIds().length"
+            @click="startHistologyPhaseBatch"
+          >
+            开始所选{{ phaseLabel(activeHistologyPhase) }}
+          </button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="busy || !selectedHistologySlideIds().length"
+            @click="completeHistologyPhaseBatch"
+          >
+            完成所选{{ phaseLabel(activeHistologyPhase) }}
+          </button>
+        </div>
+      </section>
+    </details>
 
     <section v-if="supportsDirectSlide && materialTree" class="workspace-panel direct-slide-panel">
       <header class="panel-title-row">
@@ -621,7 +722,7 @@ onMounted(() => {
           <p class="section-kicker">细胞病理</p>
           <h3>直接建立玻片</h3>
         </div>
-        <span class="status-pill success">蜡块可选</span>
+        <span class="status-pill success">不需要蜡块</span>
       </header>
       <div class="field-grid three-columns direct-slide-fields">
         <label>
@@ -671,224 +772,229 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="workspace-panel histology-fact-panel" aria-labelledby="histology-heading">
-      <header class="panel-title-row">
-        <div>
-          <p class="section-kicker">技术过程</p>
-          <h3 id="histology-heading">脱水、包埋、切片、染色、封片</h3>
-          <p class="panel-help">只记录开始、完成、操作人和异常；当前状态由实际时间事实显示。</p>
-        </div>
-        <span class="status-pill">轻量记录</span>
-      </header>
-      <p v-if="histologyError" class="feedback warning" role="status">{{ histologyError }}</p>
-      <div v-else-if="!histologySlides.length" class="empty-state compact">
-        <strong>当前没有可记录技术过程的玻片</strong>
-        <span>先建立玻片，之后可在这里记录每个环节。</span>
-      </div>
-      <div v-else>
-        <div
-          v-if="visibleHistologySlides.length"
-          class="histology-work-list"
-          role="table"
-          aria-label="技术环节材料列表"
-        >
-          <div class="histology-work-row header" role="row">
-            <span>选择</span><span>病理号 / 患者</span><span>标本 / 蜡块</span><span>玻片</span
-            ><span>当前环节</span><span>开始时间</span><span>操作人</span><span>异常</span
-            ><span>操作</span>
+    <details class="optional-trace-panel">
+      <summary>查看技术过程事实与异常记录</summary>
+      <section class="workspace-panel histology-fact-panel" aria-labelledby="histology-heading">
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">技术过程</p>
+            <h3 id="histology-heading">脱水、包埋、切片、染色、封片</h3>
+            <p class="panel-help">只记录开始、完成、操作人和异常；当前状态由实际时间事实显示。</p>
           </div>
+          <span class="status-pill">轻量记录</span>
+        </header>
+        <p v-if="histologyError" class="feedback warning" role="status">{{ histologyError }}</p>
+        <div v-else-if="!histologySlides.length" class="empty-state compact">
+          <strong>当前没有可记录技术过程的玻片</strong>
+          <span>先建立玻片，之后可在这里记录每个环节。</span>
+        </div>
+        <div v-else>
           <div
-            v-for="slide in visibleHistologySlides"
-            :key="`work-${slide.slideId}`"
-            class="histology-work-row"
-            :class="{ selected: selectedHistologySlide?.slideId === slide.slideId }"
-            role="row"
-            @click="activeHistologySlideId = slide.slideId"
+            v-if="visibleHistologySlides.length"
+            class="histology-work-list"
+            role="table"
+            aria-label="技术环节材料列表"
           >
-            <span
-              ><input
-                type="checkbox"
-                :aria-label="`选择技术玻片 ${slide.slideCode}`"
-                :checked="selectedSlideIds.includes(slide.slideId)"
-                @click.stop
-                @change="toggleSlide(slide.slideId)"
-            /></span>
-            <span
-              ><strong>{{ slide.caseNo }}</strong
-              ><small>{{ slide.patientReference }}</small></span
+            <div class="histology-work-row header" role="row">
+              <span>选择</span><span>病理号 / 患者</span><span>标本 / 蜡块</span><span>玻片</span
+              ><span>当前环节</span><span>开始时间</span><span>操作人</span><span>异常</span
+              ><span>操作</span>
+            </div>
+            <div
+              v-for="slide in visibleHistologySlides"
+              :key="`work-${slide.slideId}`"
+              class="histology-work-row"
+              :class="{ selected: selectedHistologySlide?.slideId === slide.slideId }"
+              role="row"
+              @click="activeHistologySlideId = slide.slideId"
             >
-            <span
-              ><strong>{{ slide.specimenCode || '—' }}</strong
-              ><small>{{ slide.blockCode || '直接玻片' }}</small></span
-            >
-            <span
-              ><strong>{{ slide.slideCode }}</strong
-              ><small>{{ slide.slideType }}</small></span
-            >
-            <span>{{
-              activeHistologyQueue === 'COMPLETED'
-                ? '已完成'
-                : activeHistologyQueue === 'EXCEPTIONS'
-                  ? '异常'
-                  : phaseLabel(currentPhase(slide))
-            }}</span>
-            <span>{{
-              currentPhaseFact(slide)?.startedAt
-                ? formatDateTime(currentPhaseFact(slide)!.startedAt!)
-                : '—'
-            }}</span>
-            <span>{{ currentPhaseFact(slide)?.operatorRef || '—' }}</span>
-            <span>{{ currentPhaseFact(slide)?.exceptionNote || '—' }}</span>
-            <span class="inline-actions">
-              <button
-                class="text-button"
-                type="button"
-                @click.stop="activeHistologySlideId = slide.slideId"
-              >
-                处理
-              </button>
-              <button class="text-button" type="button" @click.stop="printSlide(slide)">
-                打印/补打
-              </button>
-              <button
-                class="text-button"
-                type="button"
-                @click.stop="emit('navigate', `/v2/cases/${slide.caseId}`)"
-              >
-                病例
-              </button>
-            </span>
-          </div>
-        </div>
-        <div v-else class="empty-state compact">
-          <strong>当前环节没有待处理材料</strong>
-          <span>可以切换上方环节，或刷新队列。</span>
-        </div>
-        <div v-if="selectedHistologySlide" class="histology-fact-content">
-          <div class="histology-phase-tabs" role="tablist" aria-label="技术环节">
-            <button
-              v-for="phase in histologyPhases"
-              :key="phase.code"
-              type="button"
-              role="tab"
-              :aria-selected="activeHistologyPhase === phase.code"
-              :class="{ active: activeHistologyPhase === phase.code }"
-              @click="activeHistologyPhase = phase.code"
-            >
-              {{ phase.label }}
               <span
-                :class="
-                  phaseStatusClass(
-                    selectedHistologySlide?.phases?.find((item) => item.phaseCode === phase.code) ??
-                      null,
-                  )
-                "
+                ><input
+                  type="checkbox"
+                  :aria-label="`选择技术玻片 ${slide.slideCode}`"
+                  :checked="selectedSlideIds.includes(slide.slideId)"
+                  @click.stop
+                  @change="toggleSlide(slide.slideId)"
+              /></span>
+              <span
+                ><strong>{{ slide.caseNo }}</strong
+                ><small>{{ slide.patientReference }}</small></span
               >
-                {{
-                  phaseStatus(
-                    selectedHistologySlide?.phases?.find((item) => item.phaseCode === phase.code) ??
-                      null,
-                  )
-                }}
-              </span>
-            </button>
-          </div>
-          <div class="histology-phase-card">
-            <div class="histology-phase-summary">
-              <div>
-                <span class="field-label">当前环节</span>
-                <strong
-                  >{{ selectedHistologySlide?.slideCode }} ·
-                  {{ phaseLabel(activeHistologyPhase) }}</strong
-                >
-              </div>
-              <span :class="phaseStatusClass(activeHistologyPhaseFact)">{{
-                phaseStatus(activeHistologyPhaseFact)
+              <span
+                ><strong>{{ slide.specimenCode || '—' }}</strong
+                ><small>{{ slide.blockCode || '直接玻片' }}</small></span
+              >
+              <span
+                ><strong>{{ slide.slideCode }}</strong
+                ><small>{{ slide.slideType }}</small></span
+              >
+              <span>{{
+                activeHistologyQueue === 'COMPLETED'
+                  ? '已完成'
+                  : activeHistologyQueue === 'EXCEPTIONS'
+                    ? '异常'
+                    : phaseLabel(currentPhase(slide))
               }}</span>
+              <span>{{
+                currentPhaseFact(slide)?.startedAt
+                  ? formatDateTime(currentPhaseFact(slide)!.startedAt!)
+                  : '—'
+              }}</span>
+              <span>{{ currentPhaseFact(slide)?.operatorRef || '—' }}</span>
+              <span>{{ currentPhaseFact(slide)?.exceptionNote || '—' }}</span>
+              <span class="inline-actions">
+                <button
+                  class="text-button"
+                  type="button"
+                  @click.stop="activeHistologySlideId = slide.slideId"
+                >
+                  处理
+                </button>
+                <button class="text-button" type="button" @click.stop="printSlide(slide)">
+                  打印/补打
+                </button>
+                <button
+                  class="text-button"
+                  type="button"
+                  @click.stop="emit('navigate', `/v2/cases/${slide.caseId}`)"
+                >
+                  病例
+                </button>
+              </span>
             </div>
-            <p v-if="activeHistologyPhaseFact?.startedAt" class="histology-fact-time">
-              {{ formatDateTime(activeHistologyPhaseFact.startedAt) }}
-              <span v-if="activeHistologyPhaseFact.completedAt">
-                → {{ formatDateTime(activeHistologyPhaseFact.completedAt) }}</span
-              >
-            </p>
-            <p v-if="activeHistologyPhaseFact?.operatorRef" class="muted">操作人已记录</p>
-            <p v-if="activeHistologyPhaseFact?.exceptionCode" class="feedback warning">
-              {{ activeHistologyPhaseFact.exceptionCode }}：{{
-                activeHistologyPhaseFact.exceptionNote
-              }}
-            </p>
-            <div class="histology-phase-actions">
+          </div>
+          <div v-else class="empty-state compact">
+            <strong>当前环节没有待处理材料</strong>
+            <span>可以切换上方环节，或刷新队列。</span>
+          </div>
+          <div v-if="selectedHistologySlide" class="histology-fact-content">
+            <div class="histology-phase-tabs" role="tablist" aria-label="技术环节">
               <button
-                class="primary-button"
+                v-for="phase in histologyPhases"
+                :key="phase.code"
                 type="button"
-                :disabled="busy || Boolean(activeHistologyPhaseFact?.startedAt)"
-                @click="startHistologyPhase"
+                role="tab"
+                :aria-selected="activeHistologyPhase === phase.code"
+                :class="{ active: activeHistologyPhase === phase.code }"
+                @click="activeHistologyPhase = phase.code"
               >
-                开始{{ phaseLabel(activeHistologyPhase) }}
-              </button>
-              <button
-                class="secondary-button"
-                type="button"
-                :disabled="
-                  busy ||
-                  !activeHistologyPhaseFact?.startedAt ||
-                  Boolean(activeHistologyPhaseFact?.completedAt)
-                "
-                @click="completeHistologyPhase"
-              >
-                完成{{ phaseLabel(activeHistologyPhase) }}
-              </button>
-              <button
-                class="text-button"
-                type="button"
-                :disabled="busy"
-                @click="exceptionFormOpen = !exceptionFormOpen"
-              >
-                记录异常
+                {{ phase.label }}
+                <span
+                  :class="
+                    phaseStatusClass(
+                      selectedHistologySlide?.phases?.find(
+                        (item) => item.phaseCode === phase.code,
+                      ) ?? null,
+                    )
+                  "
+                >
+                  {{
+                    phaseStatus(
+                      selectedHistologySlide?.phases?.find(
+                        (item) => item.phaseCode === phase.code,
+                      ) ?? null,
+                    )
+                  }}
+                </span>
               </button>
             </div>
-            <form
-              v-if="exceptionFormOpen"
-              class="histology-exception-form"
-              @submit.prevent="submitHistologyException"
-            >
-              <label>
-                异常类型
-                <select v-model="exceptionCode" required>
-                  <option value="" disabled>请选择</option>
-                  <option value="切片皱褶">切片皱褶</option>
-                  <option value="玻片破损">玻片破损</option>
-                  <option value="染色过浅">染色过浅</option>
-                  <option value="脱片">脱片</option>
-                  <option value="其他">其他</option>
-                </select>
-              </label>
-              <label>
-                说明
-                <textarea
-                  v-model="exceptionNote"
-                  rows="2"
-                  placeholder="说明发生了什么以及后续处理"
-                ></textarea>
-              </label>
-              <div class="inline-actions">
+            <div class="histology-phase-card">
+              <div class="histology-phase-summary">
+                <div>
+                  <span class="field-label">当前环节</span>
+                  <strong
+                    >{{ selectedHistologySlide?.slideCode }} ·
+                    {{ phaseLabel(activeHistologyPhase) }}</strong
+                  >
+                </div>
+                <span :class="phaseStatusClass(activeHistologyPhaseFact)">{{
+                  phaseStatus(activeHistologyPhaseFact)
+                }}</span>
+              </div>
+              <p v-if="activeHistologyPhaseFact?.startedAt" class="histology-fact-time">
+                {{ formatDateTime(activeHistologyPhaseFact.startedAt) }}
+                <span v-if="activeHistologyPhaseFact.completedAt">
+                  → {{ formatDateTime(activeHistologyPhaseFact.completedAt) }}</span
+                >
+              </p>
+              <p v-if="activeHistologyPhaseFact?.operatorRef" class="muted">操作人已记录</p>
+              <p v-if="activeHistologyPhaseFact?.exceptionCode" class="feedback warning">
+                {{ activeHistologyPhaseFact.exceptionCode }}：{{
+                  activeHistologyPhaseFact.exceptionNote
+                }}
+              </p>
+              <div class="histology-phase-actions">
                 <button
                   class="primary-button"
-                  type="submit"
-                  :disabled="busy || !exceptionCode || !exceptionNote.trim()"
+                  type="button"
+                  :disabled="busy || Boolean(activeHistologyPhaseFact?.startedAt)"
+                  @click="startHistologyPhase"
                 >
-                  保存异常
+                  开始{{ phaseLabel(activeHistologyPhase) }}
                 </button>
-                <button class="text-button" type="button" @click="exceptionFormOpen = false">
-                  取消
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="
+                    busy ||
+                    !activeHistologyPhaseFact?.startedAt ||
+                    Boolean(activeHistologyPhaseFact?.completedAt)
+                  "
+                  @click="completeHistologyPhase"
+                >
+                  完成{{ phaseLabel(activeHistologyPhase) }}
+                </button>
+                <button
+                  class="text-button"
+                  type="button"
+                  :disabled="busy"
+                  @click="exceptionFormOpen = !exceptionFormOpen"
+                >
+                  记录异常
                 </button>
               </div>
-            </form>
+              <form
+                v-if="exceptionFormOpen"
+                class="histology-exception-form"
+                @submit.prevent="submitHistologyException"
+              >
+                <label>
+                  异常类型
+                  <select v-model="exceptionCode" required>
+                    <option value="" disabled>请选择</option>
+                    <option value="切片皱褶">切片皱褶</option>
+                    <option value="玻片破损">玻片破损</option>
+                    <option value="染色过浅">染色过浅</option>
+                    <option value="脱片">脱片</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </label>
+                <label>
+                  说明
+                  <textarea
+                    v-model="exceptionNote"
+                    rows="2"
+                    placeholder="说明发生了什么以及后续处理"
+                  ></textarea>
+                </label>
+                <div class="inline-actions">
+                  <button
+                    class="primary-button"
+                    type="submit"
+                    :disabled="busy || !exceptionCode || !exceptionNote.trim()"
+                  >
+                    保存异常
+                  </button>
+                  <button class="text-button" type="button" @click="exceptionFormOpen = false">
+                    取消
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </details>
     <V2HistoryDrawer
       :open="historyDrawerOpen"
       :case-id="caseHeaderSlide?.caseId"

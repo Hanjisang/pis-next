@@ -36,6 +36,8 @@ export type V2BusinessTypeCapability = {
   usesHistologyProcessing: boolean;
   requiresSlideCompletion: boolean;
   diagnosisEnabled: boolean;
+  initialSlideRule?: string | null;
+  productionCapabilities?: string[];
 };
 
 export type V2CaseProgress = {

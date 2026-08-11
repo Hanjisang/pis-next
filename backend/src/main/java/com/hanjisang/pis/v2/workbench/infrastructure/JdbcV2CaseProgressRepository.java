@@ -59,6 +59,20 @@ public class JdbcV2CaseProgressRepository {
                                c.created_at) AS material_at
                     FROM pis_v2.pathology_case c
                     WHERE c.organization_reference = ?
+                ), frozen_summary AS (
+                    SELECT fr.case_id,
+                           COUNT(DISTINCT frs.specimen_id) AS specimen_count,
+                           COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) AS required_slide_count,
+                           COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
+                               AS completed_slide_count
+                    FROM pis_v2.frozen_round fr
+                    LEFT JOIN pis_v2.frozen_round_specimen frs ON frs.frozen_round_id = fr.id
+                    LEFT JOIN pis_v2.slide sl ON sl.case_id = fr.case_id
+                        AND sl.source_context_type = 'FROZEN_ROUND'
+                        AND sl.source_context_id = fr.id
+                        AND sl.deleted_at IS NULL
+                    WHERE fr.organization_reference = ? AND fr.status_code = 'OPEN'
+                    GROUP BY fr.case_id
                 ), report_summary AS (
                     SELECT r.case_id,
                            CASE WHEN MAX(CASE WHEN r.status_code = 'EFFECTIVE' THEN 1 ELSE 0 END) = 1
@@ -89,6 +103,14 @@ public class JdbcV2CaseProgressRepository {
                            WHEN bt.modality_code = 'CYTOLOGY' AND m.specimen_count = 0 THEN 'WAITING_SPECIMEN'
                            WHEN bt.modality_code = 'CYTOLOGY'
                                 AND m.completed_direct_specimen_count < m.specimen_count THEN 'CYTOLOGY_PREPARATION'
+                           WHEN bt.modality_code = 'FROZEN' AND COALESCE(frozen_summary.specimen_count, 0) = 0
+                                THEN 'WAITING_SPECIMEN'
+                           WHEN bt.modality_code = 'FROZEN' AND COALESCE(frozen_summary.required_slide_count, 0) = 0
+                                THEN 'WAITING_GROSSING'
+                           WHEN bt.modality_code = 'FROZEN'
+                                AND COALESCE(frozen_summary.completed_slide_count, 0)
+                                    < COALESCE(frozen_summary.required_slide_count, 0)
+                                THEN 'FROZEN_PRODUCTION'
                            WHEN report_summary.report_status = 'EFFECTIVE' THEN 'SIGNED'
                            WHEN current_r.role_code = 'INITIAL' THEN 'INITIAL_DIAGNOSIS'
                            WHEN current_r.role_code = 'REVIEW' THEN 'REVIEW_DIAGNOSIS'
@@ -109,6 +131,14 @@ public class JdbcV2CaseProgressRepository {
                            WHEN bt.modality_code = 'CYTOLOGY' AND m.specimen_count = 0 THEN '待标本接收'
                            WHEN bt.modality_code = 'CYTOLOGY'
                                 AND m.completed_direct_specimen_count < m.specimen_count THEN '待细胞制片'
+                           WHEN bt.modality_code = 'FROZEN' AND COALESCE(frozen_summary.specimen_count, 0) = 0
+                                THEN '待冰冻标本'
+                           WHEN bt.modality_code = 'FROZEN' AND COALESCE(frozen_summary.required_slide_count, 0) = 0
+                                THEN '待冰冻取材'
+                           WHEN bt.modality_code = 'FROZEN'
+                                AND COALESCE(frozen_summary.completed_slide_count, 0)
+                                    < COALESCE(frozen_summary.required_slide_count, 0)
+                                THEN '冰冻制片中'
                            WHEN report_summary.report_status = 'EFFECTIVE' THEN '已签发'
                            WHEN current_r.role_code = 'INITIAL' THEN '待初诊'
                            WHEN current_r.role_code = 'REVIEW' THEN '待复诊'
@@ -133,6 +163,7 @@ public class JdbcV2CaseProgressRepository {
                      SELECT MAX(ctx2.snapshot_version_no)
                      FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
                 LEFT JOIN report_summary ON report_summary.case_id = c.id
+                LEFT JOIN frozen_summary ON frozen_summary.case_id = c.id
                 LEFT JOIN LATERAL (
                     SELECT r.role_code, COALESCE(di.display_name, r.doctor_id) AS responsibility_name,
                            r.accepted_at
@@ -150,18 +181,20 @@ public class JdbcV2CaseProgressRepository {
         Object[] arguments;
         if (actorReference == null && caseId == null) {
             arguments = new Object[] { organizationReference, organizationReference, organizationReference,
-                    organizationReference, organizationReference, organizationReference, organizationReference };
+                    organizationReference, organizationReference, organizationReference, organizationReference,
+                    organizationReference };
         } else if (actorReference != null && caseId == null) {
             arguments = new Object[] { organizationReference, organizationReference, organizationReference,
                     organizationReference, organizationReference, organizationReference, organizationReference,
-                    actorReference };
+                    organizationReference, actorReference };
         } else if (actorReference == null) {
             arguments = new Object[] { organizationReference, organizationReference, organizationReference,
-                    organizationReference, organizationReference, organizationReference, organizationReference, caseId };
+                    organizationReference, organizationReference, organizationReference, organizationReference,
+                    organizationReference, caseId };
         } else {
             arguments = new Object[] { organizationReference, organizationReference, organizationReference,
                     organizationReference, organizationReference, organizationReference, organizationReference,
-                    actorReference, caseId };
+                    organizationReference, actorReference, caseId };
         }
         return jdbc.query(sql, (rs, rowNum) -> row(rs), arguments);
     }

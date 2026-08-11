@@ -33,9 +33,14 @@ public class V2HistologyApplicationService {
 
     @Transactional(readOnly = true)
     public HistologyWorkbenchResult workbench(UUID caseId) {
+        return workbench(caseId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public HistologyWorkbenchResult workbench(UUID caseId, UUID frozenRoundId) {
         var actor = authorization.require(MATERIAL_PERMISSION);
         var grouped = new LinkedHashMap<UUID, SlideBuilder>();
-        for (ProcessRow row : repository.findWorkbench(actor.hospitalScope(), caseId)) {
+        for (ProcessRow row : repository.findWorkbench(actor.hospitalScope(), caseId, frozenRoundId)) {
             SlideBuilder builder = grouped.computeIfAbsent(row.slideId(), ignored ->
                     new SlideBuilder(row.slideId(), row.caseId(), row.caseNo(), row.patientReference(),
                             row.businessTypeCode(), row.specimenCode(), row.blockCode(), row.sourceContextType(),

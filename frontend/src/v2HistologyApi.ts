@@ -64,8 +64,11 @@ export type V2HistologyQueues = {
   exceptions: number;
 };
 
-export async function getV2HistologyWorkbench(caseId?: string) {
-  const query = caseId ? `?caseId=${encodeURIComponent(caseId)}` : '';
+export async function getV2HistologyWorkbench(caseId?: string, roundId?: string) {
+  const params = new URLSearchParams();
+  if (caseId) params.set('caseId', caseId);
+  if (roundId) params.set('roundId', roundId);
+  const query = params.size ? `?${params.toString()}` : '';
   const response = await fetch(`/api/v2/histology-workbench${query}`);
   const body = (await response.json()) as
     | { message?: string }

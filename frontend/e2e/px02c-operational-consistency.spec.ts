@@ -120,6 +120,8 @@ test('PX02C：Histology 只使用单一查询投影并完成全部环节', async
   });
   await page.goto(`/v2/production/${caseRef.caseId}`);
   await expect(page.getByLabel('病理技术工作台')).toBeVisible();
+  await page.getByText('展开可选技术记录（脱水、包埋、切片、染色、封片）', { exact: true }).click();
+  await page.getByText('查看技术过程事实与异常记录', { exact: true }).click();
   await expect(page.getByRole('group', { name: '技术环节队列' })).toBeVisible();
   await expect(page.getByRole('button', { name: /待脱水/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /待包埋/ })).toBeVisible();

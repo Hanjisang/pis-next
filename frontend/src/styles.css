@@ -4057,7 +4057,153 @@ button.dense-report-row:hover {
   font-weight: 700;
 }
 
+/* PX03A business-source production workbench */
+.production-task-board,
+.case-business-production-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+.production-task-heading {
+  margin-bottom: 0;
+}
+.production-queue-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.production-source-queue {
+  min-width: 0;
+}
+.production-task-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.2fr) minmax(180px, 1.5fr) 70px 24px;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: var(--space-3) 0;
+  text-align: left;
+}
+.production-task-row:hover {
+  background: var(--surface-selected);
+}
+.production-task-row > span,
+.queue-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.production-task-row small,
+.production-case-task small,
+.production-summary-grid small,
+.production-summary-task span {
+  color: var(--text-muted);
+}
+.production-task-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-row-arrow {
+  color: var(--brand-700);
+  font-size: 1.2rem;
+  text-align: right;
+}
+.case-production-summary {
+  margin-bottom: var(--space-4);
+}
+.production-case-task-list,
+.production-summary-task-list {
+  display: grid;
+  gap: var(--space-2);
+}
+.production-case-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) 120px 140px;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.production-case-task > span,
+.production-summary-grid > div {
+  display: grid;
+  gap: 3px;
+}
+.case-business-production-panel {
+  margin-top: calc(var(--space-2) * -1);
+}
+.production-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--border-subtle);
+}
+.production-summary-grid > div {
+  min-height: 84px;
+  padding: var(--space-3);
+  background: var(--surface-subtle);
+}
+.production-summary-grid span {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
+.production-summary-grid strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.production-summary-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.production-summary-task > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.optional-trace-panel {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.optional-trace-panel > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-weight: 650;
+  padding: var(--space-3) var(--space-4);
+}
+.optional-trace-panel[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.case-production-trace {
+  padding-bottom: var(--space-2);
+}
+.case-production-trace > p,
+.case-production-trace > button {
+  margin: var(--space-3) var(--space-4);
+}
+
 @media (max-width: 1100px) {
+  .production-queue-grid,
+  .production-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .production-task-row {
+    grid-template-columns: minmax(120px, 1fr) minmax(150px, 1fr) 64px 20px;
+  }
   .registration-queue-grid {
     grid-template-columns: 1fr;
   }
@@ -4065,5 +4211,20 @@ button.dense-report-row:hover {
     grid-template-columns:
       40px minmax(130px, 1.1fr) minmax(90px, 0.8fr) minmax(90px, 0.9fr)
       80px 110px 85px minmax(100px, 0.8fr) minmax(150px, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .production-queue-grid,
+  .production-summary-grid,
+  .production-case-task {
+    grid-template-columns: 1fr;
+  }
+  .production-task-row {
+    grid-template-columns: minmax(0, 1fr) 20px;
+  }
+  .production-task-row > span:nth-child(2),
+  .production-task-row > small {
+    display: none;
   }
 }

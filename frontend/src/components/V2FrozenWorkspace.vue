@@ -143,10 +143,10 @@ function createDiagnosis() {
 
 function openMaterials() {
   if (!workspace.value || !selectedRound.value) return;
-  emit(
-    'navigate',
-    `/v2/grossing/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`,
-  );
+  const destination = selectedRound.value.totalRequiredSlides
+    ? `/v2/production/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`
+    : `/v2/grossing/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`;
+  emit('navigate', destination);
 }
 
 function openDiagnosis() {

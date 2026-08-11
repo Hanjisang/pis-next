@@ -73,8 +73,10 @@ public class CaseProgressProjectionApplicationService {
             int materialRequired, int materialCompleted) {
         boolean cancelled = "CANCELLED".equals(row.lifecycle());
         boolean materialComplete = materialRequired > 0 && materialCompleted >= materialRequired;
-        String productionCode = capability.supportsDirectSlides() ? "CYTOLOGY_PREPARATION" : "HISTOLOGY_PREPARATION";
-        String productionLabel = capability.supportsDirectSlides() ? "细胞制片" : "组织制片";
+        String productionCode = capability.supportsDirectSlides() ? "CYTOLOGY_PREPARATION"
+                : "FROZEN".equals(row.businessTypeCode()) ? "FROZEN_PRODUCTION" : "HISTOLOGY_PREPARATION";
+        String productionLabel = capability.supportsDirectSlides() ? "细胞制片"
+                : "FROZEN".equals(row.businessTypeCode()) ? "冰冻制片" : "常规制片";
         return List.of(
                 new ProgressStep("REGISTRATION", "已登记", cancelled ? "COMPLETED" : "COMPLETED"),
                 new ProgressStep("SPECIMEN", "标本", row.specimenCount() > 0 ? "COMPLETED" : "CURRENT"),

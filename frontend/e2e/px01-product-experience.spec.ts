@@ -46,7 +46,9 @@ test('技术人员从病例中心进入制片并看到轻量技术过程工作�
   await page.getByRole('button', { name: '查看制片', exact: true }).click();
 
   await expect(page).toHaveURL(/\/v2\/production\//);
-  await expect(page.getByRole('region', { name: '玻片制片工作台' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '病理技术工作台' })).toBeVisible();
+  await page.getByText('展开可选技术记录（脱水、包埋、切片、染色、封片）', { exact: true }).click();
+  await page.getByText('查看技术过程事实与异常记录', { exact: true }).click();
   await expect(page.getByRole('heading', { name: '脱水、包埋、切片、染色、封片' })).toBeVisible();
   await expect(page.getByText('轻量记录', { exact: true })).toBeVisible();
   await expect(page.getByRole('group', { name: '技术环节队列' })).toBeVisible();

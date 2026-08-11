@@ -17,6 +17,7 @@ import {
   type V2CaseWorkspace,
   type V2WorkspaceTimelineEntry,
 } from '../v2WorkspaceApi';
+import { getV2ProductionWorkbench, type V2ProductionItem } from '../v2ProductionWorkbenchApi';
 import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 const props = defineProps<{
@@ -29,6 +30,8 @@ const emit = defineEmits<{ navigate: [path: string] }>();
 
 const workspace = ref<V2CaseWorkspace | null>(null);
 const progress = ref<V2CaseProgress | null>(null);
+const productionItems = ref<V2ProductionItem[]>([]);
+const productionSummaryError = ref('');
 const loading = ref(false);
 const error = ref('');
 const activeSection = ref<'materials' | 'history' | 'responsibility' | 'reports'>('materials');
@@ -70,6 +73,25 @@ const reportStatusLabel = computed(() => {
   if (reports.some((report) => report.statusCode === 'WITHDRAWN')) return '报告已撤回';
   return reports.length ? '报告处理中' : '尚未签发';
 });
+const productionSourceLabel = computed(() => {
+  if (header.value?.businessTypeCode === 'CYTOLOGY') return '细胞制片';
+  if (header.value?.businessTypeCode === 'FROZEN') return '冰冻制片';
+  if (header.value?.businessTypeCode === 'MOLECULAR') return '技术医嘱';
+  return '常规制片';
+});
+const productionMaterialLabel = computed(() => {
+  if (header.value?.businessTypeCode === 'CYTOLOGY') return '标本直接制片';
+  if (header.value?.businessTypeCode === 'FROZEN') return 'FrozenRound 轮次制片';
+  return '取材后建立蜡块与初始玻片';
+});
+const productionTaskLabel = computed(() => {
+  if (productionItems.value.length) return productionItems.value[0].taskSummary;
+  if (progress.value?.currentStageCode === 'SIGNED') return '制片已完成，病例进入已签发状态';
+  if (progress.value?.material.required) {
+    return `材料 ${progress.value.material.completed}/${progress.value.material.required} 已完成`;
+  }
+  return progress.value?.currentStageLabel || '等待业务材料建立';
+});
 const visibleTimeline = computed(() =>
   historyTargetId.value
     ? (workspace.value?.timeline.filter((entry) => entry.targetId === historyTargetId.value) ?? [])
@@ -100,12 +122,37 @@ async function load() {
     } catch {
       progress.value = null;
     }
+    await loadProductionSummary();
   } catch (requestError) {
     error.value = friendlyError(requestError, '病例信息暂时无法加载，请刷新后重试。');
     workspace.value = null;
     progress.value = null;
+    productionItems.value = [];
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadProductionSummary() {
+  productionSummaryError.value = '';
+  const canReadProduction = (props.authUser?.permissions ?? []).some((permission) =>
+    ['P14-PERM-014', 'P14-PERM-008', 'P14-PERM-017'].includes(permission),
+  );
+  if (!canReadProduction) {
+    productionItems.value = [];
+    return;
+  }
+  try {
+    const workbench = await getV2ProductionWorkbench();
+    productionItems.value = Object.values(workbench.queues)
+      .flatMap((queue) => queue.items)
+      .filter((item) => item.caseId === props.caseId);
+  } catch (requestError) {
+    productionItems.value = [];
+    productionSummaryError.value = friendlyError(
+      requestError,
+      '当前角色暂时无法读取生产任务队列。',
+    );
   }
 }
 
@@ -215,7 +262,10 @@ function lifecycleLabel(lifecycle: string) {
           <span>标本</span><strong>{{ materialCounts.specimens }}</strong>
         </div>
         <div>
-          <span>蜡块</span><strong>{{ materialCounts.blocks }}</strong>
+          <span>{{ header.businessTypeCode === 'CYTOLOGY' ? '直接玻片' : '蜡块' }}</span
+          ><strong>{{
+            header.businessTypeCode === 'CYTOLOGY' ? materialCounts.slides : materialCounts.blocks
+          }}</strong>
         </div>
         <div>
           <span>玻片</span
@@ -271,6 +321,72 @@ function lifecycleLabel(lifecycle: string) {
             }}</small>
           </li>
         </ol>
+      </section>
+
+      <section class="workspace-panel case-business-production-panel" aria-label="业务生产摘要">
+        <header class="workspace-panel-header">
+          <div>
+            <p class="section-kicker">BUSINESS PRODUCTION</p>
+            <h3>业务生产摘要</h3>
+            <p class="muted">按业务来源展示当前制片任务；技术环节记录不决定病例生命周期。</p>
+          </div>
+          <span class="status-pill">{{ productionSourceLabel }}</span>
+        </header>
+        <div class="production-summary-grid">
+          <div>
+            <span>生产来源</span>
+            <strong>{{ productionSourceLabel }}</strong>
+            <small>{{ productionMaterialLabel }}</small>
+          </div>
+          <div>
+            <span>材料完成</span>
+            <strong
+              >{{ progress?.material.completed ?? materialCounts.completedSlides }}/{{
+                progress?.material.required ?? materialCounts.slides
+              }}</strong
+            >
+            <small>{{ progress?.material.status || derivedProgress }}</small>
+          </div>
+          <div>
+            <span>当前生产任务</span>
+            <strong>{{ productionTaskLabel }}</strong>
+            <small>{{
+              productionItems.length
+                ? `${productionItems.length} 项队列工作`
+                : '当前角色暂无待处理队列项'
+            }}</small>
+          </div>
+          <div>
+            <span>业务入口</span>
+            <strong>{{
+              header.businessTypeCode === 'FROZEN' ? 'FrozenRound' : '病例生产工作台'
+            }}</strong>
+            <small>可从当前病例继续处理</small>
+          </div>
+        </div>
+        <div v-if="productionItems.length" class="production-summary-task-list">
+          <article
+            v-for="item in productionItems"
+            :key="`${item.productionContext}-${item.slideCode ?? item.orderId ?? item.taskSummary}`"
+            class="production-summary-task"
+          >
+            <div>
+              <strong>{{ item.taskSummary }}</strong>
+              <span>{{ item.materialSummary }} · 等待 {{ item.waitingMinutes }} 分钟</span>
+            </div>
+            <button class="text-button" type="button" @click="emit('navigate', item.deepLink)">
+              进入处理
+            </button>
+          </article>
+        </div>
+        <p v-else-if="productionSummaryError" class="muted">{{ productionSummaryError }}</p>
+        <details class="optional-trace-panel case-production-trace">
+          <summary>查看可选技术记录入口</summary>
+          <p class="muted">
+            脱水、包埋、切片、染色、封片仅作为技术事实记录，可在生产工作台中展开查看，不作为默认队列。
+          </p>
+          <button class="text-button" type="button" @click="openProduction">打开生产工作台</button>
+        </details>
       </section>
 
       <nav class="case-section-tabs" aria-label="病例内容">

@@ -21,7 +21,13 @@ public class JdbcV2HistologyRepository {
     public JdbcV2HistologyRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public List<ProcessRow> findWorkbench(String organizationReference, UUID caseId) {
+        return findWorkbench(organizationReference, caseId, null);
+    }
+
+    public List<ProcessRow> findWorkbench(String organizationReference, UUID caseId, UUID frozenRoundId) {
         String caseFilter = caseId == null ? "" : " AND c.id = ? ";
+        String roundFilter = frozenRoundId == null ? ""
+                : " AND sl.source_context_type = 'FROZEN_ROUND' AND sl.source_context_id = ? ";
         String sql = """
                 SELECT sl.id AS slide_id, sl.case_id, c.case_no, context.patient_reference,
                        bt.business_type_code, s.specimen_code, b.block_code, sl.source_context_type,
@@ -46,14 +52,21 @@ public class JdbcV2HistologyRepository {
                 LEFT JOIN pis_v2.material_process_fact p
                     ON p.slide_id = sl.id AND p.phase_code = phase_codes.phase_code
                 WHERE sl.organization_reference = ? AND sl.deleted_at IS NULL AND c.lifecycle_state_code = 'ACTIVE'
-                  AND bt.modality_code = 'TISSUE' AND sl.block_id IS NOT NULL
-                """ + caseFilter + """
+                  AND bt.modality_code IN ('TISSUE', 'FROZEN')
+                  AND sl.block_id IS NOT NULL
+                """ + caseFilter + roundFilter + """
                 ORDER BY CASE WHEN sl.completed_at IS NULL THEN 0 ELSE 1 END,
                     c.case_no, sl.slide_code, phase_codes.phase_code""";
-        if (caseId == null) {
+        if (caseId == null && frozenRoundId == null) {
             return jdbc.query(sql, (rs, rowNum) -> row(rs), organizationReference);
         }
-        return jdbc.query(sql, (rs, rowNum) -> row(rs), organizationReference, caseId);
+        if (frozenRoundId == null) {
+            return jdbc.query(sql, (rs, rowNum) -> row(rs), organizationReference, caseId);
+        }
+        if (caseId == null) {
+            return jdbc.query(sql, (rs, rowNum) -> row(rs), organizationReference, frozenRoundId);
+        }
+        return jdbc.query(sql, (rs, rowNum) -> row(rs), organizationReference, caseId, frozenRoundId);
     }
 
     public Optional<SlideScope> findSlide(UUID slideId, String organizationReference) {

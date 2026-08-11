@@ -3,7 +3,8 @@ import { expect, type Page } from '@playwright/test';
 export async function login(page: Page, username: string) {
   const password = process.env.PIS_E2E_PASSWORD;
   if (!password) throw new Error('PIS_E2E_PASSWORD is required');
-  await page.goto('/v2/workbench');
+  if (!page.url().endsWith('/v2/workbench')) await page.goto('/v2/workbench');
+  await expect(page.getByRole('region', { name: 'PIS V2 登录' })).toBeVisible();
   await page.getByRole('textbox', { name: '用户名' }).fill(username);
   await page.getByRole('textbox', { name: '密码' }).fill(password);
   await page.getByRole('button', { name: '登录' }).click();

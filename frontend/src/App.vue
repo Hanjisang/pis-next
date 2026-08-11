@@ -243,6 +243,8 @@ onUnmounted(() => {
         <V2SlideProductionWorkbench
           v-else-if="route.name === 'production'"
           v-model:case-id="routeCaseId"
+          :auth-user="authUser"
+          :frozen-round-id="route.roundId || undefined"
           @navigate="navigate"
         />
         <V2ReportCenter

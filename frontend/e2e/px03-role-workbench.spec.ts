@@ -32,7 +32,8 @@ test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进�
   await page.getByRole('button', { name: '退出' }).click();
   await page.waitForURL(/\/v2\/workbench/);
   await login(page, 'technician');
-  const cytologyQueue = page.getByRole('button', { name: /待细胞制片/ });
+  const cytologyQueue = page.getByRole('button', { name: /细胞制片/ }).first();
+  await expect(page.getByText('待脱水', { exact: true })).toHaveCount(0);
   const queueBefore = Number((await cytologyQueue.textContent())?.match(/\d+$/)?.[0] ?? 0);
   expect(queueBefore).toBeGreaterThan(0);
   await cytologyQueue.click();
@@ -40,7 +41,7 @@ test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进�
   await page.getByRole('button', { name: new RegExp(pathologyNo!) }).click();
   await expect(page).toHaveURL(new RegExp(`/v2/production/`));
   await expect(page.getByRole('heading', { name: '直接建立玻片' })).toBeVisible();
-  await expect(page.getByText('蜡块可选')).toBeVisible();
+  await expect(page.getByText('不需要蜡块')).toBeVisible();
 
   await page.getByRole('textbox', { name: '玻片号' }).fill('A-1');
   await page.getByRole('button', { name: '建立直接玻片' }).click();
@@ -50,12 +51,18 @@ test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进�
 
   const technicianWorkbenchResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith('/api/v2/my-workbench') && response.request().method() === 'GET',
+      response.url().endsWith('/api/v2/production-workbench') &&
+      response.request().method() === 'GET',
   );
   await page.goto('/v2/workbench');
   await technicianWorkbenchResponse;
   const queueAfter = Number(
-    (await page.getByRole('button', { name: /待细胞制片/ }).textContent())?.match(/\d+$/)?.[0] ?? 0,
+    (
+      await page
+        .getByRole('button', { name: /细胞制片/ })
+        .first()
+        .textContent()
+    )?.match(/\d+$/)?.[0] ?? 0,
   );
   expect(queueAfter).toBe(queueBefore - 1);
   await expect(page.getByRole('button', { name: new RegExp(pathologyNo!) })).toHaveCount(0);

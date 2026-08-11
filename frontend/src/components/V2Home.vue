@@ -3,13 +3,20 @@ import { computed, onMounted, ref } from 'vue';
 
 import type { V2AuthUser } from '../auth';
 import { businessTypeName, formatDateTime, friendlyError } from '../uiText';
+import {
+  getV2ProductionWorkbench,
+  type V2ProductionQueue,
+  type V2ProductionWorkbench,
+} from '../v2ProductionWorkbenchApi';
 import { getV2MyWorkbench, type V2MyWorkbench, type V2WorkbenchItem } from '../v2WorkspaceApi';
 
 const props = defineProps<{ authUser: V2AuthUser | null }>();
 const emit = defineEmits<{ navigate: [path: string]; openSearch: [] }>();
 
 const loading = ref(false);
+const productionLoading = ref(false);
 const error = ref('');
+const productionError = ref('');
 const activeSection = ref<'MY_WORK' | 'PUBLIC_POOL' | 'REGISTERED_CASES'>('MY_WORK');
 const workbench = ref<V2MyWorkbench>({
   refreshedAt: '',
@@ -38,6 +45,7 @@ const workbench = ref<V2MyWorkbench>({
   },
   tracking: { registeredCases: [] },
 });
+const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
 
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
 const greeting = computed(() => {
@@ -130,62 +138,22 @@ const summaryCards = computed(() => {
   return cards;
 });
 
-const queueCards = computed(() => {
-  const queues = workbench.value.queues;
-  const cards = [] as Array<{ label: string; count: number; path: string; permission: string }>;
-  if (can('P14-PERM-017')) {
+const productionQueueCards = computed(() => {
+  const queues = productionWorkbench.value?.queues;
+  if (!queues) return [];
+  const cards: Array<{ queue: V2ProductionQueue; path: string }> = [];
+  if (can('P14-PERM-014')) {
     cards.push(
-      {
-        label: '待细胞制片',
-        count: queues.cytologyPreparation,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '待脱水',
-        count: queues.dehydration,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '待包埋',
-        count: queues.embedding,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '待切片',
-        count: queues.cutting,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '待染色',
-        count: queues.staining,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '待封片',
-        count: queues.coverslipping,
-        path: '/v2/production',
-        permission: 'P14-PERM-017',
-      },
-      {
-        label: '技术医嘱',
-        count: queues.technical,
-        path: '/v2/technical-orders',
-        permission: 'P14-PERM-017',
-      },
+      { queue: queues.routineProduction, path: '/v2/production' },
+      { queue: queues.cytologyProduction, path: '/v2/production' },
+      { queue: queues.incompleteSlides, path: '/v2/production' },
     );
   }
-  if (can('P14-PERM-008') || can('P14-PERM-034'))
-    cards.push({
-      label: '冰冻病例',
-      count: queues.frozen,
-      path: '/v2/frozen',
-      permission: 'P14-PERM-008',
-    });
+  if (can('P14-PERM-008')) cards.push({ queue: queues.frozenProduction, path: '/v2/production' });
+  if (can('P14-PERM-017')) cards.push({ queue: queues.technicalOrders, path: '/v2/production' });
+  if (can('P14-PERM-014') || can('P14-PERM-008') || can('P14-PERM-017')) {
+    cards.push({ queue: queues.exceptions, path: '/v2/production' });
+  }
   return cards;
 });
 
@@ -198,6 +166,19 @@ async function loadWorkbench() {
     error.value = friendlyError(requestError, '我的工作台暂时无法加载，请刷新后重试。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadProductionWorkbench() {
+  if (!(can('P14-PERM-014') || can('P14-PERM-008') || can('P14-PERM-017'))) return;
+  productionLoading.value = true;
+  productionError.value = '';
+  try {
+    productionWorkbench.value = await getV2ProductionWorkbench();
+  } catch (requestError) {
+    productionError.value = friendlyError(requestError, '生产任务暂时无法加载。');
+  } finally {
+    productionLoading.value = false;
   }
 }
 
@@ -217,7 +198,7 @@ function selectCard(code: string) {
   activeSection.value = 'MY_WORK';
 }
 
-onMounted(() => void loadWorkbench());
+onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
 </script>
 
 <template>
@@ -393,25 +374,32 @@ onMounted(() => void loadWorkbench());
           <header class="panel-title-row">
             <div>
               <p class="section-kicker">生产队列</p>
-              <h3>今天要处理什么</h3>
+              <h3>生产任务</h3>
             </div>
           </header>
+          <p v-if="productionError" class="feedback warning" role="status">{{ productionError }}</p>
+          <div v-if="productionLoading" class="list-skeleton" aria-label="正在加载生产任务">
+            <span></span><span></span><span></span>
+          </div>
           <div class="attention-list">
             <button
-              v-for="queue in queueCards"
-              :key="queue.label"
+              v-for="card in productionQueueCards"
+              :key="card.queue.code"
               type="button"
-              @click="emit('navigate', queue.path)"
+              @click="emit('navigate', card.path)"
             >
               <span class="semantic-dot current" aria-hidden="true"></span
               ><span
-                ><strong>{{ queue.label }}</strong
-                ><small>进入对应工作区</small></span
-              ><b>{{ queue.count }}</b>
+                ><strong>{{ card.queue.label }}</strong
+                ><small>按业务来源进入工作区</small></span
+              ><b>{{ card.queue.count }}</b>
             </button>
           </div>
-          <div v-if="!queueCards.length" class="empty-state compact">
-            <strong>当前身份没有生产队列</strong>
+          <div
+            v-if="!productionLoading && !productionQueueCards.length"
+            class="empty-state compact"
+          >
+            <strong>当前身份没有生产任务</strong>
           </div>
         </section>
         <section v-if="can('P14-PERM-048')" class="workspace-panel workbench-today-panel">

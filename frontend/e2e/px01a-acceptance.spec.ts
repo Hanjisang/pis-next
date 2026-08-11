@@ -111,13 +111,15 @@ async function completeGrossing(
   await expect(page.getByRole('status').filter({ hasText: '取材已完成' })).toBeVisible();
 }
 
-async function completeProduction(page: Page, caseRef: CaseRef) {
-  await page.goto(`/v2/production/${caseRef.caseId}`);
-  await expect(page.getByLabel('玻片制片工作台')).toBeVisible();
+async function completeProduction(page: Page, caseRef: CaseRef, sourceQuery = '') {
+  await page.goto(`/v2/production/${caseRef.caseId}${sourceQuery}`);
+  await expect(page.getByLabel('病理技术工作台')).toBeVisible();
+  await page.getByText('展开可选技术记录（脱水、包埋、切片、染色、封片）', { exact: true }).click();
+  await page.getByText('查看技术过程事实与异常记录', { exact: true }).click();
   const workList = page.getByRole('table', { name: '技术环节材料列表' });
   await expect(workList).toBeVisible();
   const slideCodes = await workList
-    .locator('.histology-work-row:not(.header) > span:nth-child(3) > strong')
+    .locator('.histology-work-row:not(.header) > span:nth-child(4) > strong')
     .allTextContents();
   expect(slideCodes.length).toBeGreaterThan(0);
   for (const [phase, queue] of [
@@ -151,10 +153,11 @@ async function completeProduction(page: Page, caseRef: CaseRef) {
 
 async function completeHistology(page: Page, caseRef: CaseRef) {
   await page.goto(`/v2/production/${caseRef.caseId}`);
-  await expect(page.getByLabel('脱水、包埋、切片、染色、封片')).toBeVisible();
+  await page.getByText('展开可选技术记录（脱水、包埋、切片、染色、封片）', { exact: true }).click();
+  await page.getByText('查看技术过程事实与异常记录', { exact: true }).click();
   const workList = page.getByRole('table', { name: '技术环节材料列表' });
   const slideCodes = await workList
-    .locator('.histology-work-row:not(.header) > span:nth-child(3) > strong')
+    .locator('.histology-work-row:not(.header) > span:nth-child(4) > strong')
     .allTextContents();
   expect(slideCodes.length).toBeGreaterThan(0);
 
@@ -222,8 +225,17 @@ async function prepareRoutineCase(page: Page, testInfo: TestInfo): Promise<CaseR
   await logout(page);
   await login(page, 'technician');
   await completeGrossing(page, caseRef, ['A1', 'A2']);
+  await assertRoutineBusinessQueue(page, caseRef);
   await completeProduction(page, caseRef);
   return caseRef;
+}
+
+async function assertRoutineBusinessQueue(page: Page, caseRef: CaseRef) {
+  await page.goto('/v2/production');
+  const routineQueue = page.locator('.production-source-queue[aria-label="常规制片"]');
+  await expect(routineQueue).toBeVisible();
+  await expect(routineQueue).toContainText(caseRef.pathologyNo);
+  await expect(page.getByRole('button', { name: /待脱水/ })).toHaveCount(0);
 }
 
 async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
@@ -247,6 +259,11 @@ async function runDiagnosisChain(page: Page, caseRef: CaseRef) {
 
   await logout(page);
   await login(page, 'technician');
+  await page.goto('/v2/production');
+  const technicalQueue = page.locator('.production-source-queue[aria-label="技术医嘱"]');
+  await expect(technicalQueue).toBeVisible();
+  await expect(technicalQueue).toContainText(caseRef.pathologyNo);
+  await expect(page.getByRole('button', { name: /待脱水/ })).toHaveCount(0);
   await page.getByRole('button', { name: '技术医嘱', exact: true }).click();
   const pendingOrder = page
     .locator('.technical-order-card')
@@ -475,7 +492,12 @@ test('PX01A-K：冰冻第1/2轮、独立签发和冰剩常规病例真实写入'
   await page.getByRole('button', { name: /取材与制片/ }).click();
   const roundOneQuery = new URL(page.url()).search;
   await completeGrossing(page, caseRef, ['A1'], roundOneQuery);
-  await completeProduction(page, caseRef);
+  await page.goto('/v2/production');
+  const frozenQueue = page.locator('.production-source-queue[aria-label="冰冻制片"]');
+  await expect(frozenQueue).toBeVisible();
+  await expect(frozenQueue).toContainText(caseRef.pathologyNo);
+  await expect(page.getByRole('button', { name: /待脱水/ })).toHaveCount(0);
+  await completeProduction(page, caseRef, roundOneQuery);
   await signFrozenRound(page, caseRef, 1);
 
   await logout(page);
@@ -488,7 +510,7 @@ test('PX01A-K：冰冻第1/2轮、独立签发和冰剩常规病例真实写入'
   await page.getByRole('button', { name: /取材与制片/ }).click();
   const roundTwoQuery = new URL(page.url()).search;
   await completeGrossing(page, caseRef, ['B1'], roundTwoQuery);
-  await completeProduction(page, caseRef);
+  await completeProduction(page, caseRef, roundTwoQuery);
   await signFrozenRound(page, caseRef, 2);
 
   await logout(page);

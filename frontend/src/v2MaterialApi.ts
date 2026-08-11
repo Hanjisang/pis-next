@@ -46,6 +46,8 @@ export type V2MaterialTree = {
     usesHistologyProcessing: boolean;
     requiresSlideCompletion: boolean;
     diagnosisEnabled: boolean;
+    initialSlideRule?: string | null;
+    productionCapabilities?: string[];
   };
   specimens: Array<{
     specimenId: string;
