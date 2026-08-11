@@ -23,6 +23,37 @@ export type V2WorkbenchItem = {
   caseCreatedAt: string;
   availableActions: string[];
   deepLink: string;
+  enteredAt: string;
+  waitingMinutes: number;
+};
+
+export type V2BusinessTypeCapability = {
+  businessTypeCode: string;
+  modalityCode: string;
+  requiresGrossing: boolean;
+  supportsBlocks: boolean;
+  supportsDirectSlides: boolean;
+  usesHistologyProcessing: boolean;
+  requiresSlideCompletion: boolean;
+  diagnosisEnabled: boolean;
+};
+
+export type V2CaseProgress = {
+  caseId: string;
+  pathologyNo: string;
+  patientReference: string;
+  businessTypeCode: string;
+  businessTypeName: string;
+  lifecycle: string;
+  currentStageCode: string;
+  currentStageLabel: string;
+  currentResponsible: string | null;
+  material: { completed: number; required: number; status: string };
+  reportStatus: string;
+  enteredAt: string;
+  waitingMinutes: number;
+  capability: V2BusinessTypeCapability;
+  steps: Array<{ code: string; label: string; status: string }>;
 };
 
 export type V2WorkbenchCounts = {
@@ -44,6 +75,8 @@ export type V2WorkbenchQueues = {
   technical: number;
   frozen: number;
   withdrawn: number;
+  cytologyPreparation: number;
+  cytologyPreparationCases: V2WorkbenchItem[];
 };
 
 export type V2MyWorkbench = {
@@ -52,6 +85,7 @@ export type V2MyWorkbench = {
   publicPool: V2WorkbenchItem[];
   counts: V2WorkbenchCounts;
   queues: V2WorkbenchQueues;
+  tracking: { registeredCases: V2CaseProgress[] };
 };
 
 export async function getV2MyWorkbench(): Promise<V2MyWorkbench> {
@@ -80,8 +114,18 @@ export async function getV2MyWorkbench(): Promise<V2MyWorkbench> {
       technical: 0,
       frozen: 0,
       withdrawn: 0,
+      cytologyPreparation: 0,
+      cytologyPreparationCases: [],
     },
+    tracking: body.tracking ?? { registeredCases: [] },
   };
+}
+
+export async function getV2CaseProgress(caseId: string): Promise<V2CaseProgress> {
+  const response = await fetch(`/api/v2/cases/${encodeURIComponent(caseId)}/progress`);
+  const body = (await response.json()) as V2CaseProgress & { message?: string };
+  if (!response.ok) throw new Error(body.message ?? '病例进度暂时无法加载');
+  return body;
 }
 
 export type V2CaseHeader = {

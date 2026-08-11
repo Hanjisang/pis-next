@@ -46,6 +46,7 @@ public class JdbcV2HistologyRepository {
                 LEFT JOIN pis_v2.material_process_fact p
                     ON p.slide_id = sl.id AND p.phase_code = phase_codes.phase_code
                 WHERE sl.organization_reference = ? AND sl.deleted_at IS NULL AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'TISSUE' AND sl.block_id IS NOT NULL
                 """ + caseFilter + """
                 ORDER BY CASE WHEN sl.completed_at IS NULL THEN 0 ELSE 1 END,
                     c.case_no, sl.slide_code, phase_codes.phase_code""";

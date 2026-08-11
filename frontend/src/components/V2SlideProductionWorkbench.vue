@@ -11,6 +11,7 @@ import {
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
 import V2HistoryDrawer from './V2HistoryDrawer.vue';
+import { getV2MyWorkbench, type V2WorkbenchItem } from '../v2WorkspaceApi';
 import {
   completeV2HistologyPhase,
   getV2HistologyWorkbench,
@@ -69,6 +70,7 @@ const exceptionFormOpen = ref(false);
 const exceptionCode = ref('');
 const exceptionNote = ref('');
 const historyDrawerOpen = ref(false);
+const cytologyPreparationCases = ref<V2WorkbenchItem[]>([]);
 
 const caseSlides = computed(() =>
   caseId.value
@@ -80,8 +82,11 @@ const caseMaterialProgress = computed(() => {
   if (!caseSlides.value.length) return '0/0';
   return `${caseSlides.value.filter((slide) => slide.slideCompletedAt).length}/${caseSlides.value.length}`;
 });
-const supportsDirectSlide = computed(() =>
-  ['CYTOLOGY_NON_GYN', 'CYTOLOGY'].includes(materialTree.value?.businessTypeCode ?? ''),
+const supportsDirectSlide = computed(
+  () => materialTree.value?.capability?.supportsDirectSlides ?? false,
+);
+const directSlides = computed(
+  () => materialTree.value?.specimens.flatMap((specimen) => specimen.directSlides) ?? [],
 );
 const selectedHistologySlide = computed(
   () =>
@@ -151,6 +156,7 @@ watch(
   () => {
     void loadMaterialTree();
     void loadHistology();
+    void loadCytologyQueue();
   },
 );
 
@@ -196,6 +202,19 @@ async function loadHistology() {
     histologyError.value = friendlyError(requestError, '技术过程记录暂时无法加载。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadCytologyQueue() {
+  if (caseId.value) {
+    cytologyPreparationCases.value = [];
+    return;
+  }
+  try {
+    const response = await getV2MyWorkbench();
+    cytologyPreparationCases.value = response.queues.cytologyPreparationCases;
+  } catch {
+    cytologyPreparationCases.value = [];
   }
 }
 
@@ -289,6 +308,19 @@ function createDirectSlide() {
   });
 }
 
+function completeDirectSlide(slide: NonNullable<typeof directSlides.value>[number]) {
+  if (slide.completed) return;
+  void run(async () => {
+    await completeV2Slide({
+      slideId: slide.slideId,
+      expectedVersion: slide.concurrencyVersion,
+      idempotencyKey: idempotencyKey('px03-cytology-slide-complete'),
+    });
+    notice.value = `直接玻片 ${slide.slideCode} 已完成，病例进入待诊断。`;
+    await loadMaterialTree();
+  });
+}
+
 function phaseLabel(phaseCode: HistologyPhaseCode) {
   return histologyPhases.find((phase) => phase.code === phaseCode)?.label ?? phaseCode;
 }
@@ -368,7 +400,7 @@ function submitHistologyException() {
 }
 
 onMounted(() => {
-  void Promise.all([loadMaterialTree(), loadHistology()]);
+  void Promise.all([loadMaterialTree(), loadHistology(), loadCytologyQueue()]);
 });
 </script>
 
@@ -397,6 +429,36 @@ onMounted(() => {
 
     <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
     <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
+
+    <section
+      v-if="!caseId && cytologyPreparationCases.length"
+      class="workspace-panel cytology-preparation-queue"
+      aria-labelledby="cytology-preparation-heading"
+    >
+      <header class="panel-title-row">
+        <div>
+          <p class="section-kicker">CYTOLOGY</p>
+          <h3 id="cytology-preparation-heading">待细胞制片</h3>
+          <p class="panel-help">已登记并收到标本即可进入队列，建立直接玻片前不需要蜡块。</p>
+        </div>
+        <span class="status-pill warning">{{ cytologyPreparationCases.length }} 例</span>
+      </header>
+      <button
+        v-for="item in cytologyPreparationCases"
+        :key="item.caseId"
+        type="button"
+        class="personal-queue-row"
+        @click="emit('navigate', `/v2/production/${item.caseId}`)"
+      >
+        <span class="queue-row-main">
+          <strong>{{ item.pathologyNo }}</strong>
+          <small>{{ item.patientReference }} · {{ item.businessTypeName }}</small>
+        </span>
+        <span>{{ item.workLabel }}</span>
+        <small>{{ formatDateTime(item.enteredAt) }}</small>
+        <span class="queue-row-arrow" aria-hidden="true">→</span>
+      </button>
+    </section>
 
     <V2CaseHeader
       v-if="caseHeaderSlide"
@@ -586,6 +648,27 @@ onMounted(() => {
       <button class="secondary-button" type="button" :disabled="busy" @click="createDirectSlide">
         建立直接玻片
       </button>
+      <div v-if="directSlides.length" class="direct-slide-list">
+        <h4>标本直接玻片</h4>
+        <div v-for="slide in directSlides" :key="slide.slideId" class="direct-slide-row">
+          <span
+            ><strong>{{ slide.slideCode }}</strong
+            ><small>{{ slide.slideType }}</small></span
+          >
+          <span :class="slide.completed ? 'status-pill success' : 'status-pill warning'">
+            {{ slide.completed ? '已完成' : '待完成' }}
+          </span>
+          <button
+            v-if="!slide.completed"
+            class="primary-button"
+            type="button"
+            :disabled="busy"
+            @click="completeDirectSlide(slide)"
+          >
+            完成玻片
+          </button>
+        </div>
+      </div>
     </section>
 
     <section class="workspace-panel histology-fact-panel" aria-labelledby="histology-heading">

@@ -104,6 +104,41 @@ public class JdbcV2WorkbenchRepository {
                 """, (rs, rowNum) -> row(rs), organizationReference);
     }
 
+    public List<WorkbenchRow> findCytologyPreparation(String organizationReference) {
+        return jdbc.query("""
+                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       'CYTOLOGY_PREPARATION' AS work_code,
+                       '待细胞制片' AS work_label,
+                       '制片人员' AS responsibility_name,
+                       COALESCE(MAX(s.created_at), c.created_at) AS occurred_at,
+                       c.created_at AS case_created_at
+                FROM pis_v2.pathology_case c
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                JOIN pis_v2.specimen s ON s.case_id = c.id
+                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = (
+                    SELECT MAX(ctx2.snapshot_version_no) FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'CYTOLOGY' AND s.deleted_at IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM pis_v2.specimen candidate
+                      WHERE candidate.case_id = c.id AND candidate.deleted_at IS NULL
+                        AND NOT EXISTS (
+                            SELECT 1 FROM pis_v2.slide direct_slide
+                            WHERE direct_slide.case_id = c.id
+                              AND direct_slide.specimen_id = candidate.id
+                              AND direct_slide.source_context_type = 'CYTOLOGY'
+                              AND direct_slide.required = TRUE
+                              AND direct_slide.completed_at IS NOT NULL
+                              AND direct_slide.deleted_at IS NULL
+                        )
+                  )
+                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name,
+                         ctx.patient_reference, c.created_at
+                ORDER BY occurred_at, c.id
+                """, (rs, rowNum) -> row(rs), organizationReference);
+    }
+
     public List<WorkbenchRow> findPublicPool(String organizationReference) {
         return jdbc.query("""
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
@@ -124,7 +159,7 @@ public class JdbcV2WorkbenchRepository {
                           WHERE mr.case_id = c.id AND mr.organization_reference = ? AND mr.status_code = 'COMPLETED'
                       ))
                       OR
-                      (bt.business_type_code NOT IN ('MOLECULAR', 'FROZEN')
+                      (bt.modality_code NOT IN ('MOLECULAR', 'FROZEN')
                        AND EXISTS (
                           SELECT 1 FROM pis_v2.slide s
                           WHERE s.case_id = c.id AND s.required = TRUE AND s.completed_at IS NOT NULL
@@ -147,8 +182,11 @@ public class JdbcV2WorkbenchRepository {
 
     public QueueCounts findQueueCounts(String organizationReference) {
         int histology = count("""
-                SELECT COUNT(*) FROM pis_v2.slide s JOIN pis_v2.pathology_case c ON c.id = s.case_id
+                SELECT COUNT(*) FROM pis_v2.slide s
+                JOIN pis_v2.pathology_case c ON c.id = s.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'TISSUE' AND s.block_id IS NOT NULL
                   AND s.deleted_at IS NULL AND s.completed_at IS NULL
                 """, organizationReference);
         int dehydration = phaseCount(organizationReference, "DEHYDRATION");
@@ -168,14 +206,36 @@ public class JdbcV2WorkbenchRepository {
                 SELECT COUNT(DISTINCT r.case_id) FROM pis_v2.report r
                 WHERE r.organization_reference = ? AND r.status_code = 'WITHDRAWN'
                 """, organizationReference);
+        int cytologyPreparation = count("""
+                SELECT COUNT(*) FROM pis_v2.pathology_case c
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'CYTOLOGY'
+                  AND EXISTS (
+                      SELECT 1 FROM pis_v2.specimen specimen
+                      WHERE specimen.case_id = c.id AND specimen.deleted_at IS NULL
+                        AND NOT EXISTS (
+                            SELECT 1 FROM pis_v2.slide direct_slide
+                            WHERE direct_slide.case_id = c.id
+                              AND direct_slide.specimen_id = specimen.id
+                              AND direct_slide.source_context_type = 'CYTOLOGY'
+                              AND direct_slide.required = TRUE
+                              AND direct_slide.completed_at IS NOT NULL
+                              AND direct_slide.deleted_at IS NULL
+                        )
+                  )
+                """, organizationReference);
         return new QueueCounts(histology, dehydration, embedding, cutting, staining, coverslipping,
-                technical, frozen, withdrawn);
+                technical, frozen, withdrawn, cytologyPreparation);
     }
 
     private int phaseCount(String organizationReference, String phaseCode) {
         return count("""
-                SELECT COUNT(*) FROM pis_v2.slide s JOIN pis_v2.pathology_case c ON c.id = s.case_id
-                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE' AND s.deleted_at IS NULL
+                SELECT COUNT(*) FROM pis_v2.slide s
+                JOIN pis_v2.pathology_case c ON c.id = s.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'TISSUE' AND s.block_id IS NOT NULL AND s.deleted_at IS NULL
                   AND EXISTS (SELECT 1 FROM pis_v2.material_process_fact f
                               WHERE f.slide_id = s.id AND f.phase_code = ? AND f.completed_at IS NULL)
                 """, organizationReference, phaseCode);
@@ -200,5 +260,5 @@ public class JdbcV2WorkbenchRepository {
             String responsibilityName, Instant occurredAt, Instant caseCreatedAt) { }
 
     public record QueueCounts(int histology, int dehydration, int embedding, int cutting, int staining,
-            int coverslipping, int technical, int frozen, int withdrawn) { }
+            int coverslipping, int technical, int frozen, int withdrawn, int cytologyPreparation) { }
 }

@@ -25,6 +25,8 @@ import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.domain.Specimen;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
+import com.hanjisang.pis.v2.capability.BusinessTypeCapability;
+import com.hanjisang.pis.v2.capability.BusinessTypeCapabilityService;
 import com.hanjisang.pis.v2.material.domain.Block;
 import com.hanjisang.pis.v2.material.domain.Grossing;
 import com.hanjisang.pis.v2.material.domain.PrintRule;
@@ -48,16 +50,19 @@ public class V2MaterialProductionApplicationService {
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
     private final LabelPrintService labelPrintService;
+    private final BusinessTypeCapabilityService capabilityService;
 
     public V2MaterialProductionApplicationService(JdbcV2MaterialRepository repository,
             JdbcV2RegistrationRepository registrationRepository, P15AuthorizationService authorization,
-            JdbcAuditEventRepository audit, OutboxPort outbox, LabelPrintService labelPrintService) {
+            JdbcAuditEventRepository audit, OutboxPort outbox, LabelPrintService labelPrintService,
+            BusinessTypeCapabilityService capabilityService) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
         this.labelPrintService = labelPrintService;
+        this.capabilityService = capabilityService;
     }
 
     @Transactional
@@ -222,8 +227,9 @@ public class V2MaterialProductionApplicationService {
         validate(command.slideType(), "切片类型不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
         Case pathologyCase = activeCase(caseId, actor);
-        if (!pathologyCase.businessTypeCode().startsWith("CYTOLOGY_")) {
-            throw reject("V2-CYTOLOGY-CASE-REQUIRED", "直接细胞切片只能进入细胞病例");
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.supportsDirectSlides()) {
+            throw reject("V2-DIRECT-SLIDE-CAPABILITY-REQUIRED", "当前业务类型未启用直接玻片路径");
         }
         Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
                 .filter(item -> item.caseId().equals(caseId) && !item.deleted())
@@ -606,7 +612,8 @@ public class V2MaterialProductionApplicationService {
             }
         }
         return new MaterialTreeResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
-                specimenNodes, required, completed, required > 0 && required == completed);
+                capabilityService.forBusinessType(pathologyCase.businessTypeCode()), specimenNodes, required,
+                completed, required > 0 && required == completed);
     }
 
     @Transactional(readOnly = true)
@@ -911,6 +918,7 @@ public class V2MaterialProductionApplicationService {
     public record PrintResult(UUID entityId, boolean duplicate, String resultCode) { }
 
     public record MaterialTreeResult(UUID caseId, String caseNo, String businessTypeCode,
+            BusinessTypeCapability capability,
             List<SpecimenNode> specimens, int initialRequiredCount, int initialCompletedCount,
             boolean initialProductionComplete) { }
 

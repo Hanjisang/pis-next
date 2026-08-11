@@ -11,7 +11,9 @@ import {
   statusName,
 } from '../uiText';
 import {
+  getV2CaseProgress,
   getV2CaseWorkspace,
+  type V2CaseProgress,
   type V2CaseWorkspace,
   type V2WorkspaceTimelineEntry,
 } from '../v2WorkspaceApi';
@@ -26,6 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{ navigate: [path: string] }>();
 
 const workspace = ref<V2CaseWorkspace | null>(null);
+const progress = ref<V2CaseProgress | null>(null);
 const loading = ref(false);
 const error = ref('');
 const activeSection = ref<'materials' | 'history' | 'responsibility' | 'reports'>('materials');
@@ -92,9 +95,15 @@ async function load() {
   error.value = '';
   try {
     workspace.value = await getV2CaseWorkspace(props.caseId);
+    try {
+      progress.value = await getV2CaseProgress(props.caseId);
+    } catch {
+      progress.value = null;
+    }
   } catch (requestError) {
     error.value = friendlyError(requestError, '病例信息暂时无法加载，请刷新后重试。');
     workspace.value = null;
+    progress.value = null;
   } finally {
     loading.value = false;
   }
@@ -216,15 +225,53 @@ function lifecycleLabel(lifecycle: string) {
           <span>建立时间</span><strong>{{ formatDateTime(header.createdAt) }}</strong>
         </div>
         <div>
-          <span>当前责任</span><strong>{{ currentResponsibilityLabel }}</strong>
+          <span>当前责任</span
+          ><strong>{{ progress?.currentResponsible || currentResponsibilityLabel }}</strong>
         </div>
         <div>
-          <span>当前进度</span><strong>{{ derivedProgress }}</strong>
+          <span>当前进度</span><strong>{{ progress?.currentStageLabel || derivedProgress }}</strong>
         </div>
         <div>
-          <span>报告状态</span><strong>{{ reportStatusLabel }}</strong>
+          <span>报告状态</span
+          ><strong>{{
+            progress?.reportStatus === 'EFFECTIVE'
+              ? '已签发'
+              : progress?.reportStatus === 'WITHDRAWN'
+                ? '报告已撤回'
+                : progress?.reportStatus
+                  ? '报告处理中'
+                  : reportStatusLabel
+          }}</strong>
         </div>
       </div>
+
+      <section
+        v-if="progress"
+        class="workspace-panel case-progress-panel"
+        aria-label="病例进度投影"
+      >
+        <header class="workspace-panel-header">
+          <div>
+            <p class="section-kicker">CASE PROGRESS</p>
+            <h3>{{ progress.currentStageLabel }}</h3>
+            <p class="muted">
+              当前责任 {{ progress.currentResponsible || '待分派' }} · 已等待
+              {{ progress.waitingMinutes }} 分钟
+            </p>
+          </div>
+          <span class="status-pill" :class="{ success: progress.currentStageCode === 'SIGNED' }">
+            {{ progress.material.status }}
+          </span>
+        </header>
+        <ol class="case-progress-steps">
+          <li v-for="step in progress.steps" :key="step.code" :class="step.status.toLowerCase()">
+            <span>{{ step.label }}</span
+            ><small>{{
+              step.status === 'COMPLETED' ? '已完成' : step.status === 'CURRENT' ? '当前' : '待处理'
+            }}</small>
+          </li>
+        </ol>
+      </section>
 
       <nav class="case-section-tabs" aria-label="病例内容">
         <button

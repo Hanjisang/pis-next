@@ -1,6 +1,7 @@
 package com.hanjisang.pis.v2.workbench.application;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,11 +30,13 @@ public class V2WorkbenchApplicationService {
 
     private final JdbcV2WorkbenchRepository repository;
     private final P15AuthorizationService authorization;
+    private final CaseProgressProjectionApplicationService progressProjection;
 
     public V2WorkbenchApplicationService(JdbcV2WorkbenchRepository repository,
-            P15AuthorizationService authorization) {
+            P15AuthorizationService authorization, CaseProgressProjectionApplicationService progressProjection) {
         this.repository = repository;
         this.authorization = authorization;
+        this.progressProjection = progressProjection;
     }
 
     @Transactional(readOnly = true)
@@ -59,20 +62,28 @@ public class V2WorkbenchApplicationService {
         List<WorkItem> publicPool = publicRows.stream()
                 .map(row -> workItem(row, Set.of("CLAIM"))).toList();
         QueueCounts queueCounts = repository.findQueueCounts(actor.hospitalScope());
+        List<WorkItem> cytologyPreparationCases = hasTechnicalProductionAccess(user)
+                ? repository.findCytologyPreparation(actor.hospitalScope()).stream()
+                        .map(row -> workItem(row, Set.of("OPEN"))).toList()
+                : List.of();
         Counts counts = new Counts(
                 count(myWork, "INITIAL"), count(myWork, "REVIEW"), count(myWork, "AUDIT"),
                 count(myWork, "TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION"),
                 count(myWork, "WITHDRAWN_REPORT_REQUIRES_ATTENTION"), publicPool.size());
         return new WorkbenchResult(Instant.now(), myWork, publicPool, counts,
-                QueueSummary.from(queueCounts, user));
+                QueueSummary.from(queueCounts, user, cytologyPreparationCases),
+                hasAny(user, WORKBENCH_QUERY) ? new TrackingSummary(progressProjection.registeredCases())
+                        : new TrackingSummary(List.of()));
     }
 
     private static WorkItem workItem(WorkbenchRow row, Set<String> actions) {
+        Instant enteredAt = row.occurredAt() == null ? row.caseCreatedAt() : row.occurredAt();
         return new WorkItem(row.caseId(), row.pathologyNo(), row.patientReference(), row.businessTypeCode(),
                 row.businessTypeName(), row.workCode(), row.workLabel(), row.responsibilityName(),
                 row.occurredAt(), row.caseCreatedAt(), actions,
                 row.workCode().equals("PUBLIC_POOL") ? "/v2/diagnosis/" + row.caseId()
-                        : "/v2/cases/" + row.caseId());
+                        : "/v2/cases/" + row.caseId(), enteredAt,
+                Math.max(0, Duration.between(enteredAt, Instant.now()).toMinutes()));
     }
 
     private static Set<String> availableActions(String workCode, AuthenticatedUser user) {
@@ -104,21 +115,25 @@ public class V2WorkbenchApplicationService {
     }
 
     public record WorkbenchResult(Instant refreshedAt, List<WorkItem> myWork, List<WorkItem> publicPool,
-            Counts counts, QueueSummary queues) { }
+            Counts counts, QueueSummary queues, TrackingSummary tracking) { }
+
+    public record TrackingSummary(List<CaseProgressProjectionApplicationService.CaseProgress> registeredCases) { }
 
     public record Counts(int initial, int review, int audit, int technicalResultReturned,
             int withdrawnReport, int publicPool) { }
 
     public record WorkItem(UUID caseId, String pathologyNo, String patientReference, String businessTypeCode,
             String businessTypeName, String workCode, String workLabel, String responsibilityName,
-            Instant occurredAt, Instant caseCreatedAt, Set<String> availableActions, String deepLink) { }
+            Instant occurredAt, Instant caseCreatedAt, Set<String> availableActions, String deepLink,
+            Instant enteredAt, long waitingMinutes) { }
 
     public record QueueSummary(int histology, int dehydration, int embedding, int cutting, int staining,
-            int coverslipping, int technical, int frozen, int withdrawn) {
-        static QueueSummary from(QueueCounts counts, AuthenticatedUser user) {
+            int coverslipping, int technical, int frozen, int withdrawn, int cytologyPreparation,
+            List<WorkItem> cytologyPreparationCases) {
+        static QueueSummary from(QueueCounts counts, AuthenticatedUser user, List<WorkItem> cytologyCases) {
             if (user == null) return new QueueSummary(counts.histology(), counts.dehydration(), counts.embedding(),
                     counts.cutting(), counts.staining(), counts.coverslipping(), counts.technical(), counts.frozen(),
-                    counts.withdrawn());
+                    counts.withdrawn(), counts.cytologyPreparation(), cytologyCases);
             return new QueueSummary(hasAny(user, "P14-PERM-014") ? counts.histology() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.dehydration() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.embedding() : 0,
@@ -127,7 +142,13 @@ public class V2WorkbenchApplicationService {
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.coverslipping() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.technical() : 0,
                     hasAny(user, "P14-PERM-008", DIAGNOSIS_INITIAL) ? counts.frozen() : 0,
-                    hasAny(user, REPORT_SIGN_OUT) ? counts.withdrawn() : 0);
+                    hasAny(user, REPORT_SIGN_OUT) ? counts.withdrawn() : 0,
+                    hasTechnicalProductionAccess(user) ? counts.cytologyPreparation() : 0,
+                    hasTechnicalProductionAccess(user) ? cytologyCases : List.of());
         }
+    }
+
+    private static boolean hasTechnicalProductionAccess(AuthenticatedUser user) {
+        return hasAny(user, TECHNICAL_EXECUTION) && hasAny(user, "P14-PERM-014");
     }
 }

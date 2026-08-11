@@ -10,7 +10,7 @@ const emit = defineEmits<{ navigate: [path: string]; openSearch: [] }>();
 
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'MY_WORK' | 'PUBLIC_POOL'>('MY_WORK');
+const activeSection = ref<'MY_WORK' | 'PUBLIC_POOL' | 'REGISTERED_CASES'>('MY_WORK');
 const workbench = ref<V2MyWorkbench>({
   refreshedAt: '',
   myWork: [],
@@ -33,7 +33,10 @@ const workbench = ref<V2MyWorkbench>({
     technical: 0,
     frozen: 0,
     withdrawn: 0,
+    cytologyPreparation: 0,
+    cytologyPreparationCases: [],
   },
+  tracking: { registeredCases: [] },
 });
 
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
@@ -48,8 +51,9 @@ function can(permission: string) {
 }
 
 const activeItems = computed(() =>
-  activeSection.value === 'MY_WORK' ? workbench.value.myWork : workbench.value.publicPool,
+  activeSection.value === 'PUBLIC_POOL' ? workbench.value.publicPool : workbench.value.myWork,
 );
+const registeredCases = computed(() => workbench.value.tracking.registeredCases);
 
 const groupedItems = computed(() => {
   const groups = new Map<string, V2WorkbenchItem[]>();
@@ -115,6 +119,14 @@ const summaryCards = computed(() => {
       hint: '可认领病例',
     });
   }
+  if (can('P14-PERM-048')) {
+    cards.push({
+      code: 'REGISTERED_CASES',
+      label: '我登记的病例',
+      count: registeredCases.value.length,
+      hint: '登记后的全流程追踪',
+    });
+  }
   return cards;
 });
 
@@ -123,6 +135,12 @@ const queueCards = computed(() => {
   const cards = [] as Array<{ label: string; count: number; path: string; permission: string }>;
   if (can('P14-PERM-017')) {
     cards.push(
+      {
+        label: '待细胞制片',
+        count: queues.cytologyPreparation,
+        path: '/v2/production',
+        permission: 'P14-PERM-017',
+      },
       {
         label: '待脱水',
         count: queues.dehydration,
@@ -192,6 +210,10 @@ function selectCard(code: string) {
     activeSection.value = 'PUBLIC_POOL';
     return;
   }
+  if (code === 'REGISTERED_CASES') {
+    activeSection.value = 'REGISTERED_CASES';
+    return;
+  }
   activeSection.value = 'MY_WORK';
 }
 
@@ -226,7 +248,11 @@ onMounted(() => void loadWorkbench());
         :key="card.code"
         type="button"
         class="task-summary"
-        :class="{ selected: activeSection === 'PUBLIC_POOL' && card.code === 'PUBLIC_POOL' }"
+        :class="{
+          selected:
+            (activeSection === 'PUBLIC_POOL' && card.code === 'PUBLIC_POOL') ||
+            (activeSection === 'REGISTERED_CASES' && card.code === 'REGISTERED_CASES'),
+        }"
         @click="selectCard(card.code)"
       >
         <span
@@ -242,9 +268,23 @@ onMounted(() => void loadWorkbench());
         <header class="panel-title-row">
           <div>
             <p class="section-kicker">
-              {{ activeSection === 'MY_WORK' ? 'MY WORK' : 'PUBLIC POOL' }}
+              {{
+                activeSection === 'MY_WORK'
+                  ? 'MY WORK'
+                  : activeSection === 'PUBLIC_POOL'
+                    ? 'PUBLIC POOL'
+                    : 'REGISTERED CASES'
+              }}
             </p>
-            <h3>{{ activeSection === 'MY_WORK' ? '我的责任' : '可认领病例' }}</h3>
+            <h3>
+              {{
+                activeSection === 'MY_WORK'
+                  ? '我的责任'
+                  : activeSection === 'PUBLIC_POOL'
+                    ? '可认领病例'
+                    : '我登记的病例'
+              }}
+            </h3>
           </div>
           <div class="segmented-control" role="tablist" aria-label="工作项范围">
             <button
@@ -261,9 +301,50 @@ onMounted(() => void loadWorkbench());
             >
               公共池
             </button>
+            <button
+              v-if="can('P14-PERM-048')"
+              type="button"
+              :class="{ active: activeSection === 'REGISTERED_CASES' }"
+              @click="activeSection = 'REGISTERED_CASES'"
+            >
+              我登记的病例
+            </button>
           </div>
         </header>
-        <div v-if="loading" class="list-skeleton" aria-label="正在加载待办">
+        <div v-if="activeSection === 'REGISTERED_CASES'" class="registered-case-list">
+          <button
+            v-for="item in registeredCases"
+            :key="item.caseId"
+            type="button"
+            class="registered-case-row"
+            @click="emit('navigate', `/v2/cases/${item.caseId}`)"
+          >
+            <span class="queue-row-main">
+              <strong>{{ item.pathologyNo }}</strong>
+              <small
+                >{{ item.patientReference }} · {{ businessTypeName(item.businessTypeCode) }}</small
+              >
+            </span>
+            <span
+              ><strong>{{ item.currentStageLabel }}</strong
+              ><small>{{ item.currentResponsible || '待分派' }}</small></span
+            >
+            <span
+              ><strong>{{ item.material.status }}</strong
+              ><small>材料进度</small></span
+            >
+            <span
+              ><strong>{{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '处理中' }}</strong
+              ><small>报告状态</small></span
+            >
+            <span class="queue-row-arrow" aria-hidden="true">→</span>
+          </button>
+          <div v-if="!registeredCases.length" class="empty-state">
+            <strong>还没有我登记的病例</strong>
+            <span>登记病例并建立标本后，当前阶段和责任人会持续显示在这里。</span>
+          </div>
+        </div>
+        <div v-else-if="loading" class="list-skeleton" aria-label="正在加载待办">
           <span></span><span></span><span></span>
         </div>
         <div v-else-if="!activeItems.length" class="empty-state">

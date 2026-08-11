@@ -37,6 +37,16 @@ export type V2MaterialTree = {
   caseId: string;
   caseNo: string;
   businessTypeCode: string;
+  capability?: {
+    businessTypeCode: string;
+    modalityCode: string;
+    requiresGrossing: boolean;
+    supportsBlocks: boolean;
+    supportsDirectSlides: boolean;
+    usesHistologyProcessing: boolean;
+    requiresSlideCompletion: boolean;
+    diagnosisEnabled: boolean;
+  };
   specimens: Array<{
     specimenId: string;
     specimenNo: string;
