@@ -81,9 +81,17 @@ public class V2WorkbenchApplicationService {
         return new WorkItem(row.caseId(), row.pathologyNo(), row.patientReference(), row.businessTypeCode(),
                 row.businessTypeName(), row.workCode(), row.workLabel(), row.responsibilityName(),
                 row.occurredAt(), row.caseCreatedAt(), actions,
-                row.workCode().equals("PUBLIC_POOL") ? "/v2/diagnosis/" + row.caseId()
-                        : "/v2/cases/" + row.caseId(), enteredAt,
+                caseCenterLink(row), enteredAt,
                 Math.max(0, Duration.between(enteredAt, Instant.now()).toMinutes()));
+    }
+
+    private static String caseCenterLink(WorkbenchRow row) {
+        String focus = switch (row.workCode()) {
+            case "INITIAL", "REVIEW", "AUDIT", "PUBLIC_POOL", "TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION" -> "diagnosis";
+            case "WITHDRAWN_REPORT_REQUIRES_ATTENTION" -> "report";
+            default -> "overview";
+        };
+        return "/v2/cases/" + row.caseId() + "?focus=" + focus;
     }
 
     private static Set<String> availableActions(String workCode, AuthenticatedUser user) {

@@ -21,6 +21,7 @@ async function registerCase(
   patientReference = `PX02B-${suffix(testInfo)}`,
 ): Promise<CaseRef> {
   const id = suffix(testInfo);
+  await page.goto('/v2/workbench');
   await page.getByRole('button', { name: '登记', exact: true }).click();
   await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByLabel('患者编号').fill(patientReference);
@@ -107,13 +108,15 @@ test('PX02B：Histology 单一阶段队列、异常事实和统一历史', async
   ).toBeVisible();
 
   await page.goto(`/v2/cases/${caseRef.caseId}`);
-  await page.getByRole('button', { name: '查看业务历史' }).click();
-  const history = page.getByRole('dialog', { name: '历史记录' });
-  await expect(history).toBeVisible();
-  await expect(history.getByText('新增蜡块', { exact: true }).first()).toBeVisible();
-  await expect(history.getByText('完成取材', { exact: true }).first()).toBeVisible();
-  await expect(history.getByText('切片记录异常', { exact: true }).first()).toBeVisible();
-  await expect(history.getByText('封片完成', { exact: true }).first()).toBeVisible();
+  await page
+    .getByRole('navigation', { name: '病例视图' })
+    .getByRole('button', { name: /^病例记录/ })
+    .click();
+  await expect(page.getByRole('heading', { name: '病例记录' })).toBeVisible();
+  await expect(page.getByText('新增蜡块', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('完成取材', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('切片记录异常', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('封片完成', { exact: true }).first()).toBeVisible();
 });
 
 test('PX02B：登记队列、病例深链和配置库位入口保持业务语言', async ({ page }) => {

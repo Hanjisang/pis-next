@@ -30,6 +30,7 @@ async function logout(page: Page) {
 async function registerCase(page: Page, testInfo: TestInfo, patientReference?: string) {
   const id = suffix(testInfo);
   const patient = patientReference ?? `PX02C-${id}`;
+  await page.goto('/v2/workbench');
   await page.getByRole('button', { name: '登记', exact: true }).click();
   await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByLabel('患者编号').fill(patient);
@@ -210,7 +211,16 @@ test('PX02C：历史显示业务编号和结构化修改前后值，不显示内
   expect(blockChange?.targetId).toMatch(/^[0-9a-f-]{36}$/i);
 
   await page.goto(`/v2/cases/${caseRef.caseId}`);
-  await page.getByRole('button', { name: '查看业务历史' }).click();
+  await page
+    .getByRole('navigation', { name: '病例视图' })
+    .getByRole('button', { name: /^病例记录/ })
+    .click();
+  await expect(page.getByRole('heading', { name: '病例记录' })).toBeVisible();
+  const blockModification = page
+    .locator('.timeline-entry-rich')
+    .filter({ hasText: '修改蜡块' })
+    .first();
+  await blockModification.getByRole('button', { name: '查看记录详情' }).click();
   const history = page.getByRole('dialog', { name: '历史记录' });
   await expect(history).toBeVisible();
   await expect(history.getByText('A2-EDIT', { exact: true }).first()).toBeVisible();

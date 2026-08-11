@@ -196,8 +196,8 @@ async function completeHistology(page: Page, caseRef: CaseRef) {
 }
 
 async function openHistory(page: Page) {
-  await page.getByRole('button', { name: /^业务历史/ }).click();
-  await expect(page.getByRole('heading', { name: /病例业务历史|当前对象历史/ })).toBeVisible();
+  await page.getByRole('button', { name: /^病例记录/ }).click();
+  await expect(page.getByRole('heading', { name: /病例记录|当前对象历史/ })).toBeVisible();
 }
 
 async function bindViewerFixtures(page: Page, caseRef: CaseRef) {
@@ -541,6 +541,6 @@ test('PX01A-EF：个人工作台、全局搜索落点和操作权限边界', asy
   await search.getByRole('button', { name: new RegExp(caseRef.pathologyNo) }).click();
   await expect(page).toHaveURL(/\/v2\/cases\//);
   await expect(page.getByLabel('病例中心')).toContainText(caseRef.pathologyNo);
-  await page.getByRole('button', { name: /^业务历史/ }).click();
+  await page.getByRole('button', { name: /^病例记录/ }).click();
   await expect(page.getByText('完成登记', { exact: true })).toBeVisible();
 });

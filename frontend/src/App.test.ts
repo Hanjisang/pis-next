@@ -37,9 +37,10 @@ describe('PIS Next V2 application shell', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('PIS Next');
-    expect(wrapper.text()).toContain('我的工作台');
+    expect(wrapper.text()).toContain('工作台 · 人的工作中心');
     expect(wrapper.text()).toContain('待登记申请');
-    expect(wrapper.find('[aria-label="一级导航"]').text()).toContain('登记');
+    expect(wrapper.find('[aria-label="一级导航"]').text()).toBe('工作台');
+    expect(wrapper.get('.heading-actions').text()).toContain('登记');
     expect(wrapper.find('[aria-label="一级导航"]').text()).not.toContain('诊断');
     expect(wrapper.find('[aria-label="一级导航"]').text()).not.toContain('系统管理');
     const density = wrapper.get('[aria-label="列表密度"]');

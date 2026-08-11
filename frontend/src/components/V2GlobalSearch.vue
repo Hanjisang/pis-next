@@ -85,17 +85,17 @@ function targetForResult(result: SearchResult) {
   const id = encodeURIComponent(result.id);
   switch (result.resultKind) {
     case 'BLOCK':
-      return `/v2/cases/${caseId}?focus=block&focusId=${id}`;
+      return `/v2/cases/${caseId}?focus=materials&focusId=${id}`;
     case 'SLIDE':
-      return `/v2/diagnosis/${caseId}?focus=slide&focusId=${id}`;
+      return `/v2/cases/${caseId}?focus=diagnosis&focusId=${id}`;
     case 'PATIENT':
-      return `/v2/diagnosis/${caseId}?focus=patient-history`;
+      return `/v2/cases/${caseId}?focus=overview&focusId=${id}`;
     case 'REPORT':
-      return `/v2/reports/${caseId}?reportId=${id}`;
+      return `/v2/cases/${caseId}?focus=report&focusId=${id}`;
     case 'TECHNICAL_ORDER':
-      return `/v2/technical-orders/${caseId}?focus=technical-order&focusId=${id}`;
+      return `/v2/cases/${caseId}?focus=technical-order&focusId=${id}`;
     case 'DIAGNOSIS':
-      return `/v2/diagnosis/${caseId}?focus=diagnosis&focusId=${id}`;
+      return `/v2/cases/${caseId}?focus=diagnosis&focusId=${id}`;
     default:
       return `/v2/cases/${caseId}`;
   }

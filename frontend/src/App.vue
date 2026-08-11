@@ -207,6 +207,13 @@ onUnmounted(() => {
               <strong>{{ authUser.displayName }}</strong>
               <small>{{ roleName(authUser.roleCode) }}</small>
             </span>
+            <button
+              v-if="authUser.permissions.includes('P14-PERM-001')"
+              type="button"
+              @click="navigate('/v2/system')"
+            >
+              管理后台
+            </button>
             <button type="button" @click="logout">退出</button>
           </div>
         </div>

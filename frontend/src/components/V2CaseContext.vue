@@ -34,7 +34,9 @@ const productionItems = ref<V2ProductionItem[]>([]);
 const productionSummaryError = ref('');
 const loading = ref(false);
 const error = ref('');
-const activeSection = ref<'materials' | 'history' | 'responsibility' | 'reports'>('materials');
+const activeSection = ref<'overview' | 'materials' | 'diagnosis' | 'history' | 'reports'>(
+  'overview',
+);
 const historyTargetId = ref<string | null>(null);
 const historyDrawerOpen = ref(false);
 
@@ -59,8 +61,34 @@ const currentResponsibilityLabel = computed(() => {
   const current = workspace.value?.responsibilities.find(
     (item) => !item.completedAt && !item.endedAt,
   );
-  if (!current) return '暂无当前责任';
+  if (!current) return '暂无当前处理人';
   return `${roleLabel(current.roleCode)} · ${current.doctorName}`;
+});
+const currentWorkLabel = computed(() => {
+  return (
+    {
+      registration: '登记',
+      grossing: '取材',
+      production: '制片',
+      diagnosis: '诊断与阅片',
+      'technical-order': '技术结果',
+      report: '报告',
+      frozen: '冰冻制片',
+    }[props.focusKind ?? ''] ??
+    progress.value?.currentStageLabel ??
+    '病例概览'
+  );
+});
+const currentWorkDescription = computed(() => {
+  if (props.focusKind === 'diagnosis')
+    return '从工作台进入的诊断工作项；病例材料、技术结果和历史仍保留在当前病例中心。';
+  if (props.focusKind === 'production')
+    return '从工作台进入的制片工作项；当前业务来源和材料关系已在病例上下文中定位。';
+  if (props.focusKind === 'technical-order')
+    return '从工作台进入的技术医嘱或结果关注；结果完成后会回到原病例。';
+  if (props.focusKind === 'report')
+    return '从工作台进入的报告处理项；报告版本、签审记录和撤回历史均在此病例内查看。';
+  return '病例中心根据病例事实、业务类型和当前权限提供下一步操作。';
 });
 const derivedProgress = computed(() => {
   const total = materialCounts.value.slides;
@@ -107,8 +135,10 @@ watch(
 watch(
   () => [props.focusKind, props.focusId],
   ([kind]) => {
-    if (kind) activeSection.value = 'materials';
+    activeSection.value =
+      kind === 'diagnosis' ? 'diagnosis' : kind === 'report' ? 'reports' : 'overview';
   },
+  { immediate: true },
 );
 
 async function load() {
@@ -182,6 +212,24 @@ function openReport(reportId: string) {
   if (header.value) emit('navigate', `/v2/reports/${header.value.caseId}?reportId=${reportId}`);
 }
 
+function openProductionItem(item: V2ProductionItem) {
+  if (item.productionContext === 'FROZEN_ROUND' && item.productionContextId) {
+    emit(
+      'navigate',
+      `/v2/frozen/${item.caseId}?roundId=${encodeURIComponent(item.productionContextId)}`,
+    );
+    return;
+  }
+  if (item.productionContext === 'TECHNICAL_ORDER' && item.orderId) {
+    emit(
+      'navigate',
+      `/v2/technical-orders/${item.caseId}?focus=technical-order&focusId=${encodeURIComponent(item.orderId)}`,
+    );
+    return;
+  }
+  emit('navigate', `/v2/production/${item.caseId}`);
+}
+
 function viewHistory(targetId?: string) {
   historyTargetId.value = targetId ?? null;
   historyDrawerOpen.value = true;
@@ -211,6 +259,9 @@ function lifecycleLabel(lifecycle: string) {
     <template v-else-if="workspace && header">
       <header class="case-header case-header-primary">
         <div class="case-header-main">
+          <button class="case-back-link" type="button" @click="emit('navigate', '/v2/workbench')">
+            ← 工作台
+          </button>
           <div class="case-header-kicker">
             <span class="status-dot success" aria-hidden="true"></span>
             <span>病例中心</span>
@@ -224,7 +275,7 @@ function lifecycleLabel(lifecycle: string) {
           <p class="case-patient-line">
             <strong>{{ header.patientReference }}</strong>
             <span v-if="header.visitReference">就诊 {{ header.visitReference }}</span>
-            <span>业务类型 {{ businessTypeName(header.businessTypeCode) }}</span>
+            <span>病理类型 {{ businessTypeName(header.businessTypeCode) }}</span>
           </p>
         </div>
         <div class="case-header-actions">
@@ -251,13 +302,86 @@ function lifecycleLabel(lifecycle: string) {
         </div>
       </header>
 
-      <div class="case-facts-strip" aria-label="病例关键信息">
+      <div class="case-facts-strip case-header-facts" aria-label="病例固定上下文">
+        <div>
+          <span>病理号</span><strong>{{ header.pathologyNo }}</strong>
+        </div>
         <div>
           <span>患者</span><strong>{{ header.patientReference }}</strong>
         </div>
+        <div><span>来源科室</span><strong>待补充</strong></div>
+        <div><span>送检医生</span><strong>待补充</strong></div>
         <div>
-          <span>业务类型</span><strong>{{ businessTypeName(header.businessTypeCode) }}</strong>
+          <span>登记时间</span><strong>{{ formatDateTime(header.createdAt) }}</strong>
         </div>
+        <div>
+          <span>当前环节</span
+          ><strong>{{ progress?.currentStageLabel || currentWorkLabel }}</strong>
+        </div>
+        <div>
+          <span>当前处理人</span
+          ><strong>{{ progress?.currentResponsible || currentResponsibilityLabel }}</strong>
+        </div>
+        <div>
+          <span>报告状态</span
+          ><strong>{{
+            progress?.reportStatus === 'EFFECTIVE'
+              ? '已签发'
+              : progress?.reportStatus === 'WITHDRAWN'
+                ? '报告已撤回'
+                : progress?.reportStatus
+                  ? '未签发'
+                  : reportStatusLabel
+          }}</strong>
+        </div>
+      </div>
+
+      <section class="workspace-panel case-current-work-panel" aria-label="当前工作区">
+        <div>
+          <p class="section-kicker">当前工作</p>
+          <h3>{{ currentWorkLabel }}</h3>
+          <p class="muted">{{ currentWorkDescription }}</p>
+        </div>
+        <div class="current-work-actions">
+          <button
+            v-if="props.focusKind === 'diagnosis' && permissions.has('P14-PERM-034')"
+            class="primary-button"
+            type="button"
+            @click="openDiagnosis"
+          >
+            继续诊断与阅片
+          </button>
+          <button
+            v-else-if="props.focusKind === 'production' && permissions.has('P14-PERM-014')"
+            class="primary-button"
+            type="button"
+            @click="openProduction"
+          >
+            继续制片
+          </button>
+          <button
+            v-else-if="props.focusKind === 'technical-order' && permissions.has('P14-PERM-017')"
+            class="primary-button"
+            type="button"
+            @click="emit('navigate', `/v2/technical-orders/${header.caseId}`)"
+          >
+            查看技术医嘱
+          </button>
+          <button
+            v-else-if="props.focusKind === 'report' && permissions.has('P14-PERM-036')"
+            class="primary-button"
+            type="button"
+            @click="emit('navigate', `/v2/reports/${header.caseId}`)"
+          >
+            查看报告
+          </button>
+          <button class="secondary-button" type="button" @click="activeSection = 'overview'">
+            病例概览
+          </button>
+        </div>
+      </section>
+
+      <div class="case-facts-strip case-material-facts" aria-label="病例材料摘要">
         <div>
           <span>标本</span><strong>{{ materialCounts.specimens }}</strong>
         </div>
@@ -272,40 +396,17 @@ function lifecycleLabel(lifecycle: string) {
           ><strong>{{ materialCounts.completedSlides }}/{{ materialCounts.slides }} 完成</strong>
         </div>
         <div>
-          <span>建立时间</span><strong>{{ formatDateTime(header.createdAt) }}</strong>
-        </div>
-        <div>
-          <span>当前责任</span
-          ><strong>{{ progress?.currentResponsible || currentResponsibilityLabel }}</strong>
-        </div>
-        <div>
           <span>当前进度</span><strong>{{ progress?.currentStageLabel || derivedProgress }}</strong>
-        </div>
-        <div>
-          <span>报告状态</span
-          ><strong>{{
-            progress?.reportStatus === 'EFFECTIVE'
-              ? '已签发'
-              : progress?.reportStatus === 'WITHDRAWN'
-                ? '报告已撤回'
-                : progress?.reportStatus
-                  ? '报告处理中'
-                  : reportStatusLabel
-          }}</strong>
         </div>
       </div>
 
-      <section
-        v-if="progress"
-        class="workspace-panel case-progress-panel"
-        aria-label="病例进度投影"
-      >
+      <section v-if="progress" class="workspace-panel case-progress-panel" aria-label="当前进度">
         <header class="workspace-panel-header">
           <div>
-            <p class="section-kicker">CASE PROGRESS</p>
+            <p class="section-kicker">当前进度</p>
             <h3>{{ progress.currentStageLabel }}</h3>
             <p class="muted">
-              当前责任 {{ progress.currentResponsible || '待分派' }} · 已等待
+              当前处理人 {{ progress.currentResponsible || '待分派' }} · 已等待
               {{ progress.waitingMinutes }} 分钟
             </p>
           </div>
@@ -374,7 +475,7 @@ function lifecycleLabel(lifecycle: string) {
               <strong>{{ item.taskSummary }}</strong>
               <span>{{ item.materialSummary }} · 等待 {{ item.waitingMinutes }} 分钟</span>
             </div>
-            <button class="text-button" type="button" @click="emit('navigate', item.deepLink)">
+            <button class="text-button" type="button" @click="openProductionItem(item)">
               进入处理
             </button>
           </article>
@@ -389,27 +490,27 @@ function lifecycleLabel(lifecycle: string) {
         </details>
       </section>
 
-      <nav class="case-section-tabs" aria-label="病例内容">
+      <nav class="case-section-tabs" aria-label="病例视图">
+        <button
+          type="button"
+          :class="{ active: activeSection === 'overview' }"
+          @click="activeSection = 'overview'"
+        >
+          概览
+        </button>
         <button
           type="button"
           :class="{ active: activeSection === 'materials' }"
           @click="activeSection = 'materials'"
         >
-          材料与制片
+          材料
         </button>
         <button
           type="button"
-          :class="{ active: activeSection === 'history' }"
-          @click="activeSection = 'history'"
+          :class="{ active: activeSection === 'diagnosis' }"
+          @click="activeSection = 'diagnosis'"
         >
-          业务历史 <span class="tab-count">{{ workspace.timeline.length }}</span>
-        </button>
-        <button
-          type="button"
-          :class="{ active: activeSection === 'responsibility' }"
-          @click="activeSection = 'responsibility'"
-        >
-          责任链 <span class="tab-count">{{ workspace.responsibilities.length }}</span>
+          诊断与阅片
         </button>
         <button
           type="button"
@@ -418,9 +519,172 @@ function lifecycleLabel(lifecycle: string) {
         >
           报告 <span class="tab-count">{{ workspace.reports.length }}</span>
         </button>
+        <button
+          type="button"
+          :class="{ active: activeSection === 'history' }"
+          @click="activeSection = 'history'"
+        >
+          病例记录 <span class="tab-count">{{ workspace.timeline.length }}</span>
+        </button>
       </nav>
 
-      <div v-if="activeSection === 'materials'" class="case-workspace-grid">
+      <section v-if="activeSection === 'overview'" class="case-overview-grid">
+        <main class="case-workspace-main">
+          <section class="workspace-panel case-clinical-summary-panel">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">临床与申请</p>
+                <h3>病例摘要</h3>
+              </div>
+              <span class="status-pill">{{ businessTypeName(header.businessTypeCode) }}</span>
+            </header>
+            <div class="case-clinical-summary-grid">
+              <div>
+                <span>患者</span><strong>{{ header.patientReference }}</strong>
+              </div>
+              <div>
+                <span>就诊号</span><strong>{{ header.visitReference || '未记录' }}</strong>
+              </div>
+              <div>
+                <span>申请号</span><strong>{{ header.applicationNo }}</strong>
+              </div>
+              <div>
+                <span>申请项目</span><strong>{{ header.applicationItemCode }}</strong>
+              </div>
+              <div>
+                <span>来源系统</span><strong>{{ header.sourceSystemCode }}</strong>
+              </div>
+              <div><span>送检原因</span><strong>由申请项目与临床资料共同确定</strong></div>
+            </div>
+          </section>
+          <section class="workspace-panel case-material-panel">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">材料与制片</p>
+                <h3>标本、蜡块与玻片</h3>
+              </div>
+              <button class="text-button" type="button" @click="activeSection = 'materials'">
+                查看材料关系
+              </button>
+            </header>
+            <div class="overview-material-summary">
+              <div>
+                <strong>{{ materialCounts.specimens }}</strong
+                ><span>标本</span>
+              </div>
+              <div>
+                <strong>{{ materialCounts.blocks }}</strong
+                ><span>{{
+                  header.businessTypeCode === 'CYTOLOGY' ? '蜡块（不需要）' : '蜡块'
+                }}</span>
+              </div>
+              <div>
+                <strong>{{ materialCounts.completedSlides }}/{{ materialCounts.slides }}</strong
+                ><span>玻片完成</span>
+              </div>
+              <div>
+                <strong>{{ workspace.digitalSlides.length }}</strong
+                ><span>数字切片</span>
+              </div>
+            </div>
+            <p class="muted">
+              点击“材料”查看 Specimen → Block → Slide → DigitalSlide
+              关系；细胞病例可直接从标本进入玻片。
+            </p>
+          </section>
+          <section class="workspace-panel case-business-production-panel" aria-label="业务生产摘要">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">生产摘要</p>
+                <h3>{{ productionSourceLabel }}</h3>
+              </div>
+              <span class="status-pill">{{ productionTaskLabel }}</span>
+            </header>
+            <div class="production-summary-grid">
+              <div>
+                <span>业务来源</span><strong>{{ productionSourceLabel }}</strong
+                ><small>{{ productionMaterialLabel }}</small>
+              </div>
+              <div>
+                <span>材料完成</span
+                ><strong
+                  >{{ progress?.material.completed ?? materialCounts.completedSlides }}/{{
+                    progress?.material.required ?? materialCounts.slides
+                  }}</strong
+                ><small>{{ progress?.material.status || derivedProgress }}</small>
+              </div>
+              <div>
+                <span>技术医嘱</span><strong>{{ workspace.technicalOrders.length }} 项</strong
+                ><small
+                  >结果返回
+                  {{
+                    workspace.technicalOrders.reduce((total, item) => total + item.resultCount, 0)
+                  }}
+                  项</small
+                >
+              </div>
+              <div>
+                <span>异常</span><strong>按病例记录查看</strong
+                ><small>不把物理阶段变成默认队列</small>
+              </div>
+            </div>
+          </section>
+        </main>
+        <aside class="case-workspace-rail">
+          <section class="workspace-panel case-quick-panel">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">下一步</p>
+                <h3>可执行操作</h3>
+              </div>
+            </header>
+            <div class="quick-action-list">
+              <button v-if="permissions.has('P14-PERM-034')" type="button" @click="openDiagnosis">
+                <span>进入诊断</span><small>材料、阅片、诊断和报告</small>
+              </button>
+              <button v-if="permissions.has('P14-PERM-014')" type="button" @click="openProduction">
+                <span>制片</span><small>处理未完成玻片</small>
+              </button>
+              <button
+                v-if="header.businessTypeCode === 'FROZEN' && permissions.has('P14-PERM-008')"
+                type="button"
+                @click="openFrozen"
+              >
+                <span>冰冻制片</span><small>查看 FrozenRound 与术中材料</small>
+              </button>
+              <button type="button" @click="activeSection = 'reports'">
+                <span>报告</span><small>{{ reportStatusLabel }}</small>
+              </button>
+              <button type="button" @click="activeSection = 'history'">
+                <span>病例记录</span><small>查看最近操作与签审记录</small>
+              </button>
+            </div>
+          </section>
+          <section class="workspace-panel timeline-mini-panel">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">最近动态</p>
+                <h3>病例记录</h3>
+              </div>
+              <button class="text-button" type="button" @click="activeSection = 'history'">
+                查看全部
+              </button>
+            </header>
+            <ol class="timeline-list timeline-list-mini">
+              <li v-for="entry in workspace.timeline.slice(0, 5)" :key="entry.eventId">
+                <time>{{ formatDateTime(entry.occurredAt) }}</time>
+                <div>
+                  <strong>{{ entry.title }}</strong
+                  ><span>{{ actorLabel(entry) }}</span>
+                </div>
+              </li>
+              <li v-if="!workspace.timeline.length" class="timeline-empty">尚无病例记录</li>
+            </ol>
+          </section>
+        </aside>
+      </section>
+
+      <div v-else-if="activeSection === 'materials'" class="case-workspace-grid">
         <main class="case-workspace-main">
           <section class="workspace-panel case-material-panel">
             <header class="workspace-panel-header">
@@ -606,13 +870,13 @@ function lifecycleLabel(lifecycle: string) {
                 <span>进入诊断</span><small>查看材料、填写诊断并处理报告</small>
               </button>
               <button v-if="permissions.has('P14-PERM-014')" type="button" @click="openProduction">
-                <span>查看制片</span><small>处理未完成玻片</small>
+                <span>制片</span><small>处理未完成玻片</small>
               </button>
               <button v-if="header.businessTypeCode === 'FROZEN'" type="button" @click="openFrozen">
                 <span>查看冰冻</span><small>查看轮次与术中材料</small>
               </button>
               <button type="button" @click="viewHistory()">
-                <span>查看业务历史</span><small>登记、取材、制片、诊断和报告</small>
+                <span>病例记录</span><small>登记、取材、制片、诊断和报告</small>
               </button>
             </div>
           </section>
@@ -620,7 +884,7 @@ function lifecycleLabel(lifecycle: string) {
             <header class="workspace-panel-header">
               <div>
                 <p class="section-kicker">最近动态</p>
-                <h3>业务历史</h3>
+                <h3>病例记录</h3>
               </div>
               <button class="text-button" type="button" @click="viewHistory()">查看全部</button>
             </header>
@@ -632,7 +896,7 @@ function lifecycleLabel(lifecycle: string) {
                   ><span>{{ actorLabel(entry) }}</span>
                 </div>
               </li>
-              <li v-if="!workspace.timeline.length" class="timeline-empty">尚无业务历史</li>
+              <li v-if="!workspace.timeline.length" class="timeline-empty">尚无病例记录</li>
             </ol>
           </section>
         </aside>
@@ -642,7 +906,7 @@ function lifecycleLabel(lifecycle: string) {
         <header class="workspace-panel-header">
           <div>
             <p class="section-kicker">可追溯记录</p>
-            <h3>{{ historyTargetId ? '当前对象历史' : '病例业务历史' }}</h3>
+            <h3>{{ historyTargetId ? '当前对象历史' : '病例记录' }}</h3>
             <p class="muted">按业务时间查看病例从登记到报告的关键事实。</p>
           </div>
           <button v-if="historyTargetId" class="text-button" type="button" @click="viewHistory()">
@@ -668,43 +932,117 @@ function lifecycleLabel(lifecycle: string) {
             </div>
           </li>
           <li v-if="!visibleTimeline.length" class="timeline-empty">
-            当前对象还没有可展示的业务历史。
+            当前对象还没有可展示的病例记录。
           </li>
         </ol>
       </section>
 
-      <section
-        v-else-if="activeSection === 'responsibility'"
-        class="workspace-panel responsibility-panel-full"
-      >
-        <header class="workspace-panel-header">
-          <div>
-            <p class="section-kicker">诊断责任</p>
-            <h3>责任链</h3>
-            <p class="muted">显示每个诊断环节的医生、时间和完成状态。</p>
+      <section v-else-if="activeSection === 'diagnosis'" class="case-diagnosis-context-grid">
+        <main class="workspace-panel diagnosis-context-summary">
+          <header class="workspace-panel-header">
+            <div>
+              <p class="section-kicker">诊断与阅片</p>
+              <h3>当前病例诊断工作区</h3>
+              <p class="muted">材料、数字切片、临床摘要、技术结果和病例历史保持在当前病例中心。</p>
+            </div>
+            <button
+              v-if="permissions.has('P14-PERM-034')"
+              class="primary-button"
+              type="button"
+              @click="openDiagnosis"
+            >
+              进入诊断工作区
+            </button>
+          </header>
+          <div class="diagnosis-context-facts">
+            <div>
+              <span>可阅片玻片</span
+              ><strong>{{ materialCounts.completedSlides }}/{{ materialCounts.slides }}</strong>
+            </div>
+            <div>
+              <span>技术医嘱</span><strong>{{ workspace.technicalOrders.length }} 项</strong>
+            </div>
+            <div>
+              <span>当前医生</span
+              ><strong>{{ progress?.currentResponsible || currentResponsibilityLabel }}</strong>
+            </div>
+            <div>
+              <span>报告</span><strong>{{ reportStatusLabel }}</strong>
+            </div>
           </div>
-        </header>
-        <div v-if="workspace.responsibilities.length" class="responsibility-grid">
-          <article
-            v-for="item in workspace.responsibilities"
-            :key="item.responsibilityId"
-            class="responsibility-card"
-          >
-            <span class="responsibility-role">{{ roleLabel(item.roleCode) }}</span>
-            <strong>{{ item.doctorName }}</strong>
-            <span>{{
-              item.completedAt
-                ? `已完成 · ${formatDateTime(item.completedAt)}`
-                : item.endedAt
-                  ? '已结束'
-                  : '进行中'
-            }}</span>
-          </article>
-        </div>
-        <div v-else class="empty-state">
-          <strong>尚未建立诊断责任</strong
-          ><span>病例进入诊断后会在这里显示初诊、复诊和审核医生。</span>
-        </div>
+          <section class="viewer-context-panel">
+            <h4>材料与数字切片</h4>
+            <p v-if="!workspace.digitalSlides.length" class="muted">
+              当前病例尚无数字切片；可先从材料视图查看实体玻片。
+            </p>
+            <button
+              v-for="slide in workspace.digitalSlides"
+              :key="slide.digitalSlideId"
+              class="material-node-button"
+              type="button"
+              @click="openDigitalSlides(slide.slideId ?? undefined)"
+            >
+              <strong>{{ slide.viewerReference }}</strong
+              ><span class="muted"
+                >{{ slide.sourcePlatform }} · {{ statusName(slide.statusCode) }}</span
+              ><span class="queue-row-arrow">→</span>
+            </button>
+          </section>
+          <section class="viewer-context-panel">
+            <h4>技术结果</h4>
+            <article
+              v-for="order in workspace.technicalOrders"
+              :key="order.orderId"
+              class="record-row"
+            >
+              <div>
+                <strong>{{ order.orderNo }}</strong
+                ><span>{{ statusName(order.statusCode) }}</span>
+              </div>
+              <p>{{ order.resultCount }}/{{ order.itemCount }} 项结果已返回</p>
+              <time>{{ formatDateTime(order.createdAt) }}</time>
+            </article>
+            <p v-if="!workspace.technicalOrders.length" class="muted">尚无技术医嘱或结果。</p>
+          </section>
+        </main>
+        <aside class="case-workspace-rail">
+          <section class="workspace-panel responsibility-panel-full">
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">诊断记录</p>
+                <h3>医生记录</h3>
+                <p class="muted">显示初诊、复诊和审核医生，不展示内部责任术语。</p>
+              </div>
+            </header>
+            <header class="workspace-panel-header">
+              <div>
+                <p class="section-kicker">签审记录</p>
+                <h3>当前处理人</h3>
+              </div>
+            </header>
+            <div v-if="workspace.responsibilities.length" class="responsibility-grid">
+              <article
+                v-for="item in workspace.responsibilities"
+                :key="item.responsibilityId"
+                class="responsibility-card"
+              >
+                <span class="responsibility-role">{{ roleLabel(item.roleCode) }}</span>
+                <strong>{{ item.doctorName }}</strong>
+                <span>{{
+                  item.completedAt
+                    ? `已完成 · ${formatDateTime(item.completedAt)}`
+                    : item.endedAt
+                      ? '已结束'
+                      : '进行中'
+                }}</span>
+              </article>
+            </div>
+            <div v-else class="empty-state">
+              <strong>尚未建立诊断记录</strong
+              ><span>病例进入诊断后会在这里显示初诊、复诊和审核医生。</span>
+            </div>
+          </section>
+        </aside>
       </section>
 
       <section v-else class="workspace-panel reports-panel-full">
@@ -752,7 +1090,7 @@ function lifecycleLabel(lifecycle: string) {
         :case-id="header.caseId"
         :entries="workspace.timeline"
         :target-id="historyTargetId"
-        :title="historyTargetId ? '对象历史' : '病例业务历史'"
+        :title="historyTargetId ? '对象历史' : '病例记录'"
         target-label="业务追溯"
         @close="historyDrawerOpen = false"
       />

@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 import { login } from './helpers';
 
-test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进入公共池', async ({ page }, testInfo) => {
+test('PX03: 登记员追踪细胞病例，技师从病例中心接收直接制片，医生进入待接诊', async ({
+  page,
+}, testInfo) => {
   const suffix = `${Date.now()}-${testInfo.project.name}`;
   const patientReference = `PX03-PATIENT-${suffix}`;
 
@@ -39,6 +41,9 @@ test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进�
   await cytologyQueue.click();
   await expect(page).toHaveURL(/\/v2\/production$/);
   await page.getByRole('button', { name: new RegExp(pathologyNo!) }).click();
+  await expect(page).toHaveURL(new RegExp(`/v2/cases/`));
+  await expect(page.getByLabel('病例中心')).toContainText(pathologyNo!);
+  await page.getByRole('button', { name: '继续制片', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/v2/production/`));
   await expect(page.getByRole('heading', { name: '直接建立玻片' })).toBeVisible();
   await expect(page.getByText('不需要蜡块')).toBeVisible();
@@ -70,6 +75,6 @@ test('PX03: 登记员追踪细胞病例，技师接收直接制片，医生进�
   await page.getByRole('button', { name: '退出' }).click();
   await page.waitForURL(/\/v2\/workbench/);
   await login(page, 'doctor-a');
-  await page.getByRole('button', { name: '公共池' }).click();
+  await page.getByRole('button', { name: '待接诊', exact: true }).click();
   await expect(page.getByRole('button', { name: new RegExp(pathologyNo!) })).toBeVisible();
 });

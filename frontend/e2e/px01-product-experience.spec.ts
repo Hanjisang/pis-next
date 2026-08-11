@@ -15,7 +15,7 @@ async function openCaseFromSearch(page: Page, pathologyNo: string) {
   await expect(page.getByLabel('病例中心')).toBeVisible();
 }
 
-test('病例中心统一展示材料关系、责任链和业务历史', async ({ page }) => {
+test('病例中心统一展示材料关系、诊断记录和病例记录', async ({ page }) => {
   const pathologyNo = process.env.PIS_E2E_PATHOLOGY_NO;
   if (!pathologyNo) throw new Error('PIS_E2E_PATHOLOGY_NO is required');
 
@@ -24,13 +24,13 @@ test('病例中心统一展示材料关系、责任链和业务历史', async ({
 
   await expect(page.getByRole('heading', { name: '标本、蜡块与玻片' })).toBeVisible();
   await expect(page.getByRole('button', { name: /进入诊断/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /业务历史/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /病例记录/ }).first()).toBeVisible();
 
   await page
-    .getByRole('button', { name: /业务历史/ })
+    .getByRole('button', { name: /病例记录/ })
     .first()
     .click();
-  await expect(page.getByRole('heading', { name: '病例业务历史' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '病例记录' })).toBeVisible();
   await expect(page.getByText('按业务时间查看病例从登记到报告的关键事实。')).toBeVisible();
   await expect(page.locator('.timeline-list')).toBeVisible();
   await expectAccessibleButtons(page);
@@ -43,7 +43,7 @@ test('技术人员从病例中心进入制片并看到轻量技术过程工作�
 
   await login(page, 'technician');
   await openCaseFromSearch(page, pathologyNo);
-  await page.getByRole('button', { name: '查看制片', exact: true }).click();
+  await page.getByRole('button', { name: '制片', exact: true }).click();
 
   await expect(page).toHaveURL(/\/v2\/production\//);
   await expect(page.getByRole('region', { name: '病理技术工作台' })).toBeVisible();
