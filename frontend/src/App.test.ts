@@ -36,13 +36,12 @@ describe('PIS Next V2 application shell', () => {
     const wrapper = mount(App);
     await flushPromises();
 
-    expect(wrapper.text()).toContain('PIS Next');
-    expect(wrapper.text()).toContain('工作台 · 人的工作中心');
-    expect(wrapper.text()).toContain('待登记申请');
-    expect(wrapper.find('[aria-label="一级导航"]').text()).toBe('工作台');
+    expect(wrapper.text()).toContain('PIS');
+    expect(wrapper.text()).toContain('工作台');
+    expect(wrapper.text()).toContain('待接诊');
+    expect(wrapper.find('.app-sidebar').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="一级导航"]').exists()).toBe(false);
     expect(wrapper.get('.heading-actions').text()).toContain('登记');
-    expect(wrapper.find('[aria-label="一级导航"]').text()).not.toContain('诊断');
-    expect(wrapper.find('[aria-label="一级导航"]').text()).not.toContain('系统管理');
     const density = wrapper.get('[aria-label="列表密度"]');
     expect(density.element).toHaveProperty('value', 'compact');
     await density.setValue('comfortable');
@@ -64,6 +63,6 @@ describe('PIS Next V2 application shell', () => {
     const wrapper = mount(App);
     await flushPromises();
 
-    expect(wrapper.get('.topbar-title h1').text()).toBe('数字切片');
+    expect(wrapper.get('.topbar-page-label').text()).toBe('数字切片');
   });
 });

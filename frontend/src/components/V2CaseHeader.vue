@@ -6,8 +6,11 @@ defineProps<{
   pathologyNo: string;
   patientReference: string;
   visitReference?: string | null;
+  sex?: string | null;
+  age?: string | number | null;
   businessTypeCode: string;
   currentResponsibility?: string;
+  currentWork?: string;
   reportStatus?: string;
   progress?: string;
   notice?: string;
@@ -19,25 +22,23 @@ const emit = defineEmits<{ openCase: [] }>();
 <template>
   <header class="case-header case-header-compact" aria-label="病例固定上下文">
     <div class="case-header-main">
-      <div class="case-header-kicker">
-        <span class="status-dot success" aria-hidden="true"></span><span>当前病例</span
-        ><span class="breadcrumb-separator">/</span
-        ><span>{{ businessTypeName(businessTypeCode) }}</span>
-      </div>
+      <button class="case-back-link" type="button" @click="emit('openCase')">← 返回</button>
       <div class="case-title-line">
         <h2>{{ pathologyNo }}</h2>
-        <span class="status-pill">{{ reportStatus || '处理中' }}</span>
+        <span class="case-header-type">{{ businessTypeName(businessTypeCode) }}</span>
       </div>
       <p class="case-patient-line">
-        <strong>{{ patientReference }}</strong
-        ><span v-if="visitReference">就诊 {{ visitReference }}</span
-        ><span v-if="currentResponsibility">当前：{{ currentResponsibility }}</span
-        ><span v-if="progress">材料 {{ progress }}</span>
+        <strong>{{ patientReference }}</strong>
+        <span v-if="visitReference">就诊 {{ visitReference }}</span>
+        <span>性别 {{ sex || '待补充' }}</span>
+        <span>年龄 {{ age || '待补充' }}</span>
+        <span>当前：{{ currentWork || currentResponsibility || '处理中' }}</span>
       </p>
     </div>
     <div class="case-header-actions">
+      <span v-if="progress" class="case-header-progress">材料 {{ progress }}</span>
+      <span v-if="reportStatus" class="status-pill">{{ reportStatus }}</span>
       <span v-if="notice" class="case-header-notice">{{ notice }}</span>
-      <button class="secondary-button" type="button" @click="emit('openCase')">病例中心</button>
       <slot name="actions"></slot>
     </div>
   </header>

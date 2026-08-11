@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { expectAccessibleButtons, expectNoPageOverflow, login } from './helpers';
 
-test('医生从查询进入诊断主工作区，关键上下文和固定操作可见', async ({ page }) => {
+test('PX03C：医生从查询进入阅片优先的诊断工作区', async ({ page }) => {
   const pathologyNo = process.env.PIS_E2E_PATHOLOGY_NO;
   if (!pathologyNo) throw new Error('PIS_E2E_PATHOLOGY_NO is required');
   await login(page, 'doctor-c');
@@ -16,12 +16,16 @@ test('医生从查询进入诊断主工作区，关键上下文和固定操作�
     .first()
     .click();
   await expect(page.getByLabel('病例中心')).toBeVisible();
-  await page.getByRole('button', { name: '进入诊断' }).click();
+  await page.getByRole('button', { name: '进入诊断', exact: true }).click();
 
-  await expect(page).toHaveURL(/\/v2\/diagnosis\//);
+  await expect(page).toHaveURL(/\/v2\/cases\/[^?]+\?focus=diagnosis/);
   await expect(page.getByLabel('病例固定上下文')).toContainText(pathologyNo);
-  await expect(page.getByRole('region', { name: '诊断编辑器' })).toBeVisible();
-  await expect(page.getByLabel('责任、医嘱与报告')).toBeVisible();
+  await expect(page.getByText('WSI Viewer', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('材料与玻片')).toBeVisible();
+  await expect(page.getByRole('complementary', { name: '诊断编辑', exact: true })).toBeVisible();
+  await expect(page.getByText('镜下所见', { exact: true })).toBeVisible();
+  await expect(page.getByText('病理诊断', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '技术结果' })).toBeVisible();
   await expect(page.getByLabel('诊断主要操作')).toBeVisible();
   await expect(page.getByRole('button', { name: '报告预览' })).toBeVisible();
   await expectAccessibleButtons(page);

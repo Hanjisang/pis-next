@@ -48,7 +48,7 @@ describe('V2TechnicalWorkbench', () => {
     const wrapper = mount(V2TechnicalWorkbench);
     await flushPromises();
 
-    expect(wrapper.text()).toContain('技术执行工作台');
+    expect(wrapper.text()).toContain('待处理技术医嘱');
     expect(wrapper.text()).toContain('P20260001');
     expect(wrapper.text()).toContain('Ki67 免疫组化');
     expect(wrapper.text()).toContain('A1');
@@ -93,9 +93,9 @@ describe('V2TechnicalWorkbench', () => {
     const wrapper = mount(V2TechnicalWorkbench, { props: { caseId: 'M-1' } });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('独立分子病例');
-    expect(wrapper.text()).toContain('M20260001 · 录入结果');
-    expect(wrapper.text()).toContain('不经过虚构的取材、蜡块或玻片');
+    expect(wrapper.text()).toContain('独立结果录入');
+    expect(wrapper.text()).toContain('M20260001');
+    expect(wrapper.text()).toContain('只填写本次技术结果');
     expect(wrapper.text()).not.toContain('结果 JSON');
   });
 });

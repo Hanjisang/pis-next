@@ -37,6 +37,18 @@ export const primaryNavigation: NavigationItem[] = [
   { name: 'workbench', label: '工作台', shortLabel: '工作台' },
 ];
 
+/**
+ * Clinical users do not receive a persistent module navigation. Administrators
+ * use a separate shell so operational configuration cannot be confused with
+ * the clinical work surface.
+ */
+export const adminNavigation: NavigationItem[] = [
+  { name: 'workbench', label: '工作台', shortLabel: '工作台' },
+  { name: 'configuration', label: '配置中心', shortLabel: '配置' },
+  { name: 'quality', label: '质控与统计', shortLabel: '质控' },
+  { name: 'system', label: '系统管理', shortLabel: '管理' },
+];
+
 const segmentToRoute: Record<string, V2RouteName> = {
   workbench: 'workbench',
   cases: 'case',
@@ -82,8 +94,10 @@ export function routePath(
 }
 
 export function navigationForUser(user: V2AuthUser | null): NavigationItem[] {
-  if (!user) return primaryNavigation.filter((item) => !item.permissions?.length);
-  return primaryNavigation.filter(
+  if (!user) return [];
+  const isAdministrator = user.roleCode === 'ADMIN' || user.permissions.includes('P14-PERM-001');
+  if (!isAdministrator) return [];
+  return adminNavigation.filter(
     (item) =>
       !item.permissions?.length ||
       item.permissions.some((permission) => user.permissions.includes(permission)),

@@ -112,7 +112,7 @@ public class V2ProductionWorkbenchApplicationService {
                 row.businessTypeName(), "第 " + row.roundNo() + " 轮 · " + row.specimenCount() + " 个标本",
                 row.requiredCount() == 0 ? "待建立冰冻玻片" : "冰冻玻片 " + row.completedCount() + "/"
                         + row.requiredCount() + " 张完成", row.requiredCount(), row.completedCount(), row.enteredAt(),
-                "冰冻制片", caseCenterLink(row.caseId(), "production", row.roundId(), row.roundId()),
+                "冰冻制片", caseCenterLink(row.caseId(), "frozen", row.roundId(), row.roundId()),
                 Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN"), null, null, row.roundId(), null,
                 null, now);
     }
@@ -141,8 +141,9 @@ public class V2ProductionWorkbenchApplicationService {
     }
 
     private static ProductionItem incompleteSlideItem(SlideRow row, Instant now) {
-        String deepLink = caseCenterLink(row.caseId(), "production", row.slideCode(),
-                "FROZEN_ROUND".equals(row.productionContext()) ? row.productionContextId() : null);
+        String deepLink = caseCenterLink(row.caseId(),
+                "FROZEN_ROUND".equals(row.productionContext()) ? "frozen" : "production",
+                row.slideCode(), "FROZEN_ROUND".equals(row.productionContext()) ? row.productionContextId() : null);
         return item(row.productionContext(), row.caseId(), row.pathologyNo(), row.patientReference(),
                 row.businessTypeCode(), row.businessTypeName(), row.materialCode() + " · " + row.slideCode(),
                 "待完成 " + row.slideType() + " 玻片", 1, 0, row.enteredAt(), "制片人员", deepLink,

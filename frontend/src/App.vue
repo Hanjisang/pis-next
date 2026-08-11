@@ -20,9 +20,9 @@ import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.
 import V2SystemAdminHub from './components/V2SystemAdminHub.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 import {
+  adminNavigation,
   navigationForUser,
   parseV2Route,
-  primaryNavigation,
   routePath,
   type V2Route,
   type V2RouteName,
@@ -35,7 +35,6 @@ const authUser = ref<V2AuthUser | null>(null);
 const authError = ref('');
 const route = ref<V2Route>(parseV2Route(window.location));
 const globalSearchOpen = ref(false);
-const sidebarOpen = ref(false);
 const tableDensity = ref<'compact' | 'comfortable'>('compact');
 
 const routeTitles: Record<V2RouteName, string> = {
@@ -57,8 +56,9 @@ const routeTitles: Record<V2RouteName, string> = {
 };
 
 const navigation = computed(() => navigationForUser(authUser.value));
+const isAdmin = computed(() => navigation.value.length > 0);
 const currentNavigation = computed(() =>
-  primaryNavigation.find((item) => item.name === route.value.name),
+  adminNavigation.find((item) => item.name === route.value.name),
 );
 const pageTitle = computed(() => currentNavigation.value?.label ?? routeTitles[route.value.name]);
 const routeCaseId = computed({
@@ -105,7 +105,6 @@ function reloadAfterLogin() {
 function navigate(path: string) {
   window.history.pushState({}, '', path);
   route.value = parseV2Route(window.location);
-  sidebarOpen.value = false;
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
@@ -146,9 +145,9 @@ onUnmounted(() => {
 
 <template>
   <V2Login v-if="!authLoading && authRequired && !authUser" @authenticated="reloadAfterLogin" />
-  <div v-else-if="!authLoading" class="app-shell">
+  <div v-else-if="!authLoading" class="app-shell" :class="{ 'admin-shell': isAdmin }">
     <a class="skip-link" href="#workspace-main">跳到主要工作区</a>
-    <aside class="app-sidebar" :class="{ open: sidebarOpen }" aria-label="PIS V2 主导航">
+    <aside v-if="isAdmin" class="app-sidebar" aria-label="PIS V2 管理导航">
       <div class="brand-block">
         <span class="brand-mark" aria-hidden="true">P</span>
         <span><strong>PIS Next</strong><small>病理信息系统</small></span>
@@ -175,22 +174,13 @@ onUnmounted(() => {
     <div class="app-body">
       <header class="app-topbar">
         <div class="topbar-title">
-          <button
-            class="menu-button"
-            type="button"
-            aria-label="打开导航"
-            @click="sidebarOpen = !sidebarOpen"
-          >
-            ☰
-          </button>
-          <div>
-            <p>{{ departmentName(authUser) }}</p>
-            <h1>{{ pageTitle }}</h1>
-          </div>
+          <span class="topbar-wordmark" aria-label="PIS">PIS</span>
+          <span class="topbar-page-label">{{ pageTitle }}</span>
+          <span class="topbar-department">{{ departmentName(authUser) }}</span>
         </div>
         <div class="topbar-actions">
           <button class="search-trigger" type="button" @click="globalSearchOpen = true">
-            <span>搜索病理号、患者或材料</span><kbd>Ctrl K</kbd>
+            <span>搜索病理号 / 姓名 / 住院号 / 玻片号</span><kbd>Ctrl K</kbd>
           </button>
           <label class="density-switch">
             <span>列表密度</span>
@@ -229,6 +219,7 @@ onUnmounted(() => {
         <V2CaseContext
           v-else-if="route.name === 'case'"
           :case-id="route.caseId"
+          :round-id="route.roundId"
           :auth-user="authUser"
           :focus-kind="route.focusKind"
           :focus-id="route.focusId"
@@ -302,13 +293,6 @@ onUnmounted(() => {
       </main>
     </div>
 
-    <button
-      v-if="sidebarOpen"
-      class="sidebar-scrim"
-      type="button"
-      aria-label="关闭导航"
-      @click="sidebarOpen = false"
-    ></button>
     <V2GlobalSearch
       :open="globalSearchOpen"
       @close="globalSearchOpen = false"

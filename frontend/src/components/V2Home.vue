@@ -52,27 +52,16 @@ const workbench = ref<V2MyWorkbench>({
 const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
 
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
-const greeting = computed(() => {
-  const hour = new Date().getHours();
-  const prefix = hour < 11 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
-  return `${prefix}，${props.authUser?.displayName ?? '同事'}`;
-});
-
-function can(permission: string) {
-  return permissions.value.has(permission);
-}
-
 const registeredCases = computed(() => workbench.value.tracking.registeredCases);
 const activeItems = computed(() => {
   if (activeSection.value === 'PUBLIC_POOL') return workbench.value.publicPool;
+  if (activeSection.value === 'REGISTERED_CASES') return [];
   return workbench.value.myWork;
 });
 const groupedItems = computed(() => {
   const groups = new Map<string, V2WorkbenchItem[]>();
   for (const item of activeItems.value) {
-    const current = groups.get(item.workCode) ?? [];
-    current.push(item);
-    groups.set(item.workCode, current);
+    groups.set(item.workCode, [...(groups.get(item.workCode) ?? []), item]);
   }
   return [...groups.entries()].map(([code, items]) => ({
     code,
@@ -80,116 +69,52 @@ const groupedItems = computed(() => {
     items,
   }));
 });
-
-const summaryCards = computed(() => {
-  const cards = [] as Array<{ code: string; label: string; count: number; hint: string }>;
-  if (can('P14-PERM-034')) {
-    cards.push(
-      {
-        code: 'INITIAL',
-        label: '待初诊',
-        count: workbench.value.counts.initial,
-        hint: '我的初诊责任',
-      },
-      {
-        code: 'REVIEW',
-        label: '待复诊',
-        count: workbench.value.counts.review,
-        hint: '我的复诊责任',
-      },
-    );
-  }
-  if (can('P14-PERM-035')) {
-    cards.push({
-      code: 'AUDIT',
-      label: '待审核',
-      count: workbench.value.counts.audit,
-      hint: '我的审核责任',
-    });
-  }
-  if (can('P14-PERM-034')) {
-    cards.push({
-      code: 'TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION',
-      label: '新技术结果',
-      count: workbench.value.counts.technicalResultReturned,
-      hint: '结果已返回原病例',
-    });
-  }
-  if (can('P14-PERM-036')) {
-    cards.push({
-      code: 'WITHDRAWN_REPORT_REQUIRES_ATTENTION',
-      label: '撤回待处理',
-      count: workbench.value.counts.withdrawnReport,
-      hint: '需要重新处理的报告',
-    });
-  }
-  if (can('P14-PERM-034')) {
-    cards.push({
-      code: 'PUBLIC_POOL',
-      label: '待接诊病例',
-      count: workbench.value.counts.publicPool,
-      hint: '可认领病例',
-    });
-  }
-  if (can('P14-PERM-048')) {
-    cards.push({
-      code: 'REGISTERED_CASES',
-      label: '我登记的病例',
-      count: registeredCases.value.length,
-      hint: '登记后的全流程追踪',
-    });
-  }
-  return cards;
-});
-
 const productionQueueCards = computed(() => {
   const queues = productionWorkbench.value?.queues;
   if (!queues) return [];
   const cards: Array<{ queue: V2ProductionQueue; permission: string }> = [];
-  if (can('P14-PERM-014')) {
+  if (permissions.value.has('P14-PERM-014')) {
     cards.push(
       { queue: queues.routineProduction, permission: 'P14-PERM-014' },
       { queue: queues.cytologyProduction, permission: 'P14-PERM-014' },
       { queue: queues.incompleteSlides, permission: 'P14-PERM-014' },
     );
   }
-  if (can('P14-PERM-008'))
+  if (permissions.value.has('P14-PERM-008'))
     cards.push({ queue: queues.frozenProduction, permission: 'P14-PERM-008' });
-  if (can('P14-PERM-017'))
+  if (permissions.value.has('P14-PERM-017'))
     cards.push({ queue: queues.technicalOrders, permission: 'P14-PERM-017' });
-  if (can('P14-PERM-014') || can('P14-PERM-008') || can('P14-PERM-017')) {
+  if (
+    permissions.value.has('P14-PERM-014') ||
+    permissions.value.has('P14-PERM-008') ||
+    permissions.value.has('P14-PERM-017')
+  ) {
     cards.push({ queue: queues.exceptions, permission: 'P14-PERM-014' });
   }
   return cards;
 });
-
 const selectedProductionQueue = computed(
   () => productionWorkbench.value?.queues[activeProductionQueue.value] ?? null,
 );
+const queueMetrics = computed(() => [
+  { label: '待初诊', value: workbench.value.counts.initial, section: 'MY_WORK' as const },
+  { label: '待复诊', value: workbench.value.counts.review, section: 'MY_WORK' as const },
+  { label: '待审核', value: workbench.value.counts.audit, section: 'MY_WORK' as const },
+  {
+    label: '新技术结果',
+    value: workbench.value.counts.technicalResultReturned,
+    section: 'MY_WORK' as const,
+  },
+  { label: '待接诊', value: workbench.value.counts.publicPool, section: 'PUBLIC_POOL' as const },
+]);
 
-function selectCard(code: string) {
-  if (code === 'PUBLIC_POOL') activeSection.value = 'PUBLIC_POOL';
-  else if (code === 'REGISTERED_CASES') activeSection.value = 'REGISTERED_CASES';
-  else activeSection.value = 'MY_WORK';
+function can(permission: string) {
+  return permissions.value.has(permission);
 }
 
-function selectProductionQueue(code: string) {
-  if (!(code in (productionWorkbench.value?.queues ?? {}))) return;
-  activeProductionQueue.value = code as ProductionQueueCode;
+function selectProductionQueue(code: ProductionQueueCode) {
+  activeProductionQueue.value = code;
   activeSection.value = 'PRODUCTION';
-}
-
-function openItem(item: { caseId: string; deepLink: string }) {
-  emit('navigate', item.deepLink || `/v2/cases/${item.caseId}`);
-}
-
-function openRegistration() {
-  emit('navigate', '/v2/registration');
-}
-
-function openQueueWorkspace(queue: V2ProductionQueue) {
-  if (queue.code === 'TECHNICAL_ORDER') emit('navigate', '/v2/technical-orders');
-  else emit('navigate', '/v2/production');
 }
 
 function queueKey(queue: V2ProductionQueue): ProductionQueueCode {
@@ -207,13 +132,53 @@ function queueKey(queue: V2ProductionQueue): ProductionQueueCode {
   );
 }
 
+function openItem(item: { caseId: string; deepLink: string }) {
+  const deepLink = item.deepLink?.trim() ?? '';
+  if (deepLink.startsWith('/v2/cases/')) {
+    emit('navigate', deepLink);
+    return;
+  }
+
+  const legacyFocus = deepLink.match(
+    /^\/v2\/(diagnosis|reports|production|technical-orders|frozen|grossing)\/([^/?]+)/,
+  );
+  if (legacyFocus) {
+    const focusByRoute: Record<string, string> = {
+      diagnosis: 'diagnosis',
+      reports: 'report',
+      production: 'production',
+      'technical-orders': 'technical-order',
+      frozen: 'frozen',
+      grossing: 'grossing',
+    };
+    const focus = focusByRoute[legacyFocus[1]] ?? 'overview';
+    emit('navigate', `/v2/cases/${legacyFocus[2]}?focus=${focus}`);
+    return;
+  }
+
+  emit('navigate', `/v2/cases/${item.caseId}`);
+}
+
+function openQueueWorkspace(queue: V2ProductionQueue) {
+  const firstItem = queue.items[0];
+  if (firstItem) {
+    openItem(firstItem);
+    return;
+  }
+  emit('navigate', queue.code === 'TECHNICAL_ORDER' ? '/v2/technical-orders' : '/v2/production');
+}
+
+function openRegistration() {
+  emit('navigate', '/v2/registration');
+}
+
 async function loadWorkbench() {
   loading.value = true;
   error.value = '';
   try {
     workbench.value = await getV2MyWorkbench();
   } catch (requestError) {
-    error.value = friendlyError(requestError, '我的工作台暂时无法加载，请刷新后重试。');
+    error.value = friendlyError(requestError, '工作列表暂时无法加载，请刷新后重试。');
   } finally {
     loading.value = false;
   }
@@ -236,14 +201,11 @@ onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
 </script>
 
 <template>
-  <section class="workbench-page personal-workbench-page" aria-label="我的工作台">
-    <header class="page-heading compact-heading personal-workbench-heading">
+  <section class="workbench-home" aria-label="我的工作台">
+    <header class="workbench-toolbar">
       <div>
-        <p class="section-kicker">工作台 · 人的工作中心</p>
-        <h2>{{ greeting }}</h2>
-        <p>
-          这里回答“我现在要处理什么”；跨病例待办按当前权限和数据范围汇总，点击工作项进入病例中心。
-        </p>
+        <p class="section-kicker">今日队列</p>
+        <h1>工作台</h1>
       </div>
       <div class="heading-actions">
         <button
@@ -255,83 +217,100 @@ onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
           登记
         </button>
         <button class="secondary-button" type="button" @click="emit('openSearch')">
-          全局查询 <kbd>Ctrl K</kbd>
+          查找病例 <kbd>Ctrl K</kbd>
         </button>
         <button class="primary-button" type="button" :disabled="loading" @click="loadWorkbench">
-          {{ loading ? '刷新中…' : '刷新待办' }}
+          {{ loading ? '刷新中…' : '刷新' }}
         </button>
       </div>
     </header>
 
     <p v-if="error" class="feedback warning" role="alert">{{ error }}</p>
 
-    <div class="task-summary-grid personal-task-grid" aria-label="我的责任汇总">
+    <div class="workbench-metric-row" aria-label="工作数量">
       <button
-        v-for="card in summaryCards"
-        :key="card.code"
+        v-for="metric in queueMetrics"
+        :key="metric.label"
         type="button"
-        class="task-summary"
-        :class="{
-          selected:
-            (activeSection === 'PUBLIC_POOL' && card.code === 'PUBLIC_POOL') ||
-            (activeSection === 'REGISTERED_CASES' && card.code === 'REGISTERED_CASES'),
-        }"
-        @click="selectCard(card.code)"
+        class="workbench-metric"
+        :class="{ active: activeSection === metric.section }"
+        @click="activeSection = metric.section"
       >
-        <span
-          ><strong>{{ card.label }}</strong
-          ><small>{{ card.hint }}</small></span
-        >
-        <b class="task-count">{{ card.count }}</b>
+        <span>{{ metric.label }}</span
+        ><strong>{{ metric.value }}</strong>
       </button>
     </div>
 
-    <div class="workbench-columns personal-workbench-columns">
-      <section class="workspace-panel queue-panel" aria-label="跨病例待办">
+    <nav class="workbench-sections" role="tablist" aria-label="工作列表范围">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'MY_WORK'"
+        :class="{ active: activeSection === 'MY_WORK' }"
+        @click="activeSection = 'MY_WORK'"
+      >
+        我的工作
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'PRODUCTION'"
+        :class="{ active: activeSection === 'PRODUCTION' }"
+        @click="activeSection = 'PRODUCTION'"
+      >
+        生产队列
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'PUBLIC_POOL'"
+        :class="{ active: activeSection === 'PUBLIC_POOL' }"
+        @click="activeSection = 'PUBLIC_POOL'"
+      >
+        待接诊
+      </button>
+      <button
+        v-if="can('P14-PERM-048')"
+        type="button"
+        role="tab"
+        :aria-selected="activeSection === 'REGISTERED_CASES'"
+        :class="{ active: activeSection === 'REGISTERED_CASES' }"
+        @click="activeSection = 'REGISTERED_CASES'"
+      >
+        我登记的病例
+      </button>
+    </nav>
+
+    <div class="workbench-home-grid">
+      <section class="workspace-panel workbench-list-panel" aria-label="工作列表">
         <header class="panel-title-row">
           <div>
-            <p class="section-kicker">WORKBENCH QUEUE</p>
-            <h3>{{ activeSection === 'PRODUCTION' ? '生产来源队列' : '我的待办' }}</h3>
+            <p class="section-kicker">工作列表</p>
+            <h2>
+              {{
+                activeSection === 'PRODUCTION'
+                  ? '生产任务'
+                  : activeSection === 'PUBLIC_POOL'
+                    ? '待接诊病例'
+                    : activeSection === 'REGISTERED_CASES'
+                      ? '我登记的病例'
+                      : '我的待办'
+              }}
+            </h2>
           </div>
-          <div class="segmented-control" role="tablist" aria-label="工作项范围">
-            <button
-              type="button"
-              :class="{ active: activeSection === 'MY_WORK' }"
-              @click="activeSection = 'MY_WORK'"
-            >
-              我的工作
-            </button>
-            <button
-              type="button"
-              :class="{ active: activeSection === 'PRODUCTION' }"
-              @click="activeSection = 'PRODUCTION'"
-            >
-              生产队列
-            </button>
-            <button
-              type="button"
-              :class="{ active: activeSection === 'PUBLIC_POOL' }"
-              @click="activeSection = 'PUBLIC_POOL'"
-            >
-              待接诊
-            </button>
-            <button
-              v-if="can('P14-PERM-048')"
-              type="button"
-              :class="{ active: activeSection === 'REGISTERED_CASES' }"
-              @click="activeSection = 'REGISTERED_CASES'"
-            >
-              我登记的病例
-            </button>
-          </div>
+          <span v-if="workbench.refreshedAt" class="muted"
+            >更新 {{ formatDateTime(workbench.refreshedAt) }}</span
+          >
         </header>
 
         <template v-if="activeSection === 'PRODUCTION'">
-          <div class="business-queue-tabs" role="tablist" aria-label="生产来源">
+          <div class="workbench-production-tabs" role="tablist" aria-label="生产来源">
             <button
               v-for="card in productionQueueCards"
               :key="card.queue.code"
               type="button"
+              role="tab"
+              :aria-selected="activeProductionQueue === queueKey(card.queue)"
               :class="{ active: activeProductionQueue === queueKey(card.queue) }"
               @click="selectProductionQueue(queueKey(card.queue))"
             >
@@ -341,98 +320,42 @@ onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
           <div v-if="productionLoading" class="list-skeleton" aria-label="正在加载生产队列">
             <span></span><span></span><span></span>
           </div>
-          <div v-else-if="selectedProductionQueue?.items.length" class="workbench-work-groups">
-            <section class="workbench-work-group">
-              <header>
-                <h4>{{ selectedProductionQueue.label }}</h4>
-                <span>{{ selectedProductionQueue.count }}</span>
-              </header>
-              <button
-                v-for="item in selectedProductionQueue.items"
-                :key="`${item.caseId}-${item.taskSummary}-${item.slideCode ?? item.orderId ?? ''}`"
-                type="button"
-                class="personal-queue-row production-task-row"
-                @click="openItem(item)"
+          <div v-else-if="selectedProductionQueue?.items.length" class="workbench-row-list">
+            <button
+              v-for="item in selectedProductionQueue.items"
+              :key="`${item.caseId}-${item.taskSummary}-${item.slideCode ?? item.orderId ?? ''}`"
+              type="button"
+              class="personal-queue-row production-task-row"
+              @click="openItem(item)"
+            >
+              <span class="queue-row-main"
+                ><strong>{{ item.pathologyNo }}</strong
+                ><small>{{ item.patientReference }} · {{ item.businessTypeName }}</small></span
               >
-                <span class="queue-row-main"
-                  ><strong>{{ item.pathologyNo }}</strong
-                  ><small>{{ item.patientReference }} · {{ item.businessTypeName }}</small></span
-                >
-                <span>{{ item.taskSummary }}</span>
-                <span
-                  ><strong>{{ item.currentOperator || '待处理' }}</strong
-                  ><small>等待 {{ item.waitingMinutes }} 分钟</small></span
-                >
-                <span class="queue-row-arrow" aria-hidden="true">→</span>
-              </button>
-            </section>
+              <span
+                ><strong>{{ item.taskSummary }}</strong
+                ><small>{{ item.materialSummary }}</small></span
+              >
+              <span
+                ><strong>{{ item.currentOperator || '待处理' }}</strong
+                ><small>等待 {{ item.waitingMinutes }} 分钟</small></span
+              >
+              <span class="queue-row-arrow" aria-hidden="true">→</span>
+            </button>
           </div>
-          <div v-else class="empty-state">
-            <strong>当前来源没有待处理项</strong
-            ><span>业务事实发生后，Projection 会重新计算队列。</span>
+          <div v-else class="empty-state compact">
+            <strong>当前来源没有待处理项</strong><span>新任务出现后会显示在这里。</span>
           </div>
         </template>
 
-        <div v-else-if="activeSection === 'REGISTERED_CASES'" class="registered-case-list">
-          <button
-            v-for="item in registeredCases"
-            :key="item.caseId"
-            type="button"
-            class="registered-case-row"
-            @click="emit('navigate', `/v2/cases/${item.caseId}?focus=overview`)"
-          >
-            <span class="queue-row-main"
-              ><strong>{{ item.pathologyNo }}</strong
-              ><small
-                >{{ item.patientReference }} · {{ businessTypeName(item.businessTypeCode) }}</small
-              ></span
-            >
-            <span
-              ><strong>{{ item.currentStageLabel }}</strong
-              ><small>{{ item.currentResponsible || '待分派' }}</small></span
-            >
-            <span
-              ><strong>{{ item.material.status }}</strong
-              ><small>材料进度</small></span
-            >
-            <span
-              ><strong>{{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '处理中' }}</strong
-              ><small>报告状态</small></span
-            >
-            <span class="queue-row-arrow" aria-hidden="true">→</span>
-          </button>
-          <div v-if="!registeredCases.length" class="empty-state">
-            <strong>还没有我登记的病例</strong><span>登记后病例会持续显示当前进度和处理人。</span>
-          </div>
-        </div>
-        <div v-else-if="loading" class="list-skeleton" aria-label="正在加载待办">
-          <span></span><span></span><span></span>
-        </div>
-        <div v-else-if="!activeItems.length" class="empty-state">
-          <strong>{{
-            activeSection === 'MY_WORK' ? '当前没有我的待办' : '当前没有可认领病例'
-          }}</strong>
-          <span>{{
-            activeSection === 'MY_WORK'
-              ? '新的责任、技术结果或报告异常出现后会显示在这里。'
-              : '符合当前权限范围的病例会进入待接诊。'
-          }}</span>
-          <span v-if="activeSection === 'MY_WORK' && can('P14-PERM-004')" class="empty-state-detail"
-            >待登记申请：当前没有已接入的申请待登记项</span
-          >
-        </div>
-        <div v-else class="workbench-work-groups">
-          <section v-for="group in groupedItems" :key="group.code" class="workbench-work-group">
-            <header>
-              <h4>{{ group.label }}</h4>
-              <span>{{ group.items.length }}</span>
-            </header>
+        <template v-else-if="activeSection === 'REGISTERED_CASES'">
+          <div v-if="registeredCases.length" class="workbench-row-list">
             <button
-              v-for="item in group.items"
-              :key="`${group.code}-${item.caseId}`"
+              v-for="item in registeredCases"
+              :key="item.caseId"
               type="button"
               class="personal-queue-row"
-              @click="openItem(item)"
+              @click="emit('navigate', `/v2/cases/${item.caseId}`)"
             >
               <span class="queue-row-main"
                 ><strong>{{ item.pathologyNo }}</strong
@@ -441,53 +364,104 @@ onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
                   {{ businessTypeName(item.businessTypeCode) }}</small
                 ></span
               >
-              <span>{{ item.responsibilityName || item.workLabel }}</span>
-              <small>{{ formatDateTime(item.occurredAt) }}</small>
+              <span
+                ><strong>{{ item.currentStageLabel }}</strong
+                ><small>{{ item.currentResponsible || '待分派' }}</small></span
+              >
+              <span
+                ><strong>{{ item.material.status }}</strong
+                ><small>材料进度</small></span
+              >
+              <span
+                ><strong>{{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '处理中' }}</strong
+                ><small>报告状态</small></span
+              >
               <span class="queue-row-arrow" aria-hidden="true">→</span>
             </button>
-          </section>
+          </div>
+          <div v-else class="empty-state compact">
+            <strong>还没有我登记的病例</strong><span>登记完成后会持续显示病例进度。</span>
+          </div>
+        </template>
+
+        <div v-else-if="loading" class="list-skeleton" aria-label="正在加载工作列表">
+          <span></span><span></span><span></span>
+        </div>
+        <template v-else-if="activeItems.length">
+          <div v-for="group in groupedItems" :key="group.code" class="workbench-work-group">
+            <header>
+              <h3>{{ group.label }}</h3>
+              <span>{{ group.items.length }}</span>
+            </header>
+            <div class="workbench-row-list">
+              <button
+                v-for="item in group.items"
+                :key="`${group.code}-${item.caseId}`"
+                type="button"
+                class="personal-queue-row"
+                @click="openItem(item)"
+              >
+                <span class="queue-row-main"
+                  ><strong>{{ item.pathologyNo }}</strong
+                  ><small
+                    >{{ item.patientReference }} ·
+                    {{ businessTypeName(item.businessTypeCode) }}</small
+                  ></span
+                >
+                <span>{{ item.responsibilityName || item.workLabel }}</span>
+                <small>{{ formatDateTime(item.occurredAt) }}</small>
+                <span class="queue-row-arrow" aria-hidden="true">→</span>
+              </button>
+            </div>
+          </div>
+        </template>
+        <div v-else class="empty-state compact">
+          <strong>{{
+            activeSection === 'PUBLIC_POOL' ? '当前没有待接诊病例' : '当前没有待办'
+          }}</strong>
+          <span>{{
+            activeSection === 'PUBLIC_POOL'
+              ? '完成制片的病例会出现在这里。'
+              : '新的工作项出现后会显示在这里。'
+          }}</span>
         </div>
       </section>
 
-      <aside class="workbench-attention-stack">
-        <section class="workspace-panel attention-panel" aria-label="生产来源队列">
+      <aside class="workbench-queue-rail" aria-label="生产队列摘要">
+        <section class="workspace-panel">
           <header class="panel-title-row">
             <div>
-              <p class="section-kicker">BUSINESS SOURCE</p>
-              <h3>生产工作</h3>
+              <p class="section-kicker">生产入口</p>
+              <h2>按业务来源</h2>
             </div>
+            <span v-if="productionLoading" class="muted">读取中…</span>
           </header>
           <p v-if="productionError" class="feedback warning" role="status">{{ productionError }}</p>
-          <div v-if="productionLoading" class="list-skeleton" aria-label="正在加载生产任务">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="attention-list">
+          <div v-if="productionQueueCards.length" class="workbench-queue-list">
             <button
               v-for="card in productionQueueCards"
               :key="card.queue.code"
               type="button"
+              :disabled="!card.queue.items.length"
               @click="openQueueWorkspace(card.queue)"
             >
-              <span class="semantic-dot current" aria-hidden="true"></span
-              ><span
+              <span
                 ><strong>{{ card.queue.label }}</strong
-                ><small>按业务来源进入处理列表</small></span
-              ><b>{{ card.queue.count }}</b>
+                ><small>{{
+                  card.queue.items.length ? '进入当前最早任务' : '暂无任务'
+                }}</small></span
+              >
+              <b>{{ card.queue.count }}</b>
             </button>
           </div>
-          <div
-            v-if="!productionLoading && !productionQueueCards.length"
-            class="empty-state compact"
-          >
-            <strong>当前身份没有生产任务</strong>
-          </div>
+          <div v-else class="empty-state compact"><strong>当前身份没有生产队列</strong></div>
         </section>
-        <section v-if="can('P14-PERM-048')" class="workspace-panel workbench-today-panel">
-          <p class="section-kicker">GLOBAL SEARCH</p>
-          <h3>主动找病例</h3>
-          <p>按病理号、患者或材料打开病例中心，不需要先判断业务模块。</p>
+        <section class="workspace-panel workbench-search-panel">
+          <p class="section-kicker">主动查找</p>
+          <h2>病例中心</h2>
+          <p>按病理号、患者或玻片号打开病例概览。</p>
           <button class="secondary-button" type="button" @click="emit('openSearch')">
-            搜索病例
+            查找病例
           </button>
         </section>
       </aside>

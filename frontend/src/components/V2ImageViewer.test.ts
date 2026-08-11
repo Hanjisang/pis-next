@@ -9,7 +9,7 @@ describe('V2ImageViewer', () => {
       props: { source: 'WSI://SYNTH-001', label: 'A1-HE', sourcePlatform: '合成阅片平台' },
     });
 
-    expect(wrapper.text()).toContain('已准备好阅片入口');
+    expect(wrapper.text()).toContain('当前玻片暂无数字切片');
     expect(wrapper.text()).toContain('合成阅片平台');
     expect(wrapper.get('a').attributes('href')).toBe('WSI://SYNTH-001');
   });

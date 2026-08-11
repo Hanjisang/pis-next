@@ -180,8 +180,8 @@ onUnmounted(() => {
       </div>
       <div v-else-if="!supported" class="viewer-empty-content">
         <span class="viewer-placeholder-icon" aria-hidden="true">◉</span>
-        <strong>已准备好阅片入口</strong>
-        <p>当前记录提供了数字切片元数据，可连接医院阅片平台。</p>
+        <strong>当前玻片暂无数字切片</strong>
+        <p>仍可从材料列表切换其他玻片。</p>
       </div>
     </div>
     <footer class="image-viewer-footer">

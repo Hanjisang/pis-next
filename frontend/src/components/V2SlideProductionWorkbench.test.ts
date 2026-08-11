@@ -6,7 +6,7 @@ import V2SlideProductionWorkbench from './V2SlideProductionWorkbench.vue';
 describe('V2SlideProductionWorkbench', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('organizes the queue around derived histology phases', async () => {
+  it('opens a dense production queue without exposing optional trace by default', async () => {
     const today = new Date().toISOString();
     vi.stubGlobal(
       'fetch',
@@ -82,13 +82,8 @@ describe('V2SlideProductionWorkbench', () => {
     const wrapper = mount(V2SlideProductionWorkbench);
     await flushPromises();
 
-    expect(wrapper.text()).toContain('待脱水');
-    expect(wrapper.text()).toContain('待包埋');
-    expect(wrapper.text()).toContain('待切片');
-    expect(wrapper.text()).toContain('待染色');
-    expect(wrapper.text()).toContain('待封片');
-    expect(wrapper.text()).toContain('异常');
-    expect(wrapper.text()).not.toContain('待制片');
+    expect(wrapper.text()).toContain('待处理制片');
+    expect(wrapper.text()).toContain('生产队列');
     expect(wrapper.text()).not.toContain('今日完成');
     expect(wrapper.text()).not.toContain('脱水 → 包埋');
   });

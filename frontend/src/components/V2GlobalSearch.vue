@@ -82,23 +82,7 @@ async function search() {
 
 function targetForResult(result: SearchResult) {
   const caseId = encodeURIComponent(result.caseId);
-  const id = encodeURIComponent(result.id);
-  switch (result.resultKind) {
-    case 'BLOCK':
-      return `/v2/cases/${caseId}?focus=materials&focusId=${id}`;
-    case 'SLIDE':
-      return `/v2/cases/${caseId}?focus=diagnosis&focusId=${id}`;
-    case 'PATIENT':
-      return `/v2/cases/${caseId}?focus=overview&focusId=${id}`;
-    case 'REPORT':
-      return `/v2/cases/${caseId}?focus=report&focusId=${id}`;
-    case 'TECHNICAL_ORDER':
-      return `/v2/cases/${caseId}?focus=technical-order&focusId=${id}`;
-    case 'DIAGNOSIS':
-      return `/v2/cases/${caseId}?focus=diagnosis&focusId=${id}`;
-    default:
-      return `/v2/cases/${caseId}`;
-  }
+  return `/v2/cases/${caseId}`;
 }
 
 function openResult(result: SearchResult) {

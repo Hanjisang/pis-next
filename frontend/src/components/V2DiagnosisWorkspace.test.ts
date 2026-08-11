@@ -151,15 +151,11 @@ describe('V2DiagnosisWorkspace', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('P20260001');
-    const slideTab = wrapper
-      .findAll('.context-nav-list button')
-      .find((button) => button.text().includes('玻片'));
-    await slideTab?.trigger('click');
     expect(wrapper.text()).toContain('A1-HE');
     expect(wrapper.text()).toContain('诊断内容');
-    expect(wrapper.text()).toContain('责任链');
+    expect(wrapper.text()).toContain('签审记录');
     expect(wrapper.text()).toContain('技术医嘱');
-    expect(wrapper.text()).toContain('报告');
+    expect(wrapper.text()).toContain('历史报告');
     expect(wrapper.find('[aria-label="诊断主要操作"]').exists()).toBe(true);
     expect(wrapper.text()).not.toContain('ResponsibilityUnit');
     expect(wrapper.text()).not.toContain('SourceContext');
@@ -190,7 +186,11 @@ describe('V2DiagnosisWorkspace', () => {
     const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('分子结果');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('技术结果'))
+      ?.trigger('click');
+    expect(wrapper.text()).toContain('技术结果');
     expect(wrapper.text()).toContain('LUNG-PANEL');
     expect(wrapper.text()).toContain('未检出相关驱动基因变异');
     expect(wrapper.text()).not.toContain('{"conclusion"');
