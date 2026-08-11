@@ -2,6 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
+import {
+  appendNavigationContext,
+  safeLocalPath,
+  workspaceBackLabel,
+  workspaceBackTarget,
+  type V2Route,
+} from '../navigation';
 import { businessTypeName, friendlyError, formatDateTime, responsibilityName } from '../uiText';
 import {
   acknowledgeV2TechnicalResult,
@@ -103,8 +110,19 @@ const props = withDefaults(
     authUser?: V2AuthUser | null;
     focusKind?: string;
     focusId?: string;
+    origin?: V2Route['origin'];
+    queue?: string;
+    returnTo?: string;
   }>(),
-  { frozenRoundId: undefined, authUser: null, focusKind: '', focusId: '' },
+  {
+    frozenRoundId: undefined,
+    authUser: null,
+    focusKind: '',
+    focusId: '',
+    origin: 'direct',
+    queue: '',
+    returnTo: '',
+  },
 );
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -121,7 +139,7 @@ const diagnosisText = ref('');
 const comment = ref('');
 const structuredValues = ref<Record<string, unknown>>({});
 const activeContext = ref<ContextSection>('specimens');
-const activeSupportPanel = ref<SupportPanel>('clinical');
+const activeSupportPanel = ref<SupportPanel | ''>('');
 const selectedSlideId = ref('');
 const assignmentDoctor = ref('');
 const assignmentReason = ref('');
@@ -213,6 +231,27 @@ const nextCaseId = computed(() => {
   const currentIndex = workbenchCases.value.findIndex((item) => item.caseId === caseId.value);
   return currentIndex >= 0 ? (workbenchCases.value[currentIndex + 1]?.caseId ?? '') : '';
 });
+const backLabel = computed(() => workspaceBackLabel(props.origin));
+const backTarget = computed(() => workspaceBackTarget(props, caseId.value));
+const caseOverviewTarget = computed(() => {
+  if (props.origin === 'case' && safeLocalPath(props.returnTo)) return props.returnTo;
+  const path = `/v2/cases/${encodeURIComponent(caseId.value)}`;
+  return props.origin === 'workbench'
+    ? appendNavigationContext(path, {
+        origin: 'workbench',
+        queue: props.queue,
+        returnTo: props.returnTo,
+      })
+    : path;
+});
+
+function diagnosisPath(nextCaseId: string) {
+  return appendNavigationContext(`/v2/diagnosis/${nextCaseId}`, {
+    origin: props.origin,
+    queue: props.queue,
+    returnTo: props.returnTo,
+  });
+}
 
 function technicalResultAcknowledged(itemId: string) {
   return timelineEntries.value.some(
@@ -366,7 +405,13 @@ async function loadWorkspace() {
     }
     void getV2MyWorkbench()
       .then((result) => {
-        workbenchCases.value = [...result.myWork, ...result.publicPool].map((item) => ({
+        const queueItems =
+          props.queue === 'PUBLIC_POOL'
+            ? result.publicPool
+            : props.queue
+              ? result.myWork.filter((item) => item.workCode === props.queue)
+              : [...result.myWork, ...result.publicPool];
+        workbenchCases.value = queueItems.map((item) => ({
           caseId: item.caseId,
           pathologyNo: item.pathologyNo,
           businessTypeCode: item.businessTypeCode,
@@ -795,18 +840,22 @@ function applyFocus() {
   }
 }
 
+function toggleSupportPanel(panel: SupportPanel) {
+  activeSupportPanel.value = activeSupportPanel.value === panel ? '' : panel;
+}
+
 function navigateCase(offset: number) {
   const current = workbenchCases.value.findIndex((item) => item.caseId === caseId.value);
   if (current < 0) return;
   const next = workbenchCases.value[current + offset];
-  if (next) emit('navigate', '/v2/cases/' + next.caseId + '?focus=diagnosis');
+  if (next) emit('navigate', diagnosisPath(next.caseId));
 }
 
 async function completeAndNext() {
   const nextId = nextCaseId.value;
   if (!nextId || !completionAllowed.value) return;
   await complete();
-  if (!error.value) emit('navigate', '/v2/cases/' + nextId + '?focus=diagnosis');
+  if (!error.value) emit('navigate', diagnosisPath(nextId));
 }
 
 function handleShortcut(event: KeyboardEvent) {
@@ -1816,8 +1865,90 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
         :current-work="currentRole ? responsibilityName(currentRole) + '诊断' : '诊断与阅片'"
         :report-status="reportStatus"
         :progress="productionSummary"
-        @open-case="emit('navigate', '/v2/cases/' + workspace.caseSummary.caseId)"
-      />
+        :back-label="backLabel"
+        @open-case="emit('navigate', backTarget)"
+        @open-overview="emit('navigate', caseOverviewTarget)"
+      >
+        <template #actions>
+          <div class="diagnosis-header-actions" aria-label="诊断主要操作">
+            <template v-if="!workspace.diagnosis">
+              <button
+                v-if="workspace.actions.canClaim"
+                class="primary-button"
+                type="button"
+                :disabled="submitting"
+                @click="claim"
+              >
+                接诊
+              </button>
+              <button
+                v-if="workspace.actions.canAssign"
+                class="secondary-button"
+                type="button"
+                :disabled="!assignmentDoctor || submitting"
+                @click="assign"
+              >
+                分配
+              </button>
+            </template>
+            <template v-else>
+              <button
+                v-if="canEdit"
+                class="secondary-button"
+                type="button"
+                :disabled="submitting"
+                @click="save"
+              >
+                保存
+              </button>
+              <button
+                v-if="workspace.actions.canCreateTechnicalOrder"
+                class="secondary-button"
+                type="button"
+                @click="technicalPanelOpen = true"
+              >
+                技术医嘱
+              </button>
+              <button
+                v-if="completionAllowed"
+                class="primary-button"
+                type="button"
+                :disabled="submitting || (currentRole !== 'AUDIT' && !nextDoctorId)"
+                @click="complete"
+              >
+                {{ responsibilityActionLabel }}
+              </button>
+              <button
+                v-if="workspace.actions.canSignOut"
+                class="primary-button"
+                type="button"
+                :disabled="submitting"
+                @click="signOutReport"
+              >
+                签发
+              </button>
+              <button
+                v-if="workspace.actions.canPreview"
+                class="secondary-button"
+                type="button"
+                :disabled="submitting"
+                @click="previewReport"
+              >
+                报告预览
+              </button>
+              <button
+                v-if="nextCaseId && completionAllowed"
+                class="secondary-button"
+                type="button"
+                :disabled="submitting"
+                @click="completeAndNext"
+              >
+                完成并下一例
+              </button>
+            </template>
+          </div>
+        </template>
+      </V2CaseHeader>
 
       <p v-if="error" class="feedback error diagnosis-feedback" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success diagnosis-feedback" role="status">{{ notice }}</p>
@@ -2038,7 +2169,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               role="tab"
               :aria-selected="activeSupportPanel === 'clinical'"
               :class="{ active: activeSupportPanel === 'clinical' }"
-              @click="activeSupportPanel = 'clinical'"
+              @click="toggleSupportPanel('clinical')"
             >
               临床信息
             </button>
@@ -2047,7 +2178,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               role="tab"
               :aria-selected="activeSupportPanel === 'technical'"
               :class="{ active: activeSupportPanel === 'technical' }"
-              @click="activeSupportPanel = 'technical'"
+              @click="toggleSupportPanel('technical')"
             >
               技术结果<span v-if="technicalReturnedCount" class="count-pill">{{
                 technicalReturnedCount
@@ -2058,7 +2189,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               role="tab"
               :aria-selected="activeSupportPanel === 'history'"
               :class="{ active: activeSupportPanel === 'history' }"
-              @click="activeSupportPanel = 'history'"
+              @click="toggleSupportPanel('history')"
             >
               历史病例
             </button>
@@ -2067,7 +2198,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               role="tab"
               :aria-selected="activeSupportPanel === 'reports'"
               :class="{ active: activeSupportPanel === 'reports' }"
-              @click="activeSupportPanel = 'reports'"
+              @click="toggleSupportPanel('reports')"
             >
               历史报告
             </button>
@@ -2076,7 +2207,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               role="tab"
               :aria-selected="activeSupportPanel === 'audit'"
               :class="{ active: activeSupportPanel === 'audit' }"
-              @click="activeSupportPanel = 'audit'"
+              @click="toggleSupportPanel('audit')"
             >
               签审记录
             </button>
@@ -2218,7 +2349,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               </button>
             </div>
           </div>
-          <div v-else class="support-panel-content support-audit-list">
+          <div
+            v-else-if="activeSupportPanel === 'audit'"
+            class="support-panel-content support-audit-list"
+          >
             <article v-for="item in workspace.responsibilityChain" :key="item.responsibilityId">
               <strong>{{ responsibilityName(item.role) }}</strong
               ><span>{{ doctorName(item.doctorId) }}</span
@@ -2227,88 +2361,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
           </div>
         </section>
       </DiagnosisWorkspaceShell>
-
-      <footer class="workspace-action-bar" aria-label="诊断主要操作">
-        <span class="muted"
-          >Ctrl + S 保存 · 当前用户：{{ props.authUser?.displayName ?? '当前用户' }}</span
-        >
-        <div class="action-group">
-          <template v-if="!workspace.diagnosis">
-            <button
-              v-if="workspace.actions.canClaim"
-              class="primary-button"
-              type="button"
-              :disabled="submitting"
-              @click="claim"
-            >
-              接诊
-            </button>
-            <button
-              v-if="workspace.actions.canAssign"
-              class="secondary-button"
-              type="button"
-              :disabled="!assignmentDoctor || submitting"
-              @click="assign"
-            >
-              分配
-            </button>
-          </template>
-          <template v-else>
-            <button
-              v-if="canEdit"
-              class="secondary-button"
-              type="button"
-              :disabled="submitting"
-              @click="save"
-            >
-              保存
-            </button>
-            <button
-              v-if="workspace.actions.canCreateTechnicalOrder"
-              class="secondary-button"
-              type="button"
-              @click="technicalPanelOpen = true"
-            >
-              技术医嘱
-            </button>
-            <button
-              v-if="completionAllowed"
-              class="primary-button"
-              type="button"
-              :disabled="submitting || (currentRole !== 'AUDIT' && !nextDoctorId)"
-              @click="complete"
-            >
-              {{ responsibilityActionLabel }}
-            </button>
-            <button
-              v-if="workspace.actions.canPreview"
-              class="secondary-button"
-              type="button"
-              :disabled="submitting"
-              @click="previewReport"
-            >
-              报告预览
-            </button>
-            <button
-              v-if="workspace.actions.canSignOut"
-              class="primary-button"
-              type="button"
-              :disabled="submitting"
-              @click="signOutReport"
-            >
-              签发
-            </button>
-            <button
-              v-if="nextCaseId && completionAllowed"
-              class="primary-button"
-              type="button"
-              @click="completeAndNext"
-            >
-              完成并下一例
-            </button>
-          </template>
-        </div>
-      </footer>
     </template>
 
     <div v-if="technicalPanelOpen" class="drawer-backdrop" @click.self="technicalPanelOpen = false">

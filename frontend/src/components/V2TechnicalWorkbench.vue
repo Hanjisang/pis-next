@@ -2,6 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 
 import { getV2Case, type V2CaseResult } from '../v2Api';
+import {
+  appendNavigationContext,
+  safeLocalPath,
+  workspaceBackLabel,
+  workspaceBackTarget,
+  type V2Route,
+} from '../navigation';
 import { completeV2MolecularResult, type V2MolecularResult } from '../v2BusinessApi';
 import { friendlyError, idempotencyKey, statusName } from '../uiText';
 import {
@@ -21,10 +28,22 @@ type ResultDraft = { conclusion: string; value: string };
 
 const emit = defineEmits<{ navigate: [path: string] }>();
 const caseId = defineModel<string>('caseId', { default: '' });
-const props = withDefaults(defineProps<{ focusKind?: string; focusId?: string }>(), {
-  focusKind: '',
-  focusId: '',
-});
+const props = withDefaults(
+  defineProps<{
+    focusKind?: string;
+    focusId?: string;
+    origin?: V2Route['origin'];
+    queue?: string;
+    returnTo?: string;
+  }>(),
+  {
+    focusKind: '',
+    focusId: '',
+    origin: 'direct',
+    queue: '',
+    returnTo: '',
+  },
+);
 const orders = ref<V2TechnicalOrder[]>([]);
 const activeTab = ref<QueueTab>('PENDING');
 const loading = ref(false);
@@ -71,11 +90,36 @@ const focusedOrder = computed(() => {
 });
 const nextFocusedOrder = computed(() => {
   if (!focusedOrder.value) return null;
-  const index = scopedOrders.value.findIndex(
-    (order) => order.orderId === focusedOrder.value?.orderId,
+  const queueOrders = orders.value.filter(
+    (order) => order.status !== 'COMPLETED' || order.orderId === focusedOrder.value?.orderId,
   );
-  return index >= 0 ? (scopedOrders.value[index + 1] ?? null) : null;
+  const index = queueOrders.findIndex((order) => order.orderId === focusedOrder.value?.orderId);
+  return index >= 0 ? (queueOrders[index + 1] ?? null) : null;
 });
+const backLabel = computed(() => workspaceBackLabel(props.origin));
+const backTarget = computed(() => workspaceBackTarget(props, caseId.value));
+const caseOverviewTarget = computed(() => {
+  if (props.origin === 'case' && safeLocalPath(props.returnTo)) return props.returnTo;
+  const path = `/v2/cases/${encodeURIComponent(caseId.value)}`;
+  return props.origin === 'workbench'
+    ? appendNavigationContext(path, {
+        origin: 'workbench',
+        queue: props.queue,
+        returnTo: props.returnTo,
+      })
+    : path;
+});
+
+function nextOrderPath(order: V2TechnicalOrder) {
+  return appendNavigationContext(
+    `/v2/technical-orders/${order.caseId}?focusId=${encodeURIComponent(order.orderId)}`,
+    { origin: props.origin, queue: props.queue, returnTo: props.returnTo },
+  );
+}
+
+function returnToWorkbench() {
+  emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
+}
 
 watch(caseId, () => void loadMolecularCase(), { immediate: true });
 
@@ -614,18 +658,10 @@ onMounted(() => void refresh());
             ? progress(focusedOrder).completed + '/' + progress(focusedOrder).expected
             : '独立结果'
         "
-        @open-case="emit('navigate', '/v2/cases/' + caseId)"
-      >
-        <template #actions>
-          <button
-            class="secondary-button"
-            type="button"
-            @click="emit('navigate', '/v2/cases/' + caseId)"
-          >
-            病例概览
-          </button>
-        </template>
-      </V2CaseHeader>
+        :back-label="backLabel"
+        @open-case="emit('navigate', backTarget)"
+        @open-overview="emit('navigate', caseOverviewTarget)"
+      />
 
       <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
@@ -768,17 +804,17 @@ onMounted(() => void refresh());
             v-if="focusedOrder.status === 'COMPLETED' && nextFocusedOrder"
             class="primary-button"
             type="button"
-            @click="
-              emit(
-                'navigate',
-                '/v2/cases/' +
-                  nextFocusedOrder.caseId +
-                  '?focus=technical-order&focusId=' +
-                  nextFocusedOrder.orderId,
-              )
-            "
+            @click="emit('navigate', nextOrderPath(nextFocusedOrder))"
           >
             完成并下一项
+          </button>
+          <button
+            v-if="focusedOrder.status === 'COMPLETED'"
+            class="secondary-button"
+            type="button"
+            @click="returnToWorkbench"
+          >
+            完成并返回工作台
           </button>
         </div>
       </section>

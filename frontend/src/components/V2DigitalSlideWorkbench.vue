@@ -191,6 +191,7 @@ function slideCode(id?: string) {
         :progress="`物理 ${physicalSlides.length} 张 · 数字 ${slides.length} 张`"
         notice="数字扫描默认不阻塞物理制片或报告签发"
         @open-case="emit('navigate', `/v2/cases/${materials.caseId}`)"
+        @open-overview="emit('navigate', `/v2/cases/${materials.caseId}`)"
       >
         <template #actions>
           <button class="secondary-button" type="button" @click="historyDrawerOpen = true">

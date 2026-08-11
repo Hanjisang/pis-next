@@ -65,7 +65,7 @@ function targetKindLabel(kind: string | null) {
     'V2-SLIDE': '玻片',
     'V2-DIGITAL-SLIDE': '数字切片',
     'V2-DIAGNOSIS': '诊断',
-    'V2-RESPONSIBILITY': '责任链',
+    'V2-RESPONSIBILITY': '签审记录',
     'V2-TECHNICAL-ORDER': '技术医嘱',
     'V2-TECHNICAL-ORDER-ITEM': '技术医嘱项目',
     'V2-REPORT': '报告',

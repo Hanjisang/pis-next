@@ -82,7 +82,7 @@ onMounted(() => void load());
       <div v-else-if="!visibleItems.length" class="empty-state">
         <strong
           >当前没有{{ queueOptions.find((item) => item.code === activeQueue)?.label }}病例</strong
-        ><span>新的报告工作项会根据责任链和报告事实自动进入这里。</span>
+        ><span>新的报告事项会根据签审流程和报告状态自动进入这里。</span>
       </div>
       <div v-else class="dense-report-table" role="table" aria-label="报告工作项">
         <div class="dense-report-row header" role="row">

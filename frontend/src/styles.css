@@ -4378,6 +4378,226 @@ button.dense-report-row:hover {
   }
 }
 
+/* PX03C-R1: personal queues and origin-aware focused work */
+.focused-workspace-main {
+  padding-top: 10px;
+}
+
+.diagnosis-main {
+  padding: 8px 10px 10px;
+}
+
+.case-header-navigation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.case-overview-link {
+  border: 0;
+  border-left: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  padding-left: 10px;
+}
+
+.diagnosis-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.workbench-home {
+  gap: 10px;
+}
+
+.workbench-command-bar,
+.workbench-filter-controls,
+.workbench-pagination {
+  display: flex;
+  align-items: center;
+}
+
+.workbench-command-bar {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbench-filter-controls {
+  flex: 1;
+  gap: 8px;
+}
+
+.workbench-filter-controls label:first-child {
+  width: min(440px, 48vw);
+}
+
+.workbench-filter-controls input,
+.workbench-filter-controls select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  padding: 0 10px;
+}
+
+.workbench-queue-tabs {
+  display: flex;
+  gap: 1px;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--border-subtle);
+}
+
+.workbench-queue-tabs button {
+  display: inline-flex;
+  min-width: 112px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 0;
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.workbench-queue-tabs button.active {
+  box-shadow: inset 0 -3px 0 var(--brand-600);
+  background: var(--surface-selected);
+  color: var(--brand-900);
+}
+
+.workbench-queue-tabs strong {
+  color: var(--text-primary);
+  font-size: var(--font-lg);
+}
+
+.workbench-dense-list {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+.workbench-list-header,
+.workbench-dense-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(260px, 1.5fr) 150px 110px;
+  align-items: center;
+  gap: 12px;
+}
+
+.workbench-list-header {
+  min-height: 34px;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  padding: 0 12px;
+}
+
+.workbench-dense-row {
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 7px 12px;
+  text-align: left;
+}
+
+.workbench-dense-row:hover {
+  background: var(--surface-selected);
+}
+
+.workbench-dense-row > span:not(.workbench-row-action) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workbench-dense-row strong,
+.workbench-dense-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-dense-row small {
+  color: var(--text-muted);
+}
+
+.workbench-row-action {
+  color: var(--brand-700);
+  font-weight: 650;
+  text-align: right;
+}
+
+.workbench-pagination {
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.workbench-pagination button {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  padding: 5px 10px;
+}
+
+.diagnosis-main .diagnosis-focused-layout {
+  grid-template-columns: 240px minmax(0, 1fr) 420px;
+  gap: 8px;
+}
+
+.diagnosis-main .diagnosis-material-panel,
+.diagnosis-main .diagnosis-form-column,
+.diagnosis-main .diagnosis-viewer-panel,
+.diagnosis-main .diagnosis-support-panel,
+.diagnosis-main .case-header-compact {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+@media (max-width: 1500px) {
+  .diagnosis-main .diagnosis-focused-layout {
+    grid-template-columns: 210px minmax(0, 1fr) 360px;
+  }
+}
+
+@media (max-width: 900px) {
+  .workbench-command-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workbench-filter-controls label:first-child {
+    width: auto;
+    flex: 1;
+  }
+
+  .workbench-list-header,
+  .workbench-dense-row {
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) 90px;
+  }
+
+  .workbench-list-header span:last-child,
+  .workbench-row-action {
+    display: none;
+  }
+}
+
 /* PX03C focused-workspace shell and task surfaces */
 :root {
   --topbar-height: 56px;

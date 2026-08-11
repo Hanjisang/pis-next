@@ -3,6 +3,13 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 import { friendlyError, formatDateTime, idempotencyKey } from '../uiText';
 import type { V2AuthUser } from '../auth';
+import {
+  appendNavigationContext,
+  safeLocalPath,
+  workspaceBackLabel,
+  workspaceBackTarget,
+  type V2Route,
+} from '../navigation';
 import { getV2Case, type V2CaseResult } from '../v2Api';
 import {
   completeV2Slide,
@@ -39,8 +46,14 @@ type HistologyQueueView =
 
 const caseId = defineModel<string>('caseId', { default: '' });
 const props = withDefaults(
-  defineProps<{ authUser?: V2AuthUser | null; frozenRoundId?: string }>(),
-  { authUser: null, frozenRoundId: '' },
+  defineProps<{
+    authUser?: V2AuthUser | null;
+    frozenRoundId?: string;
+    origin?: V2Route['origin'];
+    queue?: string;
+    returnTo?: string;
+  }>(),
+  { authUser: null, frozenRoundId: '', origin: 'direct', queue: '', returnTo: '' },
 );
 const emit = defineEmits<{ navigate: [path: string] }>();
 const materialTree = ref<V2MaterialTree | null>(null);
@@ -105,6 +118,19 @@ const caseHeader = computed(() => {
   }
   return null;
 });
+const backLabel = computed(() => workspaceBackLabel(props.origin));
+const backTarget = computed(() => workspaceBackTarget(props, caseId.value));
+const caseOverviewTarget = computed(() => {
+  if (props.origin === 'case' && safeLocalPath(props.returnTo)) return props.returnTo;
+  const path = `/v2/cases/${encodeURIComponent(caseId.value)}`;
+  return props.origin === 'workbench'
+    ? appendNavigationContext(path, {
+        origin: 'workbench',
+        queue: props.queue,
+        returnTo: props.returnTo,
+      })
+    : path;
+});
 const isCytology = computed(
   () =>
     materialTree.value?.capability?.supportsDirectSlides === true ||
@@ -126,16 +152,22 @@ const completedCaseSlides = computed(
 );
 const nextProductionItem = computed(() => {
   const currentContext = caseProductionItems.value[0]?.productionContext;
-  if (!currentContext || !productionWorkbench.value) return null;
-  const queue = Object.values(productionWorkbench.value.queues).find((item) =>
-    item.items.some(
-      (candidate) =>
-        candidate.caseId === caseId.value && candidate.productionContext === currentContext,
-    ),
-  );
+  if (!productionWorkbench.value) return null;
+  const queues = Object.values(productionWorkbench.value.queues);
+  const queue =
+    queues.find((item) => item.code === props.queue) ??
+    (currentContext
+      ? queues.find((item) =>
+          item.items.some(
+            (candidate) =>
+              candidate.caseId === caseId.value && candidate.productionContext === currentContext,
+          ),
+        )
+      : null);
   if (!queue) return null;
   const currentIndex = queue.items.findIndex((item) => item.caseId === caseId.value);
-  return currentIndex >= 0 ? (queue.items[currentIndex + 1] ?? null) : null;
+  if (currentIndex >= 0) return queue.items[currentIndex + 1] ?? null;
+  return queue.items.find((item) => item.caseId !== caseId.value) ?? null;
 });
 const caseMaterialProgress = computed(() => {
   if (!caseSlides.value.length) return '0/0';
@@ -314,8 +346,7 @@ function submitScan() {
       message: `玻片 ${slide.slideCode} 已完成，请扫描下一张。`,
     };
     scanCode.value = '';
-    await loadHistology();
-    await loadProductionWorkbench();
+    await Promise.all([loadMaterialTree(), loadHistology(), loadProductionWorkbench()]);
     scanInput.value?.focus();
   });
 }
@@ -394,7 +425,19 @@ function openSlideGenerator() {
 }
 
 function completeAndNext() {
-  if (nextProductionItem.value) emit('navigate', nextProductionItem.value.deepLink);
+  if (!nextProductionItem.value) return;
+  emit(
+    'navigate',
+    appendNavigationContext(nextProductionItem.value.deepLink, {
+      origin: props.origin,
+      queue: props.queue,
+      returnTo: props.returnTo,
+    }),
+  );
+}
+
+function returnToWorkbench() {
+  emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
 }
 
 function phaseLabel(phaseCode: HistologyPhaseCode) {
@@ -1026,20 +1069,20 @@ onMounted(() => {
       </div>
       <div v-else class="production-queue-grid">
         <section
-          v-for="queue in productionQueues"
-          :key="queue.code"
+          v-for="productionQueue in productionQueues"
+          :key="productionQueue.code"
           class="workspace-panel production-source-queue"
-          :aria-label="queue.label"
+          :aria-label="productionQueue.label"
         >
           <header class="panel-title-row">
             <div>
-              <p class="section-kicker">{{ queue.code }}</p>
-              <h3>{{ queue.label }}</h3>
+              <p class="section-kicker">{{ productionQueue.code }}</p>
+              <h3>{{ productionQueue.label }}</h3>
             </div>
-            <span class="status-pill">{{ queue.count }}</span>
+            <span class="status-pill">{{ productionQueue.count }}</span>
           </header>
           <button
-            v-for="item in queue.items"
+            v-for="item in productionQueue.items"
             :key="item.caseId + (item.slideCode ?? item.orderId ?? '')"
             type="button"
             class="production-task-row"
@@ -1056,8 +1099,8 @@ onMounted(() => {
             <small>{{ item.waitingMinutes }} 分钟</small>
             <span class="queue-row-arrow" aria-hidden="true">→</span>
           </button>
-          <div v-if="!queue.items.length" class="empty-state compact">
-            <strong>当前没有{{ queue.label }}任务</strong>
+          <div v-if="!productionQueue.items.length" class="empty-state compact">
+            <strong>当前没有{{ productionQueue.label }}任务</strong>
           </div>
         </section>
       </div>
@@ -1074,7 +1117,9 @@ onMounted(() => {
         :current-work="isFrozen ? '冰冻制片' : isCytology ? '细胞制片' : '常规制片'"
         :progress="caseMaterialProgress + ' 张玻片完成'"
         :report-status="caseProductionItems.length ? '当前病例有待处理工作' : '正在处理'"
-        @open-case="emit('navigate', '/v2/cases/' + caseHeader.caseId)"
+        :back-label="backLabel"
+        @open-case="emit('navigate', backTarget)"
+        @open-overview="emit('navigate', caseOverviewTarget)"
       >
         <template #actions>
           <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
@@ -1169,6 +1214,14 @@ onMounted(() => {
             @click="completeAndNext"
           >
             完成并下一项
+          </button>
+          <button
+            v-if="productionReady"
+            class="secondary-button"
+            type="button"
+            @click="returnToWorkbench"
+          >
+            完成并返回工作台
           </button>
         </div>
       </section>
@@ -1310,6 +1363,14 @@ onMounted(() => {
             @click="completeAndNext"
           >
             完成并下一项
+          </button>
+          <button
+            v-if="productionReady"
+            class="secondary-button"
+            type="button"
+            @click="returnToWorkbench"
+          >
+            完成并返回工作台
           </button>
         </div>
       </section>

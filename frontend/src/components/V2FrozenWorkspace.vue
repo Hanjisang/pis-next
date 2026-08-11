@@ -2,6 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
+import {
+  appendNavigationContext,
+  safeLocalPath,
+  workspaceBackLabel,
+  workspaceBackTarget,
+  type V2Route,
+} from '../navigation';
 import { formatDateTime, friendlyError, idempotencyKey, statusName } from '../uiText';
 import { getV2Case, type V2CaseResult } from '../v2Api';
 import { getV2MaterialTree, printV2Slide, type V2MaterialTree } from '../v2MaterialApi';
@@ -13,6 +20,9 @@ const props = defineProps<{
   caseId?: string;
   roundId?: string;
   authUser?: V2AuthUser | null;
+  origin?: V2Route['origin'];
+  queue?: string;
+  returnTo?: string;
 }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -27,6 +37,33 @@ const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
 const historyDrawerOpen = ref(false);
+const backLabel = computed(() => workspaceBackLabel(props.origin ?? 'direct'));
+const backTarget = computed(() =>
+  workspaceBackTarget(
+    { origin: props.origin ?? 'direct', returnTo: props.returnTo ?? '' },
+    props.caseId ?? '',
+  ),
+);
+const caseOverviewTarget = computed(() => {
+  const preservedCase = safeLocalPath(props.returnTo);
+  if (props.origin === 'case' && preservedCase) return preservedCase;
+  const path = `/v2/cases/${encodeURIComponent(props.caseId ?? '')}`;
+  return props.origin === 'workbench'
+    ? appendNavigationContext(path, {
+        origin: 'workbench',
+        queue: props.queue,
+        returnTo: props.returnTo,
+      })
+    : path;
+});
+
+function contextualPath(path: string) {
+  return appendNavigationContext(path, {
+    origin: props.origin ?? 'direct',
+    queue: props.queue,
+    returnTo: props.returnTo,
+  });
+}
 
 const selectedRound = computed(
   () => workspace.value?.rounds.find((item) => item.roundId === selectedRoundId.value) ?? null,
@@ -133,16 +170,18 @@ function startFirstRound() {
 function openMaterials() {
   if (!workspace.value || !selectedRound.value) return;
   const destination = selectedRound.value.totalRequiredSlides
-    ? `/v2/cases/${workspace.value.frozenCaseId}?focus=production&roundId=${selectedRound.value.roundId}`
-    : `/v2/cases/${workspace.value.frozenCaseId}?focus=grossing&roundId=${selectedRound.value.roundId}`;
-  emit('navigate', destination);
+    ? `/v2/production/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`
+    : `/v2/grossing/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`;
+  emit('navigate', contextualPath(destination));
 }
 
 function openDiagnosis() {
   if (!workspace.value || !selectedRound.value) return;
   emit(
     'navigate',
-    `/v2/cases/${workspace.value.frozenCaseId}?focus=diagnosis&roundId=${selectedRound.value.roundId}`,
+    contextualPath(
+      `/v2/diagnosis/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`,
+    ),
   );
 }
 
@@ -465,7 +504,9 @@ function roundStatus(round: FrozenWorkspace['rounds'][number]) {
               : '等待开始'
           "
           :report-status="selectedRound ? roundStatus(selectedRound) : '等待轮次'"
-          @open-case="emit('navigate', '/v2/cases/' + workspace.frozenCaseId)"
+          :back-label="backLabel"
+          @open-case="emit('navigate', backTarget)"
+          @open-overview="emit('navigate', caseOverviewTarget)"
         >
           <template #actions>
             <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
@@ -563,10 +604,12 @@ function roundStatus(round: FrozenWorkspace['rounds'][number]) {
                       @click="
                         emit(
                           'navigate',
-                          '/v2/cases/' +
-                            workspace.frozenCaseId +
-                            '?focus=production&roundId=' +
-                            selectedRoundId,
+                          contextualPath(
+                            '/v2/production/' +
+                              workspace.frozenCaseId +
+                              '?roundId=' +
+                              selectedRoundId,
+                          ),
                         )
                       "
                     >

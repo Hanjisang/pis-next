@@ -59,7 +59,9 @@ public class V2ProductionWorkbenchApplicationService {
         List<ProductionItem> cytology = materialAccess.allowed()
                 ? repository.findCytology(actor.hospitalScope()).stream().map(row -> cytologyItem(row, now)).toList()
                 : List.of();
-        List<ProductionItem> frozen = frozenAccess.allowed()
+        boolean productionFrozenAccess = frozenAccess.allowed()
+                && (materialAccess.allowed() || technicalAccess.allowed());
+        List<ProductionItem> frozen = productionFrozenAccess
                 ? repository.findFrozen(actor.hospitalScope()).stream().map(row -> frozenItem(row, now)).toList()
                 : List.of();
         List<ProductionItem> technical = technicalAccess.allowed()
@@ -69,7 +71,7 @@ public class V2ProductionWorkbenchApplicationService {
                 ? repository.findIncompleteSlides(actor.hospitalScope()).stream()
                         .map(row -> incompleteSlideItem(row, now)).toList()
                 : List.of();
-        List<ProductionItem> exceptions = (materialAccess.allowed() || frozenAccess.allowed()
+        List<ProductionItem> exceptions = (materialAccess.allowed() || productionFrozenAccess
                 || technicalAccess.allowed())
                         ? repository.findExceptions(actor.hospitalScope()).stream()
                                 .map(row -> exceptionItem(row, now)).toList()
@@ -94,7 +96,7 @@ public class V2ProductionWorkbenchApplicationService {
                 row.requiredCount() == 0 ? "待生成初始玻片" : "初始制片 " + row.completedCount() + "/"
                         + row.requiredCount() + " 张玻片",
                 row.requiredCount(), row.completedCount(), row.enteredAt(), row.currentOperator(),
-                caseCenterLink(row.caseId(), "production", null, null), Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN",
+                workspaceLink(row.caseId(), "production", null, null), Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN",
                         "REPRINT", "RECORD_EXCEPTION"), null, null, null, null, null, now);
     }
 
@@ -102,7 +104,7 @@ public class V2ProductionWorkbenchApplicationService {
         return item("CYTOLOGY", row.caseId(), row.pathologyNo(), row.patientReference(), row.businessTypeCode(),
                 row.businessTypeName(), row.specimenCount() + " 个标本", "直接玻片 " + row.completedCount() + "/"
                         + row.specimenCount() + " 个标本已完成", row.specimenCount(), row.completedCount(),
-                row.enteredAt(), "制片人员", caseCenterLink(row.caseId(), "production", null, null),
+                row.enteredAt(), "制片人员", workspaceLink(row.caseId(), "production", null, null),
                 Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN", "RECORD_EXCEPTION"), null, null,
                 null, null, null, now);
     }
@@ -112,7 +114,7 @@ public class V2ProductionWorkbenchApplicationService {
                 row.businessTypeName(), "第 " + row.roundNo() + " 轮 · " + row.specimenCount() + " 个标本",
                 row.requiredCount() == 0 ? "待建立冰冻玻片" : "冰冻玻片 " + row.completedCount() + "/"
                         + row.requiredCount() + " 张完成", row.requiredCount(), row.completedCount(), row.enteredAt(),
-                "冰冻制片", caseCenterLink(row.caseId(), "frozen", row.roundId(), row.roundId()),
+                "冰冻制片", workspaceLink(row.caseId(), "frozen", row.roundId(), row.roundId()),
                 Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN"), null, null, row.roundId(), null,
                 null, now);
     }
@@ -133,7 +135,7 @@ public class V2ProductionWorkbenchApplicationService {
             result.add(item("TECHNICAL_ORDER", first.caseId(), first.pathologyNo(), first.patientReference(),
                     first.businessTypeCode(), first.businessTypeName(), "医嘱 " + first.orderNo(), task, required,
                     completed, first.enteredAt(), "技术人员",
-                    caseCenterLink(first.caseId(), "technical-order", first.orderId(), null),
+                    workspaceLink(first.caseId(), "technical-orders", first.orderId(), null),
                     Set.of("OPEN", "EXECUTE", "COMPLETE", "ENTER_RESULT", "RECORD_EXCEPTION"), first.orderId(),
                     first.orderNo(), null, null, null, now));
         }
@@ -141,7 +143,7 @@ public class V2ProductionWorkbenchApplicationService {
     }
 
     private static ProductionItem incompleteSlideItem(SlideRow row, Instant now) {
-        String deepLink = caseCenterLink(row.caseId(),
+        String deepLink = workspaceLink(row.caseId(),
                 "FROZEN_ROUND".equals(row.productionContext()) ? "frozen" : "production",
                 row.slideCode(), "FROZEN_ROUND".equals(row.productionContext()) ? row.productionContextId() : null);
         return item(row.productionContext(), row.caseId(), row.pathologyNo(), row.patientReference(),
@@ -157,14 +159,18 @@ public class V2ProductionWorkbenchApplicationService {
                         + (row.slideCode() == null ? "" : row.slideCode()),
                 row.exceptionType() + " · " + row.exceptionNote(), 0, 0, row.occurredAt(),
                 row.operatorReference() == null ? "制片人员" : row.operatorReference(),
-                caseCenterLink(row.caseId(), "production", row.slideCode(), null), Set.of("OPEN", "RECORD_EXCEPTION"), null, null, null,
+                workspaceLink(row.caseId(), "production", row.slideCode(), null), Set.of("OPEN", "RECORD_EXCEPTION"), null, null, null,
                 row.slideCode(), null, now);
     }
 
-    private static String caseCenterLink(UUID caseId, String focus, Object focusId, Object roundId) {
-        StringBuilder link = new StringBuilder("/v2/cases/").append(caseId).append("?focus=").append(focus);
-        if (focusId != null) link.append("&focusId=").append(focusId);
-        if (roundId != null) link.append("&roundId=").append(roundId);
+    private static String workspaceLink(UUID caseId, String route, Object focusId, Object roundId) {
+        StringBuilder link = new StringBuilder("/v2/").append(route).append("/").append(caseId);
+        boolean hasQuery = false;
+        if (focusId != null) {
+            link.append("?focusId=").append(focusId);
+            hasQuery = true;
+        }
+        if (roundId != null) link.append(hasQuery ? "&roundId=" : "?roundId=").append(roundId);
         return link.toString();
     }
 

@@ -11,7 +11,7 @@ type SearchResult = {
   summary: string;
 };
 
-const props = defineProps<{ open: boolean }>();
+const props = defineProps<{ open: boolean; returnPath?: string }>();
 const emit = defineEmits<{ close: []; navigate: [path: string] }>();
 
 const query = ref('');
@@ -82,7 +82,9 @@ async function search() {
 
 function targetForResult(result: SearchResult) {
   const caseId = encodeURIComponent(result.caseId);
-  return `/v2/cases/${caseId}`;
+  const query = new URLSearchParams({ origin: 'search' });
+  if (props.returnPath?.startsWith('/v2/')) query.set('returnTo', props.returnPath);
+  return `/v2/cases/${caseId}?${query.toString()}`;
 }
 
 function openResult(result: SearchResult) {

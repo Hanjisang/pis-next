@@ -18,7 +18,7 @@ test('PX03C：医生从查询进入阅片优先的诊断工作区', async ({ pag
   await expect(page.getByLabel('病例中心')).toBeVisible();
   await page.getByRole('button', { name: '进入诊断', exact: true }).click();
 
-  await expect(page).toHaveURL(/\/v2\/cases\/[^?]+\?focus=diagnosis/);
+  await expect(page).toHaveURL(/\/v2\/diagnosis\/[^?]+\?.*origin=case/);
   await expect(page.getByLabel('病例固定上下文')).toContainText(pathologyNo);
   await expect(page.getByText('WSI Viewer', { exact: true })).toBeVisible();
   await expect(page.getByLabel('材料与玻片')).toBeVisible();
@@ -28,6 +28,7 @@ test('PX03C：医生从查询进入阅片优先的诊断工作区', async ({ pag
   await expect(page.getByRole('tab', { name: '技术结果' })).toBeVisible();
   await expect(page.getByLabel('诊断主要操作')).toBeVisible();
   await expect(page.getByRole('button', { name: '报告预览' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '← 返回病例' })).toBeVisible();
   await expectAccessibleButtons(page);
   await expectNoPageOverflow(page);
 });

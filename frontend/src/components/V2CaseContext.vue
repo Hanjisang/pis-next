@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
+import { appendNavigationContext, safeLocalPath, type V2Route } from '../navigation';
 import { businessTypeName, formatDateTime, friendlyError, statusName } from '../uiText';
 import {
   getV2CaseProgress,
@@ -21,6 +22,9 @@ const props = defineProps<{
   authUser?: V2AuthUser | null;
   focusKind?: string;
   focusId?: string;
+  origin?: V2Route['origin'];
+  queue?: string;
+  returnTo?: string;
 }>();
 const emit = defineEmits<{ navigate: [path: string] }>();
 
@@ -79,6 +83,16 @@ const focusTitle = computed(
     })[props.focusKind ?? ''] ?? '当前工作',
 );
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
+const caseCenterPath = computed(() => {
+  const base = `/v2/cases/${encodeURIComponent(props.caseId)}`;
+  if (!props.origin || props.origin === 'direct') return base;
+  return appendNavigationContext(base, {
+    origin: props.origin,
+    queue: props.queue,
+    returnTo: props.returnTo,
+  });
+});
+const backLabel = computed(() => (props.origin === 'search' ? '返回搜索结果' : '返回工作台'));
 
 function can(permission: string) {
   return permissions.value.has(permission);
@@ -94,14 +108,24 @@ function lifecycleLabel(lifecycle: string) {
 
 function openFocus(kind: string) {
   if (!props.caseId) return;
-  const query = new URLSearchParams({ focus: kind });
+  const routeByKind: Record<string, string> = {
+    diagnosis: 'diagnosis',
+    report: 'reports',
+    production: 'production',
+    'technical-order': 'technical-orders',
+    frozen: 'frozen',
+    grossing: 'grossing',
+  };
+  const route = routeByKind[kind];
+  if (!route) return;
+  const query = new URLSearchParams({ origin: 'case', returnTo: caseCenterPath.value });
   if (props.focusId) query.set('focusId', props.focusId);
   if (props.roundId) query.set('roundId', props.roundId);
-  emit('navigate', `/v2/cases/${props.caseId}?${query.toString()}`);
+  emit('navigate', `/v2/${route}/${props.caseId}?${query.toString()}`);
 }
 
-function backToWorkbench() {
-  emit('navigate', '/v2/workbench');
+function returnToOrigin() {
+  emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
 }
 
 async function loadOverview() {
@@ -148,7 +172,9 @@ watch(
   >
     <template v-if="isFocused">
       <div class="case-focus-route-bar" aria-label="病例中心当前工作">
-        <button class="case-back-link" type="button" @click="backToWorkbench">← 返回</button>
+        <button class="case-back-link" type="button" @click="returnToOrigin">
+          ← {{ backLabel }}
+        </button>
         <span>病例中心</span><span class="breadcrumb-separator">/</span
         ><strong>{{ focusTitle }}</strong>
       </div>
@@ -159,6 +185,8 @@ watch(
         :focus-kind="props.focusKind"
         :focus-id="props.focusId"
         :frozen-round-id="props.roundId"
+        origin="case"
+        :return-to="caseCenterPath"
         @navigate="emit('navigate', $event)"
       />
       <V2SlideProductionWorkbench
@@ -166,6 +194,8 @@ watch(
         :case-id="props.caseId"
         :auth-user="props.authUser"
         :frozen-round-id="props.roundId"
+        origin="case"
+        :return-to="caseCenterPath"
         @navigate="emit('navigate', $event)"
       />
       <V2TechnicalWorkbench
@@ -173,6 +203,8 @@ watch(
         :case-id="props.caseId"
         :focus-kind="props.focusKind"
         :focus-id="props.focusId"
+        origin="case"
+        :return-to="caseCenterPath"
         @navigate="emit('navigate', $event)"
       />
       <V2FrozenWorkspace
@@ -180,12 +212,16 @@ watch(
         :case-id="props.caseId"
         :round-id="props.roundId"
         :auth-user="props.authUser"
+        origin="case"
+        :return-to="caseCenterPath"
         @navigate="emit('navigate', $event)"
       />
       <V2GrossingWorkbench
         v-else-if="props.focusKind === 'grossing'"
         :case-id="props.caseId"
         :auth-user="props.authUser"
+        origin="case"
+        :return-to="caseCenterPath"
         @navigate="emit('navigate', $event)"
       />
     </template>
@@ -200,7 +236,9 @@ watch(
 
     <template v-else-if="workspace && header">
       <header class="case-overview-header" aria-label="病例固定上下文">
-        <button class="case-back-link" type="button" @click="backToWorkbench">← 返回</button>
+        <button class="case-back-link" type="button" @click="returnToOrigin">
+          ← {{ backLabel }}
+        </button>
         <div class="case-overview-identity">
           <div class="case-title-line">
             <h1>{{ header.pathologyNo }}</h1>

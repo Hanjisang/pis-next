@@ -27,6 +27,7 @@ public class V2WorkbenchApplicationService {
     private static final String DIAGNOSIS_AUDIT = "P14-PERM-035";
     private static final String REPORT_SIGN_OUT = "P14-PERM-036";
     private static final String TECHNICAL_EXECUTION = "P14-PERM-017";
+    private static final String REGISTRATION = "P14-PERM-004";
 
     private final JdbcV2WorkbenchRepository repository;
     private final P15AuthorizationService authorization;
@@ -72,7 +73,7 @@ public class V2WorkbenchApplicationService {
                 count(myWork, "WITHDRAWN_REPORT_REQUIRES_ATTENTION"), publicPool.size());
         return new WorkbenchResult(Instant.now(), myWork, publicPool, counts,
                 QueueSummary.from(queueCounts, user, cytologyPreparationCases),
-                hasAny(user, WORKBENCH_QUERY) ? new TrackingSummary(progressProjection.registeredCases())
+                hasAny(user, REGISTRATION) ? new TrackingSummary(progressProjection.registeredCases())
                         : new TrackingSummary(List.of()));
     }
 
@@ -81,17 +82,13 @@ public class V2WorkbenchApplicationService {
         return new WorkItem(row.caseId(), row.pathologyNo(), row.patientReference(), row.businessTypeCode(),
                 row.businessTypeName(), row.workCode(), row.workLabel(), row.responsibilityName(),
                 row.occurredAt(), row.caseCreatedAt(), actions,
-                caseCenterLink(row), enteredAt,
+                workspaceLink(row), enteredAt,
                 Math.max(0, Duration.between(enteredAt, Instant.now()).toMinutes()));
     }
 
-    private static String caseCenterLink(WorkbenchRow row) {
-        String focus = switch (row.workCode()) {
-            case "INITIAL", "REVIEW", "AUDIT", "PUBLIC_POOL", "TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION" -> "diagnosis";
-            case "WITHDRAWN_REPORT_REQUIRES_ATTENTION" -> "report";
-            default -> "overview";
-        };
-        return "/v2/cases/" + row.caseId() + "?focus=" + focus;
+    private static String workspaceLink(WorkbenchRow row) {
+        String route = "WITHDRAWN_REPORT_REQUIRES_ATTENTION".equals(row.workCode()) ? "reports" : "diagnosis";
+        return "/v2/" + route + "/" + row.caseId();
     }
 
     private static Set<String> availableActions(String workCode, AuthenticatedUser user) {
@@ -149,7 +146,7 @@ public class V2WorkbenchApplicationService {
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.staining() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.coverslipping() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.technical() : 0,
-                    hasAny(user, "P14-PERM-008", DIAGNOSIS_INITIAL) ? counts.frozen() : 0,
+                    hasTechnicalProductionAccess(user) && hasAny(user, "P14-PERM-008") ? counts.frozen() : 0,
                     hasAny(user, REPORT_SIGN_OUT) ? counts.withdrawn() : 0,
                     hasTechnicalProductionAccess(user) ? counts.cytologyPreparation() : 0,
                     hasTechnicalProductionAccess(user) ? cytologyCases : List.of());

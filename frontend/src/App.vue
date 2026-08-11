@@ -61,6 +61,21 @@ const currentNavigation = computed(() =>
   adminNavigation.find((item) => item.name === route.value.name),
 );
 const pageTitle = computed(() => currentNavigation.value?.label ?? routeTitles[route.value.name]);
+const focusedRouteNames = new Set<V2RouteName>([
+  'diagnosis',
+  'production',
+  'frozen',
+  'technical-orders',
+  'grossing',
+]);
+const isFocusedWorkspace = computed(
+  () => focusedRouteNames.has(route.value.name) && Boolean(route.value.caseId),
+);
+const searchReturnPath = computed(() => {
+  const query = new URLSearchParams(window.location.search);
+  query.set('search', 'open');
+  return `${window.location.pathname}?${query.toString()}`;
+});
 const routeCaseId = computed({
   get: () => route.value.caseId,
   set: (caseId: string) => {
@@ -105,6 +120,7 @@ function reloadAfterLogin() {
 function navigate(path: string) {
   window.history.pushState({}, '', path);
   route.value = parseV2Route(window.location);
+  globalSearchOpen.value = new URLSearchParams(window.location.search).get('search') === 'open';
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
@@ -182,7 +198,7 @@ onUnmounted(() => {
           <button class="search-trigger" type="button" @click="globalSearchOpen = true">
             <span>搜索病理号 / 姓名 / 住院号 / 玻片号</span><kbd>Ctrl K</kbd>
           </button>
-          <label class="density-switch">
+          <label v-if="!isFocusedWorkspace" class="density-switch">
             <span>列表密度</span>
             <select v-model="tableDensity" aria-label="列表密度">
               <option value="compact">紧凑</option>
@@ -209,7 +225,15 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <main id="workspace-main" class="workspace-main" tabindex="-1">
+      <main
+        id="workspace-main"
+        class="workspace-main"
+        :class="{
+          'focused-workspace-main': isFocusedWorkspace,
+          'diagnosis-main': route.name === 'diagnosis' && Boolean(route.caseId),
+        }"
+        tabindex="-1"
+      >
         <V2Home
           v-if="route.name === 'workbench' || route.name === 'search'"
           :auth-user="authUser"
@@ -223,6 +247,9 @@ onUnmounted(() => {
           :auth-user="authUser"
           :focus-kind="route.focusKind"
           :focus-id="route.focusId"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2RegistrationWorkbench
@@ -236,6 +263,9 @@ onUnmounted(() => {
           :auth-user="authUser"
           :source-type="route.roundId ? 'FROZEN_CONTEXT' : 'INITIAL'"
           :source-reference-id="route.roundId || undefined"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2SlideProductionWorkbench
@@ -243,6 +273,9 @@ onUnmounted(() => {
           v-model:case-id="routeCaseId"
           :auth-user="authUser"
           :frozen-round-id="route.roundId || undefined"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2ReportCenter
@@ -256,6 +289,9 @@ onUnmounted(() => {
           :frozen-round-id="route.roundId || undefined"
           :focus-kind="route.focusKind"
           :focus-id="route.focusId"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2TechnicalWorkbench
@@ -263,12 +299,18 @@ onUnmounted(() => {
           v-model:case-id="routeCaseId"
           :focus-kind="route.focusKind"
           :focus-id="route.focusId"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2FrozenWorkspace
           v-else-if="route.name === 'frozen'"
           :case-id="route.caseId"
           :auth-user="authUser"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2DigitalSlideWorkbench
@@ -295,6 +337,7 @@ onUnmounted(() => {
 
     <V2GlobalSearch
       :open="globalSearchOpen"
+      :return-path="searchReturnPath"
       @close="globalSearchOpen = false"
       @navigate="navigate"
     />

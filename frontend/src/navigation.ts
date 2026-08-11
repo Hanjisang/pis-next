@@ -24,6 +24,9 @@ export type V2Route = {
   slideId: string;
   focusKind: string;
   focusId: string;
+  origin: 'workbench' | 'case' | 'search' | 'direct';
+  queue: string;
+  returnTo: string;
 };
 
 export type NavigationItem = {
@@ -78,7 +81,40 @@ export function parseV2Route(location: Pick<Location, 'pathname' | 'search'>): V
     slideId: query.get('slideId') ?? '',
     focusKind: query.get('focus') ?? (query.has('reportId') ? 'report' : ''),
     focusId: query.get('focusId') ?? query.get('reportId') ?? '',
+    origin: parseOrigin(query.get('origin')),
+    queue: query.get('queue') ?? '',
+    returnTo: safeLocalPath(query.get('returnTo')),
   };
+}
+
+function parseOrigin(value: string | null): V2Route['origin'] {
+  return value === 'workbench' || value === 'case' || value === 'search' ? value : 'direct';
+}
+
+export function safeLocalPath(value: string | null | undefined): string {
+  return value?.startsWith('/v2/') ? value : '';
+}
+
+export function appendNavigationContext(
+  path: string,
+  context: { origin: V2Route['origin']; queue?: string; returnTo?: string },
+): string {
+  const [pathname, queryString = ''] = path.split('?');
+  const query = new URLSearchParams(queryString);
+  query.set('origin', context.origin);
+  if (context.queue) query.set('queue', context.queue);
+  if (context.returnTo) query.set('returnTo', safeLocalPath(context.returnTo));
+  return `${pathname}?${query.toString()}`;
+}
+
+export function workspaceBackTarget(route: Pick<V2Route, 'origin' | 'returnTo'>, caseId: string) {
+  if (route.returnTo) return route.returnTo;
+  if (route.origin === 'workbench') return '/v2/workbench';
+  return `/v2/cases/${encodeURIComponent(caseId)}`;
+}
+
+export function workspaceBackLabel(origin: V2Route['origin']) {
+  return origin === 'workbench' ? '返回工作台' : '返回病例';
 }
 
 export function routePath(

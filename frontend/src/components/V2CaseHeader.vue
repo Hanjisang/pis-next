@@ -1,28 +1,56 @@
 <script setup lang="ts">
 import { businessTypeName } from '../uiText';
 
-defineProps<{
-  caseId: string;
-  pathologyNo: string;
-  patientReference: string;
-  visitReference?: string | null;
-  sex?: string | null;
-  age?: string | number | null;
-  businessTypeCode: string;
-  currentResponsibility?: string;
-  currentWork?: string;
-  reportStatus?: string;
-  progress?: string;
-  notice?: string;
-}>();
+withDefaults(
+  defineProps<{
+    caseId: string;
+    pathologyNo: string;
+    patientReference: string;
+    visitReference?: string | null;
+    sex?: string | null;
+    age?: string | number | null;
+    businessTypeCode: string;
+    currentResponsibility?: string;
+    currentWork?: string;
+    reportStatus?: string;
+    progress?: string;
+    notice?: string;
+    backLabel?: string;
+    showCaseOverview?: boolean;
+  }>(),
+  {
+    visitReference: null,
+    sex: null,
+    age: null,
+    currentResponsibility: '',
+    currentWork: '',
+    reportStatus: '',
+    progress: '',
+    notice: '',
+    backLabel: '返回病例',
+    showCaseOverview: true,
+  },
+);
 
-const emit = defineEmits<{ openCase: [] }>();
+const emit = defineEmits<{ openCase: []; openOverview: [] }>();
 </script>
 
 <template>
   <header class="case-header case-header-compact" aria-label="病例固定上下文">
     <div class="case-header-main">
-      <button class="case-back-link" type="button" @click="emit('openCase')">← 返回</button>
+      <div class="case-header-navigation">
+        <button class="case-back-link" type="button" @click="emit('openCase')">
+          ← {{ backLabel || '返回病例' }}
+        </button>
+        <button
+          v-if="showCaseOverview !== false"
+          class="case-overview-link"
+          type="button"
+          @click="emit('openOverview')"
+        >
+          病例概览
+        </button>
+      </div>
       <div class="case-title-line">
         <h2>{{ pathologyNo }}</h2>
         <span class="case-header-type">{{ businessTypeName(businessTypeCode) }}</span>

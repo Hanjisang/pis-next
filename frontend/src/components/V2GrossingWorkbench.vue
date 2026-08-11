@@ -3,6 +3,13 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 import { currentRecorder, type V2AuthUser } from '../auth';
 import {
+  appendNavigationContext,
+  safeLocalPath,
+  workspaceBackLabel,
+  workspaceBackTarget,
+  type V2Route,
+} from '../navigation';
+import {
   blockTypeName,
   friendlyError,
   formatDateTime,
@@ -30,8 +37,18 @@ const props = withDefaults(
     sourceType?: string;
     sourceReferenceId?: string;
     authUser?: V2AuthUser | null;
+    origin?: V2Route['origin'];
+    queue?: string;
+    returnTo?: string;
   }>(),
-  { sourceType: 'INITIAL', sourceReferenceId: undefined, authUser: null },
+  {
+    sourceType: 'INITIAL',
+    sourceReferenceId: undefined,
+    authUser: null,
+    origin: 'direct',
+    queue: '',
+    returnTo: '',
+  },
 );
 
 const emit = defineEmits<{ navigate: [path: string] }>();
@@ -53,6 +70,27 @@ const notice = ref('');
 const doctors = ref<Array<{ id: string; displayName: string; title?: string | null }>>([]);
 const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
 const historyDrawerOpen = ref(false);
+const backLabel = computed(() => workspaceBackLabel(props.origin));
+const backTarget = computed(() => workspaceBackTarget(props, caseId.value));
+const caseOverviewTarget = computed(() => {
+  if (props.origin === 'case' && safeLocalPath(props.returnTo)) return props.returnTo;
+  const path = `/v2/cases/${encodeURIComponent(caseId.value)}`;
+  return props.origin === 'workbench'
+    ? appendNavigationContext(path, {
+        origin: 'workbench',
+        queue: props.queue,
+        returnTo: props.returnTo,
+      })
+    : path;
+});
+
+function contextualPath(path: string) {
+  return appendNavigationContext(path, {
+    origin: props.origin,
+    queue: props.queue,
+    returnTo: props.returnTo,
+  });
+}
 
 const currentSpecimen = computed(
   () =>
@@ -418,13 +456,15 @@ onMounted(() => void loadDoctors());
               : '待取材'
         "
         :progress="`${workspace.specimens.length} 个标本，玻片 ${materialProgress} 完成`"
-        @open-case="emit('navigate', `/v2/cases/${workspace.caseId}`)"
+        :back-label="backLabel"
+        @open-case="emit('navigate', backTarget)"
+        @open-overview="emit('navigate', caseOverviewTarget)"
       >
         <template #actions>
           <button
             class="secondary-button"
             type="button"
-            @click="emit('navigate', `/v2/production/${workspace.caseId}`)"
+            @click="emit('navigate', contextualPath(`/v2/production/${workspace.caseId}`))"
           >
             查看制片
           </button>

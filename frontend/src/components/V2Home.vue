@@ -1,28 +1,51 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
-import { businessTypeName, formatDateTime, friendlyError } from '../uiText';
+import { appendNavigationContext } from '../navigation';
+import { businessTypeName, friendlyError } from '../uiText';
 import {
   getV2ProductionWorkbench,
+  type V2ProductionItem,
   type V2ProductionQueue,
   type V2ProductionWorkbench,
 } from '../v2ProductionWorkbenchApi';
-import { getV2MyWorkbench, type V2MyWorkbench, type V2WorkbenchItem } from '../v2WorkspaceApi';
+import {
+  getV2MyWorkbench,
+  type V2CaseProgress,
+  type V2MyWorkbench,
+  type V2WorkbenchItem,
+} from '../v2WorkspaceApi';
 
 const props = defineProps<{ authUser: V2AuthUser | null }>();
 const emit = defineEmits<{ navigate: [path: string]; openSearch: [] }>();
 
-type ActiveSection = 'MY_WORK' | 'PRODUCTION' | 'PUBLIC_POOL' | 'REGISTERED_CASES';
-type ProductionQueueCode = keyof V2ProductionWorkbench['queues'];
+type QueueItem = {
+  key: string;
+  caseId: string;
+  pathologyNo: string;
+  patientReference: string;
+  businessType: string;
+  task: string;
+  detail: string;
+  waitingMinutes: number;
+  enteredAt: string;
+  path: string;
+  focused: boolean;
+};
 
-const loading = ref(false);
-const productionLoading = ref(false);
-const error = ref('');
-const productionError = ref('');
-const activeSection = ref<ActiveSection>('MY_WORK');
-const activeProductionQueue = ref<ProductionQueueCode>('routineProduction');
-const workbench = ref<V2MyWorkbench>({
+type QueueView = { code: string; label: string; items: QueueItem[] };
+type SavedWorkbenchState = {
+  queue: string;
+  filter: string;
+  sort: 'oldest' | 'newest';
+  page: number;
+  scrollY: number;
+};
+
+const STATE_KEY = 'pis-v2-my-workbench-state';
+const PAGE_SIZE = 20;
+const emptyWorkbench: V2MyWorkbench = {
   refreshedAt: '',
   myWork: [],
   publicPool: [],
@@ -48,135 +71,229 @@ const workbench = ref<V2MyWorkbench>({
     cytologyPreparationCases: [],
   },
   tracking: { registeredCases: [] },
-});
-const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
+};
 
+function readState(): SavedWorkbenchState {
+  const fallback: SavedWorkbenchState = {
+    queue: new URLSearchParams(window.location.search).get('queue') ?? '',
+    filter: '',
+    sort: 'oldest',
+    page: 1,
+    scrollY: 0,
+  };
+  try {
+    const saved = JSON.parse(
+      sessionStorage.getItem(STATE_KEY) ?? '',
+    ) as Partial<SavedWorkbenchState>;
+    return {
+      queue: fallback.queue || saved.queue || '',
+      filter: saved.filter || '',
+      sort: saved.sort === 'newest' ? 'newest' : 'oldest',
+      page: Math.max(1, Number(saved.page) || 1),
+      scrollY: Math.max(0, Number(saved.scrollY) || 0),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+const initialState = readState();
+const loading = ref(false);
+const error = ref('');
+const workbench = ref<V2MyWorkbench>(emptyWorkbench);
+const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
+const activeQueue = ref(initialState.queue);
+const filter = ref(initialState.filter);
+const sort = ref<SavedWorkbenchState['sort']>(initialState.sort);
+const page = ref(initialState.page);
 const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
-const registeredCases = computed(() => workbench.value.tracking.registeredCases);
-const activeItems = computed(() => {
-  if (activeSection.value === 'PUBLIC_POOL') return workbench.value.publicPool;
-  if (activeSection.value === 'REGISTERED_CASES') return [];
-  return workbench.value.myWork;
-});
-const groupedItems = computed(() => {
-  const groups = new Map<string, V2WorkbenchItem[]>();
-  for (const item of activeItems.value) {
-    groups.set(item.workCode, [...(groups.get(item.workCode) ?? []), item]);
-  }
-  return [...groups.entries()].map(([code, items]) => ({
-    code,
-    label: items[0]?.workLabel ?? code,
-    items,
-  }));
-});
-const productionQueueCards = computed(() => {
-  const queues = productionWorkbench.value?.queues;
-  if (!queues) return [];
-  const cards: Array<{ queue: V2ProductionQueue; permission: string }> = [];
-  if (permissions.value.has('P14-PERM-014')) {
-    cards.push(
-      { queue: queues.routineProduction, permission: 'P14-PERM-014' },
-      { queue: queues.cytologyProduction, permission: 'P14-PERM-014' },
-      { queue: queues.incompleteSlides, permission: 'P14-PERM-014' },
-    );
-  }
-  if (permissions.value.has('P14-PERM-008'))
-    cards.push({ queue: queues.frozenProduction, permission: 'P14-PERM-008' });
-  if (permissions.value.has('P14-PERM-017'))
-    cards.push({ queue: queues.technicalOrders, permission: 'P14-PERM-017' });
-  if (
-    permissions.value.has('P14-PERM-014') ||
-    permissions.value.has('P14-PERM-008') ||
-    permissions.value.has('P14-PERM-017')
-  ) {
-    cards.push({ queue: queues.exceptions, permission: 'P14-PERM-014' });
-  }
-  return cards;
-});
-const selectedProductionQueue = computed(
-  () => productionWorkbench.value?.queues[activeProductionQueue.value] ?? null,
-);
-const queueMetrics = computed(() => [
-  { label: '待初诊', value: workbench.value.counts.initial, section: 'MY_WORK' as const },
-  { label: '待复诊', value: workbench.value.counts.review, section: 'MY_WORK' as const },
-  { label: '待审核', value: workbench.value.counts.audit, section: 'MY_WORK' as const },
-  {
-    label: '新技术结果',
-    value: workbench.value.counts.technicalResultReturned,
-    section: 'MY_WORK' as const,
-  },
-  { label: '待接诊', value: workbench.value.counts.publicPool, section: 'PUBLIC_POOL' as const },
-]);
 
 function can(permission: string) {
   return permissions.value.has(permission);
 }
 
-function selectProductionQueue(code: ProductionQueueCode) {
-  activeProductionQueue.value = code;
-  activeSection.value = 'PRODUCTION';
+const hasProductionAccess = computed(() => can('P14-PERM-014') || can('P14-PERM-017'));
+
+function diagnosisItem(item: V2WorkbenchItem): QueueItem {
+  return {
+    key: `${item.workCode}-${item.caseId}`,
+    caseId: item.caseId,
+    pathologyNo: item.pathologyNo,
+    patientReference: item.patientReference,
+    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode),
+    task: item.workLabel,
+    detail: item.responsibilityName || '待处理',
+    waitingMinutes: item.waitingMinutes,
+    enteredAt: item.enteredAt,
+    path: `/v2/${item.workCode === 'WITHDRAWN_REPORT_REQUIRES_ATTENTION' ? 'reports' : 'diagnosis'}/${item.caseId}`,
+    focused: true,
+  };
 }
 
-function queueKey(queue: V2ProductionQueue): ProductionQueueCode {
-  return (
-    (
+function productionItem(item: V2ProductionItem): QueueItem {
+  const query = new URLSearchParams();
+  let route = 'production';
+  if (item.productionContext === 'FROZEN_ROUND') {
+    route = 'frozen';
+    if (item.productionContextId) query.set('roundId', item.productionContextId);
+  } else if (item.productionContext === 'TECHNICAL_ORDER') {
+    route = 'technical-orders';
+    if (item.orderId) query.set('focusId', item.orderId);
+  }
+  return {
+    key: `${item.productionContext}-${item.caseId}-${item.orderId ?? item.slideCode ?? ''}`,
+    caseId: item.caseId,
+    pathologyNo: item.pathologyNo,
+    patientReference: item.patientReference,
+    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode ?? ''),
+    task: item.taskSummary,
+    detail: item.materialSummary,
+    waitingMinutes: item.waitingMinutes,
+    enteredAt: item.enteredAt,
+    path: `/v2/${route}/${item.caseId}${query.size ? `?${query.toString()}` : ''}`,
+    focused: true,
+  };
+}
+
+function registrationItem(item: V2CaseProgress): QueueItem {
+  return {
+    key: `REGISTERED-${item.caseId}`,
+    caseId: item.caseId,
+    pathologyNo: item.pathologyNo,
+    patientReference: item.patientReference,
+    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode),
+    task: item.currentStageLabel,
+    detail: item.currentResponsible || item.material.status,
+    waitingMinutes: item.waitingMinutes,
+    enteredAt: item.enteredAt,
+    path: `/v2/cases/${item.caseId}`,
+    focused: false,
+  };
+}
+
+function personalQueue(code: string, label: string): QueueView {
+  return {
+    code,
+    label,
+    items: workbench.value.myWork.filter((item) => item.workCode === code).map(diagnosisItem),
+  };
+}
+
+function productionQueue(queue: V2ProductionQueue): QueueView {
+  return { code: queue.code, label: queue.label, items: queue.items.map(productionItem) };
+}
+
+const queues = computed<QueueView[]>(() => {
+  const result: QueueView[] = [];
+  if (can('P14-PERM-004')) {
+    result.push(
+      { code: 'REGISTRATION_PENDING', label: '待登记', items: [] },
+      { code: 'REGISTRATION_RETURNED', label: '退回待处理', items: [] },
       {
-        ROUTINE_PRODUCTION: 'routineProduction',
-        CYTOLOGY_PRODUCTION: 'cytologyProduction',
-        FROZEN_PRODUCTION: 'frozenProduction',
-        TECHNICAL_ORDER: 'technicalOrders',
-        INCOMPLETE_SLIDES: 'incompleteSlides',
-        EXCEPTIONS: 'exceptions',
-      } as Record<string, ProductionQueueCode>
-    )[queue.code] ?? 'routineProduction'
+        code: 'REGISTERED_TODAY',
+        label: '我今天登记',
+        items: workbench.value.tracking.registeredCases.map(registrationItem),
+      },
+    );
+  }
+  if (hasProductionAccess.value && productionWorkbench.value) {
+    const production = productionWorkbench.value.queues;
+    if (can('P14-PERM-014')) {
+      result.push(productionQueue(production.routineProduction));
+      result.push(productionQueue(production.cytologyProduction));
+      result.push(productionQueue(production.incompleteSlides));
+    }
+    if (can('P14-PERM-008')) result.push(productionQueue(production.frozenProduction));
+    if (can('P14-PERM-017')) result.push(productionQueue(production.technicalOrders));
+    result.push(productionQueue(production.exceptions));
+  }
+  if (can('P14-PERM-034')) {
+    result.push(personalQueue('INITIAL', '待初诊'));
+    result.push(personalQueue('REVIEW', '待复诊'));
+    result.push(personalQueue('TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION', '新技术结果'));
+    result.push({
+      code: 'PUBLIC_POOL',
+      label: '待接诊',
+      items: workbench.value.publicPool.map(diagnosisItem),
+    });
+  }
+  if (can('P14-PERM-035')) result.push(personalQueue('AUDIT', '待审核'));
+  if (can('P14-PERM-036')) {
+    result.push(personalQueue('WITHDRAWN_REPORT_REQUIRES_ATTENTION', '撤回待处理'));
+  }
+  return result;
+});
+
+const selectedQueue = computed(() => queues.value.find((item) => item.code === activeQueue.value));
+const filteredItems = computed(() => {
+  const needle = filter.value.trim().toLocaleLowerCase();
+  const items = (selectedQueue.value?.items ?? []).filter((item) =>
+    needle
+      ? [item.pathologyNo, item.patientReference, item.businessType, item.task, item.detail]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(needle)
+      : true,
+  );
+  return [...items].sort((left, right) => {
+    const difference = new Date(left.enteredAt).getTime() - new Date(right.enteredAt).getTime();
+    return sort.value === 'oldest' ? difference : -difference;
+  });
+});
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / PAGE_SIZE)));
+const visibleItems = computed(() =>
+  filteredItems.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
+);
+
+function persistState(scrollY = window.scrollY) {
+  sessionStorage.setItem(
+    STATE_KEY,
+    JSON.stringify({
+      queue: activeQueue.value,
+      filter: filter.value,
+      sort: sort.value,
+      page: page.value,
+      scrollY,
+    }),
   );
 }
 
-function openItem(item: { caseId: string; deepLink: string }) {
-  const deepLink = item.deepLink?.trim() ?? '';
-  if (deepLink.startsWith('/v2/cases/')) {
-    emit('navigate', deepLink);
-    return;
-  }
-
-  const legacyFocus = deepLink.match(
-    /^\/v2\/(diagnosis|reports|production|technical-orders|frozen|grossing)\/([^/?]+)/,
-  );
-  if (legacyFocus) {
-    const focusByRoute: Record<string, string> = {
-      diagnosis: 'diagnosis',
-      reports: 'report',
-      production: 'production',
-      'technical-orders': 'technical-order',
-      frozen: 'frozen',
-      grossing: 'grossing',
-    };
-    const focus = focusByRoute[legacyFocus[1]] ?? 'overview';
-    emit('navigate', `/v2/cases/${legacyFocus[2]}?focus=${focus}`);
-    return;
-  }
-
-  emit('navigate', `/v2/cases/${item.caseId}`);
+function selectQueue(code: string) {
+  activeQueue.value = code;
+  page.value = 1;
 }
 
-function openQueueWorkspace(queue: V2ProductionQueue) {
-  const firstItem = queue.items[0];
-  if (firstItem) {
-    openItem(firstItem);
-    return;
-  }
-  emit('navigate', queue.code === 'TECHNICAL_ORDER' ? '/v2/technical-orders' : '/v2/production');
+function workbenchReturnPath() {
+  const query = new URLSearchParams({ queue: activeQueue.value });
+  return `/v2/workbench?${query.toString()}`;
 }
 
-function openRegistration() {
-  emit('navigate', '/v2/registration');
+function openItem(item: QueueItem) {
+  persistState();
+  const path = appendNavigationContext(item.path, {
+    origin: 'workbench',
+    queue: activeQueue.value,
+    returnTo: workbenchReturnPath(),
+  });
+  emit('navigate', path);
 }
 
 async function loadWorkbench() {
   loading.value = true;
   error.value = '';
   try {
-    workbench.value = await getV2MyWorkbench();
+    const requests: [Promise<V2MyWorkbench>, Promise<V2ProductionWorkbench | null>] = [
+      getV2MyWorkbench(),
+      hasProductionAccess.value ? getV2ProductionWorkbench() : Promise.resolve(null),
+    ];
+    [workbench.value, productionWorkbench.value] = await Promise.all(requests);
+    if (!queues.value.some((queue) => queue.code === activeQueue.value)) {
+      activeQueue.value =
+        queues.value.find((queue) => queue.items.length)?.code ?? queues.value[0]?.code ?? '';
+    }
+    page.value = Math.min(page.value, totalPages.value);
+    await nextTick();
+    window.scrollTo({ top: initialState.scrollY, behavior: 'auto' });
   } catch (requestError) {
     error.value = friendlyError(requestError, '工作列表暂时无法加载，请刷新后重试。');
   } finally {
@@ -184,287 +301,100 @@ async function loadWorkbench() {
   }
 }
 
-async function loadProductionWorkbench() {
-  if (!(can('P14-PERM-014') || can('P14-PERM-008') || can('P14-PERM-017'))) return;
-  productionLoading.value = true;
-  productionError.value = '';
-  try {
-    productionWorkbench.value = await getV2ProductionWorkbench();
-  } catch (requestError) {
-    productionError.value = friendlyError(requestError, '生产队列暂时无法加载。');
-  } finally {
-    productionLoading.value = false;
-  }
-}
-
-onMounted(() => void Promise.all([loadWorkbench(), loadProductionWorkbench()]));
+watch([activeQueue, filter, sort, page], () => persistState());
+watch([filter, sort], () => (page.value = 1));
+onMounted(() => void loadWorkbench());
+onUnmounted(() => persistState());
 </script>
 
 <template>
   <section class="workbench-home" aria-label="我的工作台">
-    <header class="workbench-toolbar">
-      <div>
-        <p class="section-kicker">今日队列</p>
-        <h1>工作台</h1>
+    <h1 class="visually-hidden">我的工作</h1>
+    <div class="workbench-command-bar">
+      <div class="workbench-filter-controls">
+        <label>
+          <span class="visually-hidden">筛选当前队列</span>
+          <input v-model="filter" type="search" placeholder="筛选病理号、患者或当前事项" />
+        </label>
+        <label>
+          <span class="visually-hidden">排序</span>
+          <select v-model="sort" aria-label="工作列表排序">
+            <option value="oldest">等待最久优先</option>
+            <option value="newest">最新进入优先</option>
+          </select>
+        </label>
       </div>
       <div class="heading-actions">
         <button
           v-if="can('P14-PERM-004')"
           class="secondary-button"
           type="button"
-          @click="openRegistration"
+          @click="emit('navigate', '/v2/registration')"
         >
           登记
         </button>
-        <button class="secondary-button" type="button" @click="emit('openSearch')">
-          查找病例 <kbd>Ctrl K</kbd>
-        </button>
-        <button class="primary-button" type="button" :disabled="loading" @click="loadWorkbench">
+        <button class="secondary-button" type="button" @click="emit('openSearch')">查找病例</button>
+        <button class="secondary-button" type="button" :disabled="loading" @click="loadWorkbench">
           {{ loading ? '刷新中…' : '刷新' }}
         </button>
       </div>
-    </header>
+    </div>
 
     <p v-if="error" class="feedback warning" role="alert">{{ error }}</p>
 
-    <div class="workbench-metric-row" aria-label="工作数量">
+    <nav class="workbench-queue-tabs" role="tablist" aria-label="我的工作队列">
       <button
-        v-for="metric in queueMetrics"
-        :key="metric.label"
-        type="button"
-        class="workbench-metric"
-        :class="{ active: activeSection === metric.section }"
-        @click="activeSection = metric.section"
-      >
-        <span>{{ metric.label }}</span
-        ><strong>{{ metric.value }}</strong>
-      </button>
-    </div>
-
-    <nav class="workbench-sections" role="tablist" aria-label="工作列表范围">
-      <button
+        v-for="queue in queues"
+        :key="queue.code"
         type="button"
         role="tab"
-        :aria-selected="activeSection === 'MY_WORK'"
-        :class="{ active: activeSection === 'MY_WORK' }"
-        @click="activeSection = 'MY_WORK'"
+        :aria-selected="activeQueue === queue.code"
+        :class="{ active: activeQueue === queue.code }"
+        @click="selectQueue(queue.code)"
       >
-        我的工作
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeSection === 'PRODUCTION'"
-        :class="{ active: activeSection === 'PRODUCTION' }"
-        @click="activeSection = 'PRODUCTION'"
-      >
-        生产队列
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeSection === 'PUBLIC_POOL'"
-        :class="{ active: activeSection === 'PUBLIC_POOL' }"
-        @click="activeSection = 'PUBLIC_POOL'"
-      >
-        待接诊
-      </button>
-      <button
-        v-if="can('P14-PERM-048')"
-        type="button"
-        role="tab"
-        :aria-selected="activeSection === 'REGISTERED_CASES'"
-        :class="{ active: activeSection === 'REGISTERED_CASES' }"
-        @click="activeSection = 'REGISTERED_CASES'"
-      >
-        我登记的病例
+        <span>{{ queue.label }}</span
+        ><strong>{{ queue.items.length }}</strong>
       </button>
     </nav>
 
-    <div class="workbench-home-grid">
-      <section class="workspace-panel workbench-list-panel" aria-label="工作列表">
-        <header class="panel-title-row">
-          <div>
-            <p class="section-kicker">工作列表</p>
-            <h2>
-              {{
-                activeSection === 'PRODUCTION'
-                  ? '生产任务'
-                  : activeSection === 'PUBLIC_POOL'
-                    ? '待接诊病例'
-                    : activeSection === 'REGISTERED_CASES'
-                      ? '我登记的病例'
-                      : '我的待办'
-              }}
-            </h2>
-          </div>
-          <span v-if="workbench.refreshedAt" class="muted"
-            >更新 {{ formatDateTime(workbench.refreshedAt) }}</span
-          >
-        </header>
+    <section class="workbench-dense-list" aria-label="工作列表">
+      <header class="workbench-list-header">
+        <span>病理号 / 患者</span><span>当前事项</span><span>等待</span><span>操作</span>
+      </header>
+      <div v-if="loading" class="list-skeleton" aria-label="正在加载工作列表">
+        <span></span><span></span><span></span>
+      </div>
+      <button
+        v-for="item in visibleItems"
+        v-else
+        :key="item.key"
+        type="button"
+        class="workbench-dense-row"
+        @click="openItem(item)"
+      >
+        <span
+          ><strong>{{ item.pathologyNo }}</strong
+          ><small>{{ item.patientReference }} · {{ item.businessType }}</small></span
+        >
+        <span
+          ><strong>{{ item.task }}</strong
+          ><small>{{ item.detail }}</small></span
+        >
+        <span
+          ><strong>{{ item.waitingMinutes }} 分钟</strong><small>进入当前队列</small></span
+        >
+        <span class="workbench-row-action">{{ item.focused ? '开始处理' : '查看病例' }} →</span>
+      </button>
+      <div v-if="!loading && !visibleItems.length" class="empty-state compact">
+        <strong>{{ filter ? '没有符合筛选条件的工作' : '当前队列没有待处理项' }}</strong>
+        <span>{{ filter ? '请调整筛选条件。' : '新任务进入后会显示在这里。' }}</span>
+      </div>
+    </section>
 
-        <template v-if="activeSection === 'PRODUCTION'">
-          <div class="workbench-production-tabs" role="tablist" aria-label="生产来源">
-            <button
-              v-for="card in productionQueueCards"
-              :key="card.queue.code"
-              type="button"
-              role="tab"
-              :aria-selected="activeProductionQueue === queueKey(card.queue)"
-              :class="{ active: activeProductionQueue === queueKey(card.queue) }"
-              @click="selectProductionQueue(queueKey(card.queue))"
-            >
-              {{ card.queue.label }} <b>{{ card.queue.count }}</b>
-            </button>
-          </div>
-          <div v-if="productionLoading" class="list-skeleton" aria-label="正在加载生产队列">
-            <span></span><span></span><span></span>
-          </div>
-          <div v-else-if="selectedProductionQueue?.items.length" class="workbench-row-list">
-            <button
-              v-for="item in selectedProductionQueue.items"
-              :key="`${item.caseId}-${item.taskSummary}-${item.slideCode ?? item.orderId ?? ''}`"
-              type="button"
-              class="personal-queue-row production-task-row"
-              @click="openItem(item)"
-            >
-              <span class="queue-row-main"
-                ><strong>{{ item.pathologyNo }}</strong
-                ><small>{{ item.patientReference }} · {{ item.businessTypeName }}</small></span
-              >
-              <span
-                ><strong>{{ item.taskSummary }}</strong
-                ><small>{{ item.materialSummary }}</small></span
-              >
-              <span
-                ><strong>{{ item.currentOperator || '待处理' }}</strong
-                ><small>等待 {{ item.waitingMinutes }} 分钟</small></span
-              >
-              <span class="queue-row-arrow" aria-hidden="true">→</span>
-            </button>
-          </div>
-          <div v-else class="empty-state compact">
-            <strong>当前来源没有待处理项</strong><span>新任务出现后会显示在这里。</span>
-          </div>
-        </template>
-
-        <template v-else-if="activeSection === 'REGISTERED_CASES'">
-          <div v-if="registeredCases.length" class="workbench-row-list">
-            <button
-              v-for="item in registeredCases"
-              :key="item.caseId"
-              type="button"
-              class="personal-queue-row"
-              @click="emit('navigate', `/v2/cases/${item.caseId}`)"
-            >
-              <span class="queue-row-main"
-                ><strong>{{ item.pathologyNo }}</strong
-                ><small
-                  >{{ item.patientReference }} ·
-                  {{ businessTypeName(item.businessTypeCode) }}</small
-                ></span
-              >
-              <span
-                ><strong>{{ item.currentStageLabel }}</strong
-                ><small>{{ item.currentResponsible || '待分派' }}</small></span
-              >
-              <span
-                ><strong>{{ item.material.status }}</strong
-                ><small>材料进度</small></span
-              >
-              <span
-                ><strong>{{ item.reportStatus === 'EFFECTIVE' ? '已签发' : '处理中' }}</strong
-                ><small>报告状态</small></span
-              >
-              <span class="queue-row-arrow" aria-hidden="true">→</span>
-            </button>
-          </div>
-          <div v-else class="empty-state compact">
-            <strong>还没有我登记的病例</strong><span>登记完成后会持续显示病例进度。</span>
-          </div>
-        </template>
-
-        <div v-else-if="loading" class="list-skeleton" aria-label="正在加载工作列表">
-          <span></span><span></span><span></span>
-        </div>
-        <template v-else-if="activeItems.length">
-          <div v-for="group in groupedItems" :key="group.code" class="workbench-work-group">
-            <header>
-              <h3>{{ group.label }}</h3>
-              <span>{{ group.items.length }}</span>
-            </header>
-            <div class="workbench-row-list">
-              <button
-                v-for="item in group.items"
-                :key="`${group.code}-${item.caseId}`"
-                type="button"
-                class="personal-queue-row"
-                @click="openItem(item)"
-              >
-                <span class="queue-row-main"
-                  ><strong>{{ item.pathologyNo }}</strong
-                  ><small
-                    >{{ item.patientReference }} ·
-                    {{ businessTypeName(item.businessTypeCode) }}</small
-                  ></span
-                >
-                <span>{{ item.responsibilityName || item.workLabel }}</span>
-                <small>{{ formatDateTime(item.occurredAt) }}</small>
-                <span class="queue-row-arrow" aria-hidden="true">→</span>
-              </button>
-            </div>
-          </div>
-        </template>
-        <div v-else class="empty-state compact">
-          <strong>{{
-            activeSection === 'PUBLIC_POOL' ? '当前没有待接诊病例' : '当前没有待办'
-          }}</strong>
-          <span>{{
-            activeSection === 'PUBLIC_POOL'
-              ? '完成制片的病例会出现在这里。'
-              : '新的工作项出现后会显示在这里。'
-          }}</span>
-        </div>
-      </section>
-
-      <aside class="workbench-queue-rail" aria-label="生产队列摘要">
-        <section class="workspace-panel">
-          <header class="panel-title-row">
-            <div>
-              <p class="section-kicker">生产入口</p>
-              <h2>按业务来源</h2>
-            </div>
-            <span v-if="productionLoading" class="muted">读取中…</span>
-          </header>
-          <p v-if="productionError" class="feedback warning" role="status">{{ productionError }}</p>
-          <div v-if="productionQueueCards.length" class="workbench-queue-list">
-            <button
-              v-for="card in productionQueueCards"
-              :key="card.queue.code"
-              type="button"
-              :disabled="!card.queue.items.length"
-              @click="openQueueWorkspace(card.queue)"
-            >
-              <span
-                ><strong>{{ card.queue.label }}</strong
-                ><small>{{
-                  card.queue.items.length ? '进入当前最早任务' : '暂无任务'
-                }}</small></span
-              >
-              <b>{{ card.queue.count }}</b>
-            </button>
-          </div>
-          <div v-else class="empty-state compact"><strong>当前身份没有生产队列</strong></div>
-        </section>
-        <section class="workspace-panel workbench-search-panel">
-          <p class="section-kicker">主动查找</p>
-          <h2>病例中心</h2>
-          <p>按病理号、患者或玻片号打开病例概览。</p>
-          <button class="secondary-button" type="button" @click="emit('openSearch')">
-            查找病例
-          </button>
-        </section>
-      </aside>
-    </div>
+    <footer v-if="totalPages > 1" class="workbench-pagination" aria-label="工作列表分页">
+      <button type="button" :disabled="page <= 1" @click="page--">上一页</button>
+      <span>第 {{ page }} / {{ totalPages }} 页</span>
+      <button type="button" :disabled="page >= totalPages" @click="page++">下一页</button>
+    </footer>
   </section>
 </template>

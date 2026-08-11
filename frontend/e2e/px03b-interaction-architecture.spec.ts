@@ -9,15 +9,15 @@ test('PX03C：工作台与病例中心形成双轴交互，普通用户没有永
   await expect(primaryNavigation).toHaveCount(0);
   await expect(page.locator('.app-sidebar')).toHaveCount(0);
 
-  await expect(page.getByRole('heading', { name: '工作台', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: '待接诊', exact: true }).click();
-  const firstWorkItem = page.locator('.personal-queue-row').first();
+  await expect(page.getByRole('region', { name: '我的工作台' })).toBeVisible();
+  await page.getByRole('tab', { name: /待接诊/ }).click();
+  const firstWorkItem = page.locator('.workbench-dense-row').first();
   await expect(firstWorkItem).toBeVisible();
   await firstWorkItem.click();
 
-  await expect(page).toHaveURL(/\/v2\/cases\/[^?]+\?focus=/);
-  await expect(page.getByRole('region', { name: '病例中心', exact: true })).toBeVisible();
-  await expect(page.locator('.case-focus-route-bar')).toContainText('病例中心');
+  await expect(page).toHaveURL(/\/v2\/diagnosis\/[^?]+\?origin=workbench/);
+  await expect(page.getByRole('region', { name: '病例中心', exact: true })).toHaveCount(0);
+  await expect(page.locator('.case-focus-route-bar')).toHaveCount(0);
   const pathologyNo = (await page.locator('.case-title-line h2').innerText()).trim();
   await expect(page.getByLabel('病例固定上下文')).toContainText(pathologyNo);
   await expect(page.getByLabel('病例固定上下文')).toContainText('当前：');
@@ -25,18 +25,20 @@ test('PX03C：工作台与病例中心形成双轴交互，普通用户没有永
   await expect(page.getByLabel('病例固定上下文')).toContainText('年龄');
   await expect(page.getByText('WSI Viewer', { exact: true })).toBeVisible();
   await expect(page.getByRole('complementary', { name: '诊断编辑', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '← 返回工作台' }).click();
+  await expect(page.getByRole('tab', { name: /待接诊/ })).toHaveAttribute('aria-selected', 'true');
   await expectNoPageOverflow(page);
 });
 
 test('PX03C：Global Search 的病例结果回到病例中心 Overview', async ({ page }) => {
   await login(page, 'doctor-a');
-  await page.getByRole('tab', { name: '待接诊', exact: true }).click();
-  const firstWorkItem = page.locator('.personal-queue-row').first();
+  await page.getByRole('tab', { name: /待接诊/ }).click();
+  const firstWorkItem = page.locator('.workbench-dense-row').first();
   await expect(firstWorkItem).toBeVisible();
   await firstWorkItem.click();
   const pathologyNo = (await page.locator('.case-title-line h2').innerText()).trim();
 
-  await page.locator('.case-focus-route-bar').getByRole('button', { name: '← 返回' }).click();
+  await page.getByRole('button', { name: '← 返回工作台' }).click();
   await page.keyboard.press('Control+K');
   const search = page.getByRole('dialog', { name: '全局查询' });
   await expect(search).toBeVisible();

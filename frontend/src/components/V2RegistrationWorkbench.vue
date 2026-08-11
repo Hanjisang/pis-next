@@ -334,8 +334,16 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
       report-status="已登记"
       :progress="`${specimens.length} 个标本已登记`"
       @open-case="emit('navigate', `/v2/cases/${completedCase.caseId}`)"
+      @open-overview="emit('navigate', `/v2/cases/${completedCase.caseId}`)"
     >
       <template #actions>
+        <button
+          class="secondary-button"
+          type="button"
+          @click="emit('navigate', `/v2/cases/${completedCase.caseId}`)"
+        >
+          病例中心
+        </button>
         <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
           历史记录
         </button>
