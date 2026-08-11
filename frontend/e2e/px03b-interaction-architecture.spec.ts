@@ -24,6 +24,9 @@ test('PX03B：工作台与病例中心形成双轴交互，普通导航不暴露
   await expect(page.getByLabel('病例中心')).toBeVisible();
   await expect(page.getByRole('button', { name: '← 工作台', exact: true })).toBeVisible();
   await expect(page.getByLabel('病例固定上下文')).toContainText('病理号');
+  await expect(page.getByLabel('病例固定上下文')).toContainText('患者姓名');
+  await expect(page.getByLabel('病例固定上下文')).toContainText('性别');
+  await expect(page.getByLabel('病例固定上下文')).toContainText('年龄');
   await expect(page.getByLabel('病例固定上下文')).toContainText('当前处理人');
   await expect(page.getByLabel('病例固定上下文')).toContainText('报告状态');
   await expect(page.getByRole('navigation', { name: '病例视图' })).toContainText('概览');

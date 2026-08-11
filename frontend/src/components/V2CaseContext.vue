@@ -306,9 +306,12 @@ function lifecycleLabel(lifecycle: string) {
         <div>
           <span>病理号</span><strong>{{ header.pathologyNo }}</strong>
         </div>
+        <div><span>患者姓名</span><strong>待补充</strong></div>
         <div>
-          <span>患者</span><strong>{{ header.patientReference }}</strong>
+          <span>患者标识</span><strong>{{ header.patientReference }}</strong>
         </div>
+        <div><span>性别</span><strong>待补充</strong></div>
+        <div><span>年龄</span><strong>待补充</strong></div>
         <div><span>来源科室</span><strong>待补充</strong></div>
         <div><span>送检医生</span><strong>待补充</strong></div>
         <div>
