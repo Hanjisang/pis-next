@@ -748,7 +748,10 @@ onMounted(() => void loadDoctors());
               @click="selectedImageId = image.imageId"
             >
               <span class="image-placeholder" aria-hidden="true">图</span>
-              <span><strong>{{ image.imageName }}</strong><small>{{ formatDateTime(image.capturedAt) }}</small></span>
+              <span
+                ><strong>{{ image.imageName }}</strong
+                ><small>{{ formatDateTime(image.capturedAt) }}</small></span
+              >
             </button>
           </div>
           <div class="input-action-row">

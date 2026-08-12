@@ -57,3 +57,22 @@ export function currentMedicalActor(user: V2AuthUser | null): string {
 export function currentRecorder(user: V2AuthUser | null): string {
   return user?.userId ?? '';
 }
+
+async function passwordRequest(path: string, body: unknown): Promise<void> {
+  const response = await fetch(`/api/v2/auth${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.ok) return;
+  const error = (await response.json().catch(() => ({}))) as { message?: string };
+  throw new Error(error.message ?? '密码操作失败');
+}
+
+export function changeOwnPassword(currentPassword: string, newPassword: string) {
+  return passwordRequest('/password', { currentPassword, newPassword });
+}
+
+export function resetUserPassword(userId: string, newPassword: string) {
+  return passwordRequest(`/users/${encodeURIComponent(userId)}/password-reset`, { newPassword });
+}

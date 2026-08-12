@@ -3,6 +3,7 @@ package com.hanjisang.pis.security.web;
 import java.util.Set;
 import java.util.List;
 import java.util.UUID;
+import java.util.Objects;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,6 +25,8 @@ import com.hanjisang.pis.security.DoctorIdentity;
 import com.hanjisang.pis.security.DoctorIdentityResolver;
 import com.hanjisang.pis.security.OrganizationContext;
 import com.hanjisang.pis.security.P15BusinessException;
+import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.P15AuthorizationService;
 
 @RestController
 @RequestMapping("/api/v2/auth")
@@ -34,16 +37,21 @@ public class V2AuthController {
     private final DoctorIdentityResolver doctorIdentityResolver;
     private final boolean requireAuthentication;
     private final boolean secureCookie;
+    private final P15AuthorizationService authorization;
+    private final JdbcAuditEventRepository audit;
 
     public V2AuthController(AuthIdentityRepository identities, AuthenticationSessionStore sessions,
             DoctorIdentityResolver doctorIdentityResolver,
             @Value("${pis.require-auth:false}") boolean requireAuthentication,
-            @Value("${pis.auth-cookie-secure:false}") boolean secureCookie) {
+            @Value("${pis.auth-cookie-secure:false}") boolean secureCookie,
+            P15AuthorizationService authorization, JdbcAuditEventRepository audit) {
         this.identities = identities;
         this.sessions = sessions;
         this.doctorIdentityResolver = doctorIdentityResolver;
         this.requireAuthentication = requireAuthentication;
         this.secureCookie = secureCookie;
+        this.authorization = authorization;
+        this.audit = audit;
     }
 
     @GetMapping("/config")
@@ -82,6 +90,44 @@ public class V2AuthController {
                 .httpOnly(true).secure(secureCookie).sameSite("Lax").path("/").maxAge(0).build().toString());
     }
 
+    @PostMapping("/password")
+    public void changePassword(@RequestBody PasswordChangeRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
+        AuthenticatedUser current = AuthenticationContext.current()
+                .orElseThrow(() -> new P15BusinessException("V2-AUTHENTICATION-REQUIRED", "请先登录", 401));
+        validatePassword(request.newPassword());
+        if (Objects.equals(request.currentPassword(), request.newPassword())) {
+            throw new P15BusinessException("V2-AUTH-PASSWORD-UNCHANGED", "新密码不能与当前密码相同", 400);
+        }
+        if (!identities.changePassword(current.userId(), request.currentPassword(), request.newPassword())) {
+            throw new P15BusinessException("V2-AUTH-PASSWORD-INVALID", "当前密码不正确", 400);
+        }
+        sessions.removeForUser(current.userId(), cookie(httpRequest, AuthenticationSessionFilter.COOKIE_NAME));
+        audit.append("PIS-V2-AUTH-PASSWORD-CHANGE", "AUTHENTICATED_USER", new com.hanjisang.pis.security.ActorContext(
+                current.userId().toString(), "AUTH_USER", "APPLICATION", current.permissions(), current.hospitalScope(),
+                current.departmentScope(), current.taskScope()), "ALLOWED", "COMPLETED", current.userId(), "V2-AUTH-USER",
+                UUID.randomUUID().toString(), "用户修改密码");
+    }
+
+    @PostMapping("/users/{userId}/password-reset")
+    public void resetPassword(@org.springframework.web.bind.annotation.PathVariable UUID userId,
+            @RequestBody PasswordResetRequest request) {
+        var actor = authorization.require("P14-PERM-001");
+        validatePassword(request.newPassword());
+        if (!identities.resetPassword(userId, request.newPassword())) {
+            throw new P15BusinessException("V2-AUTH-USER-NOT-FOUND", "用户不存在", 404);
+        }
+        sessions.removeForUser(userId, null);
+        audit.append("PIS-V2-AUTH-PASSWORD-RESET", "P14-PERM-001", actor, "ALLOWED", "COMPLETED", userId,
+                "V2-AUTH-USER", UUID.randomUUID().toString(), "管理员重置密码");
+    }
+
+    private static void validatePassword(String password) {
+        if (password == null || password.length() < 8) {
+            throw new P15BusinessException("V2-AUTH-PASSWORD-WEAK", "密码至少需要 8 个字符", 400);
+        }
+    }
+
     private static String cookie(jakarta.servlet.http.HttpServletRequest request, String name) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) return null;
@@ -90,6 +136,8 @@ public class V2AuthController {
     }
 
     public record LoginRequest(String username, String password) { }
+    public record PasswordChangeRequest(String currentPassword, String newPassword) { }
+    public record PasswordResetRequest(String newPassword) { }
 
     public record AuthConfigResponse(boolean required) { }
 

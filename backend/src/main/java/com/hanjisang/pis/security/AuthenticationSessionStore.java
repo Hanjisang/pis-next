@@ -35,5 +35,11 @@ public class AuthenticationSessionStore {
         if (token != null) sessions.remove(token);
     }
 
+    public void removeForUser(UUID userId, String tokenToKeep) {
+        if (userId == null) return;
+        sessions.entrySet().removeIf(entry -> entry.getValue().user().userId().equals(userId)
+                && (tokenToKeep == null || !entry.getKey().equals(tokenToKeep)));
+    }
+
     private record Session(AuthenticatedUser user, Instant expiresAt) { }
 }

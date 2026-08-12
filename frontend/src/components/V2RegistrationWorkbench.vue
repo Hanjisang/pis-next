@@ -249,7 +249,7 @@ async function submitRegistration() {
     if (inboundApplicationId.value) {
       createdCase = await registerV2InboundApplication(inboundApplicationId.value);
     } else {
-      progress.value = '姝ｅ湪淇濆瓨鐢宠鍜岀櫥璁拌褰?';
+      progress.value = '正在保存申请和登记记录…';
       const application = await createV2Application({
         applicationNo: draft.applicationNo.trim(),
         sourceTypeCode: 'MANUAL',
@@ -268,7 +268,7 @@ async function submitRegistration() {
       });
       const registration = await registerV2Application(application.applicationId);
       const firstCase = registration.cases[0];
-      if (!firstCase) throw new Error('鐢宠鐧昏鏈垱寤虹梾渚?');
+      if (!firstCase) throw new Error('电子申请登记未创建病例');
       createdCase = await getV2Case(firstCase.caseId);
     }
     for (const [index, specimen] of specimens.value.entries()) {

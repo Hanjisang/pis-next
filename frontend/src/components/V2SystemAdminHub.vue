@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 
+import { resetUserPassword } from '../auth';
 import { friendlyError } from '../uiText';
 import {
   getV2Administration,
@@ -14,6 +15,7 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 const notice = ref('');
+const resetPassword = ref('');
 const form = ref({
   displayName: '',
   roleCode: '',
@@ -55,8 +57,11 @@ function copySelected() {
     businessPermissions: [...user.businessPermissions],
     actionPermissions: [...user.actionPermissions],
   };
+  resetPassword.value = '';
 }
+
 watch(selectedId, copySelected);
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -70,12 +75,14 @@ async function load() {
     loading.value = false;
   }
 }
+
 function toggle(target: 'businessPermissions' | 'actionPermissions', code: string) {
   const values = form.value[target];
   form.value[target] = values.includes(code)
     ? values.filter((item) => item !== code)
     : [...values, code];
 }
+
 async function save() {
   if (!selectedId.value) return;
   saving.value = true;
@@ -84,13 +91,30 @@ async function save() {
   try {
     snapshot.value = await updateV2AdminUser(selectedId.value, form.value);
     copySelected();
-    notice.value = '三层权限已保存，医疗人员身份已更新。';
+    notice.value = '用户权限、数据范围和人员身份已更新。';
   } catch (requestError) {
-    error.value = friendlyError(requestError, '用户配置保存失败，请刷新后重试。');
+    error.value = friendlyError(requestError, '用户配置保存失败。');
   } finally {
     saving.value = false;
   }
 }
+
+async function resetSelectedPassword() {
+  if (!selectedId.value || !resetPassword.value) return;
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    await resetUserPassword(selectedId.value, resetPassword.value);
+    resetPassword.value = '';
+    notice.value = '密码已重置，该用户现有登录会话已失效。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '密码重置失败。');
+  } finally {
+    saving.value = false;
+  }
+}
+
 onMounted(() => void load());
 </script>
 
@@ -100,7 +124,7 @@ onMounted(() => void load());
       <div>
         <p class="section-kicker">系统管理</p>
         <h2>用户与权限</h2>
-        <p>业务权限决定能进入什么，数据范围决定能看到什么，操作权限决定当前页面能执行什么。</p>
+        <p>分别维护业务权限、数据范围和操作权限。</p>
       </div>
       <button class="secondary-button" type="button" :disabled="loading" @click="load">
         {{ loading ? '刷新中…' : '刷新用户' }}
@@ -112,7 +136,7 @@ onMounted(() => void load());
       <aside class="workspace-panel administration-users">
         <header class="panel-title-row">
           <div>
-            <p class="section-kicker">账号</p>
+            <p class="section-kicker">账户</p>
             <h3>用户</h3>
           </div>
           <span>{{ snapshot?.users.length ?? 0 }}</span>
@@ -129,7 +153,8 @@ onMounted(() => void load());
           <span
             ><strong>{{ user.displayName }}</strong
             ><small>{{ user.username }} · {{ user.roleCode }}</small></span
-          ><span :class="['status-pill', user.enabled ? 'success' : 'warning']">{{
+          >
+          <span :class="['status-pill', user.enabled ? 'success' : 'warning']">{{
             user.enabled ? '启用' : '停用'
           }}</span>
         </button>
@@ -137,7 +162,7 @@ onMounted(() => void load());
       <section v-if="selectedUser" class="workspace-panel administration-editor">
         <header class="panel-title-row">
           <div>
-            <p class="section-kicker">账号设置</p>
+            <p class="section-kicker">账户设置</p>
             <h3>{{ selectedUser.username }}</h3>
           </div>
           <button class="primary-button" type="button" :disabled="saving" @click="save">
@@ -145,20 +170,21 @@ onMounted(() => void load());
           </button>
         </header>
         <div class="field-grid three-columns">
-          <label>显示名称<input v-model="form.displayName" /></label
-          ><label
+          <label>显示名称<input v-model="form.displayName" /></label>
+          <label
             >角色模板<select v-model="form.roleCode">
               <option v-for="role in snapshot?.roles ?? []" :key="role" :value="role">
                 {{ role }}
               </option>
             </select></label
-          ><label class="inline-checkbox aligned-checkbox"
-            ><input v-model="form.enabled" type="checkbox" />账号启用</label
+          >
+          <label class="inline-checkbox aligned-checkbox"
+            ><input v-model="form.enabled" type="checkbox" />账户启用</label
           >
         </div>
         <section class="permission-section">
           <header>
-            <h4>BUSINESS · 业务权限</h4>
+            <h4>业务权限</h4>
             <span>决定可进入的业务能力</span>
           </header>
           <div class="permission-grid">
@@ -176,23 +202,19 @@ onMounted(() => void load());
         </section>
         <section class="permission-section">
           <header>
-            <h4>DATA · 数据范围</h4>
-            <span>不是权限代码；它是后端查询必须执行的可见数据边界</span>
+            <h4>数据范围</h4>
+            <span>服务端查询与写入必须遵守的组织边界</span>
           </header>
           <div class="field-grid three-columns">
             <label>医院范围<input v-model="form.hospitalScope" /></label
             ><label>科室范围<input v-model="form.departmentScope" /></label
             ><label>任务范围<input v-model="form.taskScope" /></label>
           </div>
-          <p class="muted">
-            数据范围与业务/操作权限分开建模。所有病例、队列和查询接口必须在服务端按 Scope
-            过滤，前端只负责配置和展示。
-          </p>
         </section>
         <section class="permission-section">
           <header>
-            <h4>ACTION · 操作权限</h4>
-            <span>决定当前身份可以执行的动作</span>
+            <h4>操作权限</h4>
+            <span>决定当前身份可执行的动作</span>
           </header>
           <div class="permission-grid">
             <label v-for="item in actionPermissions" :key="item.code" class="permission-option"
@@ -209,7 +231,7 @@ onMounted(() => void load());
         </section>
         <section class="permission-section">
           <header>
-            <h4>Doctor Identity · 医疗人员身份</h4>
+            <h4>医疗人员身份</h4>
             <span>供诊断、取材、责任和签发统一使用</span>
           </header>
           <div class="field-grid four-columns">
@@ -221,9 +243,25 @@ onMounted(() => void load());
             >
           </div>
         </section>
+        <section class="permission-section">
+          <header>
+            <h4>重置密码</h4>
+            <span>重置后目标用户现有会话立即失效</span>
+          </header>
+          <form class="operations-form" @submit.prevent="resetSelectedPassword">
+            <input
+              v-model="resetPassword"
+              type="password"
+              required
+              minlength="8"
+              autocomplete="new-password"
+              placeholder="至少 8 个字符"
+            /><button class="secondary-button" type="submit" :disabled="saving">重置密码</button>
+          </form>
+        </section>
       </section>
       <section v-else class="workspace-panel empty-state">
-        <strong>请选择一个用户</strong><span>用户数据加载后可以在这里编辑。</span>
+        <strong>请选择一个用户</strong><span>用户数据加载后可在此编辑。</span>
       </section>
     </div>
     <section v-if="snapshot" class="workspace-panel organization-scope-panel">
@@ -236,7 +274,7 @@ onMounted(() => void load());
       </header>
       <div class="config-table">
         <div class="config-row header">
-          <span>医院</span><span>院区</span><span>科室代码</span><span>科室名称</span>
+          <span>医院</span><span>院区</span><span>科室编码</span><span>科室名称</span>
         </div>
         <div
           v-for="item in snapshot.organizations"

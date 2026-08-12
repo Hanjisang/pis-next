@@ -121,7 +121,9 @@ async function applicationRequest<T>(path: string, init: RequestInit): Promise<T
   });
   const body = (await response.json()) as T & { message?: string; error_code?: string };
   if (!response.ok) {
-    throw new Error(`${body.error_code ?? 'V2-APPLICATION-FAILED'}: ${body.message ?? '申请操作失败'}`);
+    throw new Error(
+      `${body.error_code ?? 'V2-APPLICATION-FAILED'}: ${body.message ?? '申请操作失败'}`,
+    );
   }
   return body;
 }
@@ -149,9 +151,14 @@ export function createV2Application(input: {
   return applicationRequest('', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export function registerV2Application(applicationId: string): Promise<V2ApplicationRegistrationResult> {
+export function registerV2Application(
+  applicationId: string,
+): Promise<V2ApplicationRegistrationResult> {
   return applicationRequest(`/${encodeURIComponent(applicationId)}/register`, {
     method: 'POST',
-    body: JSON.stringify({ receiptKindCode: 'REGISTRATION', printerProfileCode: 'MOCK://SYNTH-PRINTER' }),
+    body: JSON.stringify({
+      receiptKindCode: 'REGISTRATION',
+      printerProfileCode: 'MOCK://SYNTH-PRINTER',
+    }),
   });
 }

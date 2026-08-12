@@ -36,6 +36,18 @@ public class AuthIdentityRepository implements AuthenticatedUserDirectory {
         return findAuthRow("id = ?", userId).map(this::toUser);
     }
 
+    public boolean changePassword(UUID userId, String currentPassword, String newPassword) {
+        Optional<AuthRow> row = findAuthRow("id = ?", userId);
+        if (row.isEmpty() || !PasswordHash.matches(currentPassword, row.get().passwordDigest())) return false;
+        return jdbc.update("UPDATE pis_v2.auth_user SET password_digest = ?, updated_at = ? WHERE id = ? AND enabled = TRUE",
+                PasswordHash.create(newPassword), Timestamp.from(Instant.now()), userId) == 1;
+    }
+
+    public boolean resetPassword(UUID userId, String newPassword) {
+        return jdbc.update("UPDATE pis_v2.auth_user SET password_digest = ?, updated_at = ? WHERE id = ?",
+                PasswordHash.create(newPassword), Timestamp.from(Instant.now()), userId) == 1;
+    }
+
     public List<DoctorIdentity> findEnabledDoctors(String hospitalScope) {
         return jdbc.query("""
                 SELECT d.id, d.user_id, d.doctor_code, d.display_name, d.title, d.department,
