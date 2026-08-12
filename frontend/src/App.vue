@@ -2,12 +2,13 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type { V2AuthUser } from './auth';
-import { departmentName, roleName } from './auth';
+import { changeOwnPassword, departmentName, roleName } from './auth';
 import V2DiagnosisWorkspace from './components/V2DiagnosisWorkspace.vue';
 import V2GlobalSearch from './components/V2GlobalSearch.vue';
 import V2FrozenWorkspace from './components/V2FrozenWorkspace.vue';
 import V2CaseContext from './components/V2CaseContext.vue';
 import V2ConfigurationHub from './components/V2ConfigurationHub.vue';
+import V2BusinessOperationsHub from './components/V2BusinessOperationsHub.vue';
 import V2GrossingWorkbench from './components/V2GrossingWorkbench.vue';
 import V2Home from './components/V2Home.vue';
 import V2Login from './components/V2Login.vue';
@@ -28,6 +29,11 @@ import {
   type V2RouteName,
 } from './navigation';
 import { friendlyError } from './uiText';
+import {
+  getOperationsNotifications,
+  readOperationsNotification,
+  type OperationsNotification,
+} from './v2BusinessOperationsApi';
 
 const authLoading = ref(true);
 const authRequired = ref(false);
@@ -36,6 +42,14 @@ const authError = ref('');
 const route = ref<V2Route>(parseV2Route(window.location));
 const globalSearchOpen = ref(false);
 const tableDensity = ref<'compact' | 'comfortable'>('compact');
+const unreadNotificationCount = ref(0);
+const notificationsOpen = ref(false);
+const notifications = ref<OperationsNotification[]>([]);
+const passwordOpen = ref(false);
+const passwordSaving = ref(false);
+const passwordError = ref('');
+const passwordNotice = ref('');
+const passwordDraft = ref({ currentPassword: '', newPassword: '', confirmation: '' });
 
 const routeTitles: Record<V2RouteName, string> = {
   workbench: '工作台',
@@ -52,6 +66,7 @@ const routeTitles: Record<V2RouteName, string> = {
   search: '查询',
   quality: '质控统计',
   configuration: '配置',
+  'business-operations': '科室运行',
   system: '系统管理',
 };
 
@@ -105,12 +120,43 @@ async function loadAuthentication() {
     authError.value = friendlyError(requestError, '认证服务暂时不可用，请稍后刷新页面。');
   } finally {
     authLoading.value = false;
+    try {
+      notifications.value = await getOperationsNotifications();
+      unreadNotificationCount.value = notifications.value.filter((item) => !item.readAt).length;
+    } catch {
+      unreadNotificationCount.value = 0;
+    }
   }
+}
+
+async function markNotificationRead(item: OperationsNotification) {
+  await readOperationsNotification(item.id);
+  item.readAt = new Date().toISOString();
+  unreadNotificationCount.value = notifications.value.filter((entry) => !entry.readAt).length;
 }
 
 async function logout() {
   await fetch('/api/v2/auth/logout', { method: 'POST' });
   window.location.replace('/v2/workbench');
+}
+
+async function submitOwnPassword() {
+  passwordError.value = '';
+  passwordNotice.value = '';
+  if (passwordDraft.value.newPassword !== passwordDraft.value.confirmation) {
+    passwordError.value = '两次输入的新密码不一致。';
+    return;
+  }
+  passwordSaving.value = true;
+  try {
+    await changeOwnPassword(passwordDraft.value.currentPassword, passwordDraft.value.newPassword);
+    passwordDraft.value = { currentPassword: '', newPassword: '', confirmation: '' };
+    passwordNotice.value = '密码已修改，其他已登录会话已失效。';
+  } catch (requestError) {
+    passwordError.value = friendlyError(requestError, '密码修改失败。');
+  } finally {
+    passwordSaving.value = false;
+  }
 }
 
 function reloadAfterLogin() {
@@ -198,6 +244,16 @@ onUnmounted(() => {
           <button class="search-trigger" type="button" @click="globalSearchOpen = true">
             <span>搜索病理号 / 姓名 / 住院号 / 玻片号</span><kbd>Ctrl K</kbd>
           </button>
+          <button
+            class="notification-trigger"
+            type="button"
+            aria-label="打开通知中心"
+            @click="notificationsOpen = true"
+          >
+            通知<span v-if="unreadNotificationCount" class="notification-count">{{
+              unreadNotificationCount
+            }}</span>
+          </button>
           <label v-if="!isFocusedWorkspace" class="density-switch">
             <span>列表密度</span>
             <select v-model="tableDensity" aria-label="列表密度">
@@ -220,6 +276,7 @@ onUnmounted(() => {
             >
               管理后台
             </button>
+            <button type="button" @click="passwordOpen = true">修改密码</button>
             <button type="button" @click="logout">退出</button>
           </div>
         </div>
@@ -325,7 +382,14 @@ onUnmounted(() => {
         />
         <V2QualityWorkbench v-else-if="route.name === 'quality'" />
         <V2ConfigurationHub v-else-if="route.name === 'configuration'" />
-        <V2SystemAdminHub v-else-if="route.name === 'system'" />
+        <V2BusinessOperationsHub
+          v-else-if="
+            route.name === 'business-operations' && authUser?.permissions.includes('P14-PERM-001')
+          "
+        />
+        <V2SystemAdminHub
+          v-else-if="route.name === 'system' && authUser?.permissions.includes('P14-PERM-001')"
+        />
         <V2Home
           v-else
           :auth-user="authUser"
@@ -341,6 +405,82 @@ onUnmounted(() => {
       @close="globalSearchOpen = false"
       @navigate="navigate"
     />
+    <div v-if="passwordOpen" class="modal-backdrop" @click.self="passwordOpen = false">
+      <form
+        class="modal-card password-dialog"
+        aria-label="修改密码"
+        @submit.prevent="submitOwnPassword"
+      >
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">账户安全</p>
+            <h3>修改密码</h3>
+          </div>
+          <button class="text-button" type="button" @click="passwordOpen = false">关闭</button>
+        </header>
+        <p v-if="passwordError" class="feedback error" role="alert">{{ passwordError }}</p>
+        <p v-if="passwordNotice" class="feedback success" role="status">{{ passwordNotice }}</p>
+        <label
+          >当前密码<input
+            v-model="passwordDraft.currentPassword"
+            type="password"
+            required
+            autocomplete="current-password"
+        /></label>
+        <label
+          >新密码<input
+            v-model="passwordDraft.newPassword"
+            type="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+        /></label>
+        <label
+          >确认新密码<input
+            v-model="passwordDraft.confirmation"
+            type="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+        /></label>
+        <button class="primary-button" type="submit" :disabled="passwordSaving">
+          {{ passwordSaving ? '保存中…' : '保存新密码' }}
+        </button>
+      </form>
+    </div>
+    <div v-if="notificationsOpen" class="modal-backdrop" @click.self="notificationsOpen = false">
+      <section class="modal-card notification-dialog" aria-label="通知中心">
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">业务消息</p>
+            <h3>通知中心</h3>
+          </div>
+          <button class="text-button" type="button" @click="notificationsOpen = false">关闭</button>
+        </header>
+        <div v-if="!notifications.length" class="empty-state">
+          <strong>暂无通知</strong><span>新任务和技术结果会显示在这里。</span>
+        </div>
+        <div
+          v-for="item in notifications"
+          :key="item.id"
+          class="operations-row"
+          :class="{ unread: !item.readAt }"
+        >
+          <div>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.body }}</p>
+          </div>
+          <button
+            v-if="!item.readAt"
+            class="text-button"
+            type="button"
+            @click="markNotificationRead(item)"
+          >
+            标记已读</button
+          ><span v-else class="status-pill success">已读</span>
+        </div>
+      </section>
+    </div>
   </div>
   <main v-else class="auth-loading" aria-label="正在加载系统">
     <span class="loading-spinner" aria-hidden="true"></span>

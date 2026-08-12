@@ -5521,6 +5521,26 @@ button.dense-report-row:hover {
   opacity: 0.55;
 }
 
+.notification-trigger {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.notification-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--danger, #b34141);
+  color: #fff;
+  font-size: 11px;
+}
+
 .diagnosis-no-viewer {
   display: grid;
   min-height: 0;
@@ -5535,6 +5555,159 @@ button.dense-report-row:hover {
   margin: 0;
   color: #a9c8ba;
   font-size: var(--font-sm);
+}
+
+.operations-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.operations-module-nav,
+.operations-section-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.operations-module-nav button {
+  display: grid;
+  min-width: 180px;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--ink-2);
+  text-align: left;
+}
+
+.operations-module-nav button.active,
+.operations-section-tabs button.active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+.operations-module-nav small {
+  color: var(--ink-4);
+}
+.operations-section-tabs button {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-1);
+}
+.operations-workspace > .workspace-panel {
+  min-height: 0;
+}
+.password-dialog {
+  display: grid;
+  width: min(440px, calc(100vw - 32px));
+  gap: 12px;
+}
+.password-dialog label {
+  display: grid;
+  gap: 5px;
+}
+.password-dialog input {
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.notification-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: 78vh;
+  overflow: auto;
+}
+
+.operations-nav {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.operations-nav button {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.operations-nav button small {
+  color: var(--ink-4);
+}
+
+.operations-nav button.active {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+.operations-panel {
+  min-width: 0;
+}
+
+.operations-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.operations-form input,
+.operations-form select {
+  min-width: 150px;
+  flex: 1 1 160px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--ink-1);
+}
+
+.operations-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.operations-row.unread {
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
+
+.operations-row p,
+.operations-row small {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+}
+
+@media (max-width: 860px) {
+  .operations-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .operations-nav {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .operations-nav button {
+    min-width: 120px;
+  }
 }
 
 .diagnosis-slide-strip {

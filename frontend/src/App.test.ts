@@ -69,4 +69,34 @@ describe('PIS Next V2 application shell', () => {
 
     expect(wrapper.get('.topbar-page-label').text()).toBe('数字切片');
   });
+
+  it('does not expose administration modules to an ordinary user on a direct URL', async () => {
+    window.history.replaceState({}, '', '/v2/business-operations');
+    vi.stubGlobal('scrollTo', vi.fn());
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/auth/config')) return new Response(JSON.stringify({ required: true }));
+        if (url.endsWith('/auth/me'))
+          return new Response(
+            JSON.stringify({
+              userId: 'registrar-2',
+              username: 'registrar',
+              displayName: '登记员乙',
+              roleCode: 'REGISTRAR',
+              department: 'REGISTRATION',
+              permissions: ['P14-PERM-004', 'P14-PERM-048'],
+            }),
+          );
+        if (url.endsWith('/operations/notifications')) return new Response(JSON.stringify([]));
+        return new Response(JSON.stringify({}), { status: 404 });
+      }),
+    );
+    const wrapper = mount(App);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('采购管理');
+    expect(wrapper.text()).not.toContain('数据迁移任务');
+    expect(wrapper.find('.app-sidebar').exists()).toBe(false);
+  });
 });

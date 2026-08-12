@@ -1,11 +1,45 @@
+-- Lightweight H2 fixture for web/application tests only.
+-- PostgreSQL-specific constraints, Flyway behavior, and V33 -> V34 upgrade semantics are verified
+-- by Testcontainers integration tests and must not be inferred from this compatibility schema.
 CREATE SCHEMA IF NOT EXISTS pis;
 CREATE SCHEMA IF NOT EXISTS pis_v2;
 
+CREATE TABLE IF NOT EXISTS pis_v2.hospital_profile (
+    id UUID PRIMARY KEY, profile_code VARCHAR(128) NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS pis_v2.hospital_campus (
+    id UUID PRIMARY KEY, hospital_profile_id UUID NOT NULL, campus_code VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.hospital_department (
+    id UUID PRIMARY KEY, hospital_profile_id UUID NOT NULL, department_code VARCHAR(128) NOT NULL,
+    department_name VARCHAR(256) NOT NULL
+);
+MERGE INTO pis_v2.hospital_profile (id, profile_code) KEY(profile_code)
+VALUES ('10000000-0000-0000-0000-000000000001', 'LOCAL_HOSPITAL');
+MERGE INTO pis_v2.hospital_campus (id, hospital_profile_id, campus_code) KEY(id)
+VALUES ('10000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'MAIN');
+MERGE INTO pis_v2.hospital_department (id, hospital_profile_id, department_code, department_name) KEY(id)
+VALUES
+('10000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'REGISTRATION', '登记组'),
+('10000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'TECHNICAL', '技术组'),
+('10000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', 'PATHOLOGY', '病理科'),
+('10000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', 'ADMINISTRATION', '系统管理');
+
 CREATE TABLE IF NOT EXISTS pis_v2.auth_user (
-    id UUID PRIMARY KEY, display_name VARCHAR(256), username VARCHAR(256)
+    id UUID PRIMARY KEY, username VARCHAR(128) NOT NULL UNIQUE, display_name VARCHAR(256) NOT NULL,
+    password_digest VARCHAR(1024) NOT NULL, role_code VARCHAR(64) NOT NULL,
+    hospital_scope VARCHAR(128) NOT NULL, department_scope VARCHAR(128), task_scope VARCHAR(2000),
+    enabled BOOLEAN NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, hospital_profile_id UUID, campus_id UUID, department_id UUID
+);
+CREATE TABLE IF NOT EXISTS pis_v2.auth_user_permission (
+    user_id UUID NOT NULL, permission_code VARCHAR(128) NOT NULL, PRIMARY KEY (user_id, permission_code)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.doctor_identity (
-    id UUID PRIMARY KEY, user_id UUID, display_name VARCHAR(256)
+    id UUID PRIMARY KEY, user_id UUID NOT NULL UNIQUE, doctor_code VARCHAR(128) NOT NULL UNIQUE,
+    display_name VARCHAR(256) NOT NULL, title VARCHAR(128), department VARCHAR(256), department_id UUID,
+    enabled BOOLEAN NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pis.audit_event (
@@ -672,4 +706,217 @@ CREATE TABLE IF NOT EXISTS pis_v2.case_consultation (
     discussion VARCHAR(10000), conclusion VARCHAR(10000), note VARCHAR(4000), attachment_reference VARCHAR(1024),
     recorded_by_ref VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     organization_reference VARCHAR(128) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pis_v2.notification (
+    id UUID PRIMARY KEY, recipient_reference VARCHAR(256) NOT NULL, type_code VARCHAR(64) NOT NULL,
+    title VARCHAR(512) NOT NULL, body VARCHAR(4000) NOT NULL, business_path VARCHAR(1024),
+    priority_code VARCHAR(32) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    read_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.staff_schedule (
+    id UUID PRIMARY KEY, staff_reference VARCHAR(256) NOT NULL, schedule_date DATE NOT NULL,
+    shift_code VARCHAR(64) NOT NULL, work_area VARCHAR(256) NOT NULL, note VARCHAR(2000),
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.quality_document (
+    id UUID PRIMARY KEY, title VARCHAR(512) NOT NULL, document_no VARCHAR(128) NOT NULL,
+    category_code VARCHAR(64) NOT NULL, version_label VARCHAR(64) NOT NULL,
+    effective_at TIMESTAMP WITH TIME ZONE, owner_reference VARCHAR(256) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, content_reference VARCHAR(1024) NOT NULL,
+    previous_document_id UUID, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    reviewed_at TIMESTAMP WITH TIME ZONE, reviewed_by_ref VARCHAR(128), archived_at TIMESTAMP WITH TIME ZONE
+);
+CREATE TABLE IF NOT EXISTS pis_v2.equipment (
+    id UUID PRIMARY KEY, equipment_code VARCHAR(128) NOT NULL, name VARCHAR(256) NOT NULL,
+    category_code VARCHAR(128) NOT NULL, manufacturer VARCHAR(256), model VARCHAR(256), serial_no VARCHAR(256),
+    location_reference VARCHAR(256), custodian_reference VARCHAR(256), purchase_date DATE, warranty_until DATE,
+    calibration_due_at DATE, status_code VARCHAR(32) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.equipment_event (
+    id UUID PRIMARY KEY, equipment_id UUID NOT NULL, event_code VARCHAR(64) NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL, operator_reference VARCHAR(256) NOT NULL,
+    description VARCHAR(4000), amount NUMERIC(18,2), organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_catalog (
+    id UUID PRIMARY KEY, material_code VARCHAR(128) NOT NULL, name VARCHAR(256) NOT NULL,
+    category_code VARCHAR(128) NOT NULL, specification VARCHAR(512), unit_code VARCHAR(64) NOT NULL,
+    manufacturer VARCHAR(256), supplier VARCHAR(256), hazardous BOOLEAN NOT NULL, active BOOLEAN NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_batch (
+    id UUID PRIMARY KEY, catalog_id UUID NOT NULL, batch_no VARCHAR(128) NOT NULL, expiry_date DATE,
+    storage_location VARCHAR(256), organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_transaction (
+    id UUID PRIMARY KEY, batch_id UUID NOT NULL, direction_code VARCHAR(32) NOT NULL,
+    quantity NUMERIC(18,3) NOT NULL, reason VARCHAR(2000) NOT NULL, source_reference VARCHAR(256),
+    operator_reference VARCHAR(256) NOT NULL, occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_requisition (
+    id UUID PRIMARY KEY, request_no VARCHAR(128) NOT NULL, requester_reference VARCHAR(256) NOT NULL,
+    department_reference VARCHAR(256) NOT NULL, purpose VARCHAR(2000) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, decided_at TIMESTAMP WITH TIME ZONE,
+    decided_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_requisition_item (
+    id UUID PRIMARY KEY, requisition_id UUID NOT NULL, catalog_id UUID NOT NULL, quantity NUMERIC(18,3) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.consumable_quality_evaluation (
+    id UUID PRIMARY KEY, batch_id UUID NOT NULL, result_code VARCHAR(32) NOT NULL, note VARCHAR(2000),
+    evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL, evaluated_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.procurement_request (
+    id UUID PRIMARY KEY, request_no VARCHAR(128) NOT NULL, requester_reference VARCHAR(256) NOT NULL,
+    department_reference VARCHAR(256) NOT NULL, reason VARCHAR(2000) NOT NULL, status_code VARCHAR(32) NOT NULL,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.procurement_item (
+    id UUID PRIMARY KEY, request_id UUID NOT NULL, material_reference VARCHAR(256) NOT NULL,
+    quantity NUMERIC(18,3) NOT NULL, estimated_amount NUMERIC(18,2) NOT NULL, supplier VARCHAR(256)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.procurement_approval (
+    id UUID PRIMARY KEY, request_id UUID NOT NULL, approval_sequence INTEGER NOT NULL,
+    approver_reference VARCHAR(256) NOT NULL, decision_code VARCHAR(32) NOT NULL, comment VARCHAR(2000),
+    decided_at TIMESTAMP WITH TIME ZONE NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.procurement_attachment (
+    id UUID PRIMARY KEY, request_id UUID NOT NULL, attachment_kind_code VARCHAR(64) NOT NULL,
+    storage_reference VARCHAR(1024) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.department_space (
+    id UUID PRIMARY KEY, parent_id UUID, space_code VARCHAR(128) NOT NULL, name VARCHAR(256) NOT NULL,
+    zone_code VARCHAR(64) NOT NULL, area_value NUMERIC(18,3), administrator_reference VARCHAR(256),
+    description VARCHAR(2000), view_reference VARCHAR(1024), active BOOLEAN NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.space_environment_record (
+    id UUID PRIMARY KEY, space_id UUID NOT NULL, metric_code VARCHAR(64) NOT NULL,
+    measure_value NUMERIC(18,6) NOT NULL, unit_code VARCHAR(32) NOT NULL,
+    measured_at TIMESTAMP WITH TIME ZONE NOT NULL, source_reference VARCHAR(256),
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.space_safety_check (
+    id UUID PRIMARY KEY, space_id UUID NOT NULL, check_code VARCHAR(64) NOT NULL, result_code VARCHAR(32) NOT NULL,
+    note VARCHAR(2000), checked_at TIMESTAMP WITH TIME ZONE NOT NULL, checked_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.critical_value (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, value_type_code VARCHAR(128) NOT NULL, grade_code VARCHAR(32) NOT NULL,
+    trigger_reference VARCHAR(512), status_code VARCHAR(32) NOT NULL, due_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.critical_value_notification (
+    id UUID PRIMARY KEY, critical_value_id UUID NOT NULL, department_reference VARCHAR(256) NOT NULL,
+    recipient_reference VARCHAR(256) NOT NULL, method_code VARCHAR(64) NOT NULL,
+    notified_at TIMESTAMP WITH TIME ZONE NOT NULL, notified_by_ref VARCHAR(128) NOT NULL,
+    acknowledgement_at TIMESTAMP WITH TIME ZONE, acknowledged_by_ref VARCHAR(128),
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.critical_value_feedback (
+    id UUID PRIMARY KEY, critical_value_id UUID NOT NULL, content VARCHAR(4000) NOT NULL,
+    feedback_at TIMESTAMP WITH TIME ZONE NOT NULL, feedback_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_distribution (
+    id UUID PRIMARY KEY, report_id UUID NOT NULL, target_code VARCHAR(64) NOT NULL,
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, sent_at TIMESTAMP WITH TIME ZONE,
+    status_code VARCHAR(32) NOT NULL, retry_count INTEGER NOT NULL, last_error VARCHAR(2000),
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_print_record (
+    id UUID PRIMARY KEY, report_id UUID NOT NULL, identity_reference VARCHAR(256) NOT NULL,
+    terminal_reference VARCHAR(256), printer_reference VARCHAR(256), printed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    result_code VARCHAR(32) NOT NULL, copy_count INTEGER NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.common_address (
+    id UUID PRIMARY KEY, address_name VARCHAR(256) NOT NULL, recipient_name VARCHAR(256) NOT NULL,
+    phone VARCHAR(128), address_text VARCHAR(2000) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    active BOOLEAN NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.logistics_package (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, consultation_id UUID, courier_company VARCHAR(256) NOT NULL,
+    tracking_no VARCHAR(256), sender_reference VARCHAR(256) NOT NULL, recipient_reference VARCHAR(256) NOT NULL,
+    address_text VARCHAR(2000) NOT NULL, status_code VARCHAR(32) NOT NULL, sent_at TIMESTAMP WITH TIME ZONE,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.logistics_package_item (
+    id UUID PRIMARY KEY, package_id UUID NOT NULL, block_id UUID, slide_id UUID, document_reference VARCHAR(1024)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.logistics_event (
+    id UUID PRIMARY KEY, package_id UUID NOT NULL, status_code VARCHAR(32) NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL, note VARCHAR(2000), recorded_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_project (
+    id UUID PRIMARY KEY, project_code VARCHAR(128) NOT NULL, project_name VARCHAR(256) NOT NULL,
+    project_type_code VARCHAR(64) NOT NULL, enabled BOOLEAN NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_instrument (
+    id UUID PRIMARY KEY, instrument_code VARCHAR(128) NOT NULL, name VARCHAR(256) NOT NULL,
+    adapter_code VARCHAR(128) NOT NULL, enabled BOOLEAN NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_reagent_kit (
+    id UUID PRIMARY KEY, kit_code VARCHAR(128) NOT NULL, manufacturer VARCHAR(256), batch_no VARCHAR(128) NOT NULL,
+    expiry_date DATE, enabled BOOLEAN NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_test (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, specimen_id UUID, project_id UUID NOT NULL,
+    detection_no VARCHAR(128) NOT NULL, instrument_id UUID, reagent_kit_id UUID, raw_data_reference VARCHAR(1024),
+    structured_result VARCHAR(20000), analysis_result VARCHAR(20000), status_code VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, completed_at TIMESTAMP WITH TIME ZONE,
+    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_archive (
+    id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, storage_path VARCHAR(2048) NOT NULL,
+    storage_tier VARCHAR(64) NOT NULL, filename VARCHAR(512) NOT NULL, format_code VARCHAR(64) NOT NULL,
+    pathology_no VARCHAR(128), slide_no VARCHAR(128), patient_reference VARCHAR(256), organ_reference VARCHAR(256),
+    integrity_digest VARCHAR(256), status_code VARCHAR(32) NOT NULL, imported_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    restored_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.regional_share (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, receiving_organization VARCHAR(512) NOT NULL,
+    receiving_doctor VARCHAR(256), expires_at TIMESTAMP WITH TIME ZONE, patient_authorized BOOLEAN NOT NULL,
+    status_code VARCHAR(32) NOT NULL, requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    requested_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.regional_share_item (
+    id UUID PRIMARY KEY, share_id UUID NOT NULL, report_id UUID, digital_slide_id UUID, attachment_reference VARCHAR(1024)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.regional_share_access (
+    id UUID PRIMARY KEY, share_id UUID NOT NULL, accessor_reference VARCHAR(256) NOT NULL,
+    accessed_at TIMESTAMP WITH TIME ZONE NOT NULL, action_code VARCHAR(64) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.income_fact (
+    id UUID PRIMARY KEY, case_id UUID, project_code VARCHAR(128) NOT NULL, amount NUMERIC(18,2) NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL, source_reference VARCHAR(256) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.migration_job (
+    id UUID PRIMARY KEY, source_code VARCHAR(128) NOT NULL, mode_code VARCHAR(32) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, started_at TIMESTAMP WITH TIME ZONE, completed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.migration_record (
+    id UUID PRIMARY KEY, job_id UUID NOT NULL, legacy_type VARCHAR(128) NOT NULL, legacy_key VARCHAR(256) NOT NULL,
+    local_type VARCHAR(128), local_id UUID, record_status VARCHAR(32) NOT NULL, raw_reference VARCHAR(1024),
+    mapped_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.migration_error (
+    id UUID PRIMARY KEY, job_id UUID NOT NULL, record_id UUID, error_code VARCHAR(128) NOT NULL,
+    error_message VARCHAR(4000) NOT NULL, retry_count INTEGER NOT NULL, resolved_at TIMESTAMP WITH TIME ZONE,
+    resolved_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL
 );

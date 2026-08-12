@@ -15,6 +15,7 @@ export type V2RouteName =
   | 'search'
   | 'quality'
   | 'configuration'
+  | 'business-operations'
   | 'system';
 
 export type V2Route = {
@@ -49,6 +50,7 @@ export const adminNavigation: NavigationItem[] = [
   { name: 'workbench', label: '工作台', shortLabel: '工作台' },
   { name: 'configuration', label: '配置中心', shortLabel: '配置' },
   { name: 'quality', label: '质控与统计', shortLabel: '质控' },
+  { name: 'business-operations', label: '科室运行', shortLabel: '运行' },
   { name: 'system', label: '系统管理', shortLabel: '管理' },
 ];
 
@@ -67,6 +69,7 @@ const segmentToRoute: Record<string, V2RouteName> = {
   search: 'search',
   quality: 'quality',
   configuration: 'configuration',
+  'business-operations': 'business-operations',
   system: 'system',
 };
 
@@ -131,7 +134,7 @@ export function routePath(
 
 export function navigationForUser(user: V2AuthUser | null): NavigationItem[] {
   if (!user) return [];
-  const isAdministrator = user.roleCode === 'ADMIN' || user.permissions.includes('P14-PERM-001');
+  const isAdministrator = user.permissions.includes('P14-PERM-001');
   if (!isAdministrator) return [];
   return adminNavigation.filter(
     (item) =>
