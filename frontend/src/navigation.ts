@@ -25,6 +25,8 @@ export type V2Route = {
   slideId: string;
   focusKind: string;
   focusId: string;
+  sourceType: string;
+  sourceReferenceId: string;
   origin: 'workbench' | 'case' | 'search' | 'direct';
   queue: string;
   returnTo: string;
@@ -84,6 +86,8 @@ export function parseV2Route(location: Pick<Location, 'pathname' | 'search'>): V
     slideId: query.get('slideId') ?? '',
     focusKind: query.get('focus') ?? (query.has('reportId') ? 'report' : ''),
     focusId: query.get('focusId') ?? query.get('reportId') ?? '',
+    sourceType: query.get('sourceType') ?? '',
+    sourceReferenceId: query.get('sourceReferenceId') ?? '',
     origin: parseOrigin(query.get('origin')),
     queue: query.get('queue') ?? '',
     returnTo: safeLocalPath(query.get('returnTo')),

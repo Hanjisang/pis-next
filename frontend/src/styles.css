@@ -2366,8 +2366,23 @@ textarea:focus {
 
 .grossing-image-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  align-content: start;
   gap: var(--space-2);
+}
+
+.grossing-image-workspace {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.38fr) minmax(300px, 0.62fr);
+  gap: var(--space-3);
+}
+
+.grossing-image-preview {
+  width: 100%;
+  max-height: 260px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  object-fit: contain;
 }
 
 .grossing-image-row {
@@ -2406,6 +2421,85 @@ textarea:focus {
   font-weight: 700;
 }
 
+.compact-editor,
+.split-editor,
+.correction-bar {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: white;
+  padding: var(--space-2);
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: 72px repeat(3, minmax(110px, 1fr));
+  gap: var(--space-2);
+}
+
+.compact-material-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.compact-material-table th,
+.compact-material-table td {
+  min-height: 44px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.compact-material-table input:not([type='checkbox']) {
+  min-width: 90px;
+}
+
+.material-table-actions,
+.image-fact-list {
+  margin-top: var(--space-2);
+}
+
+.image-fact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.image-delete-row {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .grossing-workspace-grid {
+    grid-template-columns: 176px minmax(0, 1fr);
+    min-height: 430px;
+  }
+
+  .grossing-editor {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .grossing-image-panel {
+    max-height: 230px;
+    overflow: auto;
+  }
+
+  .grossing-image-workspace {
+    grid-template-columns: 170px minmax(260px, 1fr);
+  }
+
+  .grossing-image-preview {
+    max-height: 180px;
+  }
+}
+
 .block-quick-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -2442,7 +2536,28 @@ textarea:focus {
 
 .specimen-detail-editor {
   align-items: end;
-  margin-bottom: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.specimen-detail-disclosure {
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-2);
+}
+
+.specimen-detail-disclosure summary {
+  color: var(--brand-800);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 700;
+}
+
+.gross-description-grid textarea {
+  min-height: 76px;
+}
+
+.gross-description-grid .span-two textarea {
+  min-height: 42px;
 }
 
 .field-action-cell {

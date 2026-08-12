@@ -29,11 +29,20 @@ export type V2SpecimenResult = {
   caseId: string;
   specimenNo: string;
   specimenCode: string;
+  specimenName: string;
   specimenKindCode: string;
+  creationSourceCode: string;
   sourceKindCode: string;
   sourceReference: string;
   collectionSite: string;
   collectionMethodCode: string;
+  lateralityCode?: string | null;
+  quantityValue?: number | null;
+  quantityUnitCode?: string | null;
+  description?: string | null;
+  removedAt?: string | null;
+  fixedAt?: string | null;
+  receivedAt?: string | null;
   labelCode: string | null;
   deletedAt: string | null;
   deletionReason: string | null;
@@ -106,12 +115,22 @@ export function getV2PathologyNumberHistory(caseId: string): Promise<V2Pathology
 export function registerV2Specimen(input: {
   caseId: string;
   specimenCode: string;
+  specimenName?: string;
   specimenKindCode: string;
+  creationSourceCode?: string;
   sourceKindCode: string;
   sourceReference: string;
   collectionSite: string;
   collectionMethodCode: string;
+  lateralityCode?: string | null;
+  quantityValue?: number | null;
+  quantityUnitCode?: string | null;
+  description?: string | null;
+  removedAt?: string | null;
+  fixedAt?: string | null;
+  receivedAt?: string | null;
   labelCode: string;
+  creationReason?: string;
   idempotencyKey: string;
 }): Promise<V2SpecimenResult> {
   return v2RegistrationRequest('/specimens', { method: 'POST', body: JSON.stringify(input) });
@@ -124,26 +143,64 @@ export function getV2Specimen(specimenId: string): Promise<V2SpecimenResult> {
 export function updateV2Specimen(input: {
   specimenId: string;
   specimenCode: string;
+  specimenName?: string;
   specimenKindCode: string;
   sourceKindCode: string;
   sourceReference: string;
   collectionSite: string;
   collectionMethodCode: string;
+  lateralityCode?: string | null;
+  quantityValue?: number | null;
+  quantityUnitCode?: string | null;
+  description?: string | null;
+  removedAt?: string | null;
+  fixedAt?: string | null;
+  receivedAt?: string | null;
   labelCode: string;
   expectedVersion: number;
+  reason?: string;
 }): Promise<V2SpecimenResult> {
   return v2RegistrationRequest(`/specimens/${input.specimenId}`, {
     method: 'PUT',
     body: JSON.stringify({
       specimenCode: input.specimenCode,
+      specimenName: input.specimenName,
       specimenKindCode: input.specimenKindCode,
       sourceKindCode: input.sourceKindCode,
       sourceReference: input.sourceReference,
       collectionSite: input.collectionSite,
       collectionMethodCode: input.collectionMethodCode,
+      lateralityCode: input.lateralityCode,
+      quantityValue: input.quantityValue,
+      quantityUnitCode: input.quantityUnitCode,
+      description: input.description,
+      removedAt: input.removedAt,
+      fixedAt: input.fixedAt,
+      receivedAt: input.receivedAt,
       labelCode: input.labelCode,
       expectedVersion: input.expectedVersion,
+      reason: input.reason,
     }),
+  });
+}
+
+export function splitV2Specimen(input: {
+  specimenId: string;
+  childSpecimenCode: string;
+  childSpecimenName: string;
+  specimenKindCode?: string;
+  sourceKindCode?: string;
+  collectionSite?: string;
+  quantityValue?: number;
+  quantityUnitCode?: string;
+  description?: string;
+  labelCode?: string;
+  reason: string;
+}): Promise<V2SpecimenResult> {
+  const { specimenId, ...body } = input;
+  return v2RegistrationRequest(`/specimens/${specimenId}/split`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 

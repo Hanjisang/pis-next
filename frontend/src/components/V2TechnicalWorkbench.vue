@@ -227,6 +227,23 @@ function execute(order: V2TechnicalOrder) {
   });
 }
 
+function isSupplementaryGrossing(item: V2TechnicalItem) {
+  return item.projectCode === 'SUPPLEMENTARY-GROSSING';
+}
+
+function openSupplementaryGrossing(order: V2TechnicalOrder, item: V2TechnicalItem) {
+  void submit(async () => {
+    if (!item.outputs.some((output) => output.outputKind === 'GROSSING')) {
+      await executeV2TechnicalOrder(order.orderId, idempotencyKey('fc02b-supplementary-grossing'));
+    }
+    const destination = appendNavigationContext(
+      `/v2/grossing/${encodeURIComponent(order.caseId)}?sourceType=TECHNICAL_ORDER&sourceReferenceId=${encodeURIComponent(item.itemId)}`,
+      { origin: props.origin, queue: props.queue, returnTo: props.returnTo },
+    );
+    emit('navigate', destination);
+  });
+}
+
 function cancel(order: V2TechnicalOrder) {
   const reason = cancellationReasons[order.orderId]?.trim();
   if (!reason) return;
@@ -744,6 +761,15 @@ onMounted(() => void refresh());
             <p v-if="item.result" class="feedback success compact-feedback">
               结果：{{ displayResult(item) }}
             </p>
+            <button
+              v-if="isSupplementaryGrossing(item) && item.status !== 'COMPLETED'"
+              class="primary-button"
+              type="button"
+              :disabled="submitting"
+              @click="openSupplementaryGrossing(focusedOrder, item)"
+            >
+              补充取材
+            </button>
             <div
               v-else-if="
                 item.projectCode.includes('MOLECULAR') && focusedOrder.status === 'EXECUTING'
@@ -783,7 +809,9 @@ onMounted(() => void refresh());
         </div>
         <div class="focused-bottom-actions">
           <button
-            v-if="focusedOrder.status === 'PENDING'"
+            v-if="
+              focusedOrder.status === 'PENDING' && !focusedOrder.items.some(isSupplementaryGrossing)
+            "
             class="primary-button"
             type="button"
             :disabled="submitting"

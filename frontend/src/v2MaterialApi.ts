@@ -17,6 +17,8 @@ export type V2BlockResult = {
   specimenId: string;
   blockCode: string;
   blockType: string;
+  samplingDescription: string | null;
+  note: string | null;
   deletedAt: string | null;
   concurrencyVersion: number;
   duplicate: boolean;
@@ -53,13 +55,23 @@ export type V2MaterialTree = {
     specimenId: string;
     specimenNo: string;
     specimenCode: string;
+    specimenName: string;
     specimenKindCode: string;
+    creationSourceCode: string;
+    collectionSite: string | null;
+    specimenDescription: string | null;
+    sourceSpecimenCode: string | null;
+    grossMaterialDescription: string | null;
+    grossSpecimenVersion: number;
     blocks: Array<{
       blockId: string;
       blockCode: string;
       blockType: string;
+      samplingDescription: string | null;
+      note: string | null;
       concurrencyVersion: number;
       printCount: number;
+      verificationStatus: 'UNVERIFIED' | 'PASSED' | 'FAILED' | string;
       slides: V2SlideNode[];
     }>;
     directSlides: V2SlideNode[];
@@ -102,6 +114,12 @@ export type V2GrossingWorkspace = {
     completedAt: string | null;
     concurrencyVersion: number;
   };
+  availableActions: string[];
+  verificationPolicy: {
+    verificationRequired: boolean;
+    dualCheckRequired: boolean;
+    sameUserAllowed: boolean;
+  };
 };
 
 export type V2GrossingImage = {
@@ -131,12 +149,24 @@ export type V2GrossingAnnotation = {
   deletedAt: string | null;
 };
 
+export type V2GrossingMeasurement = {
+  measurementId: string;
+  imageId: string;
+  geometryJson: string;
+  value: number;
+  unitCode: 'MM' | 'CM' | string;
+  measurementModeCode: string;
+  createdAt: string;
+  createdByRef: string;
+};
+
 async function materialRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/v2${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
   });
-  const body: unknown = await response.json();
+  const responseText = await response.text();
+  const body: unknown = responseText ? JSON.parse(responseText) : undefined;
   if (!response.ok) {
     const error = body as { error_code?: string; message?: string };
     throw new Error(
@@ -176,6 +206,22 @@ export function updateV2Grossing(input: {
   return materialRequest(`/grossings/${grossingId}`, { method: 'PUT', body: JSON.stringify(body) });
 }
 
+export function correctV2Grossing(input: {
+  grossingId: string;
+  grossDescription: string;
+  grossingInstruction?: string;
+  grossingDoctorId: string;
+  recorderId: string;
+  reason: string;
+  expectedVersion: number;
+}): Promise<V2GrossingResult> {
+  const { grossingId, ...body } = input;
+  return materialRequest(`/grossings/${grossingId}/correct`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export function associateV2Specimen(input: {
   grossingId: string;
   specimenId: string;
@@ -189,15 +235,49 @@ export function associateV2Specimen(input: {
   });
 }
 
+export function updateV2GrossingSpecimen(input: {
+  grossingId: string;
+  specimenId: string;
+  materialDescription: string;
+  expectedVersion: number;
+  reason?: string;
+}): Promise<V2GrossingResult> {
+  const { grossingId, specimenId, ...body } = input;
+  return materialRequest(`/grossings/${grossingId}/specimens/${specimenId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
 export function createV2Block(input: {
   grossingId: string;
   specimenId: string;
   blockCode: string;
   blockType: string;
+  samplingDescription?: string;
+  note?: string;
   idempotencyKey: string;
 }): Promise<V2BlockResult> {
   const { grossingId, ...body } = input;
   return materialRequest(`/grossings/${grossingId}/blocks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2Blocks(input: {
+  grossingId: string;
+  blocks: Array<{
+    specimenId: string;
+    blockCode: string;
+    blockType: string;
+    samplingDescription?: string;
+    note?: string;
+  }>;
+  idempotencyKey: string;
+}): Promise<{ blocks: V2BlockResult[] }> {
+  const { grossingId, ...body } = input;
+  return materialRequest(`/grossings/${grossingId}/blocks/batch`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -235,11 +315,28 @@ export function updateV2Block(input: {
   blockId: string;
   blockCode: string;
   blockType: string;
+  samplingDescription?: string;
+  note?: string;
+  reason?: string;
   expectedVersion: number;
   idempotencyKey: string;
 }): Promise<V2BlockResult> {
   const { blockId, ...body } = input;
   return materialRequest(`/blocks/${blockId}`, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function verifyV2Block(input: {
+  blockId: string;
+  verifiedCode: string;
+  verifiedSpecimenId: string;
+  verifiedQuantity?: number;
+  reason?: string;
+}): Promise<{ blockId: string; resultCode: string; verifiedAt: string; verifiedByRef: string }> {
+  const { blockId, ...body } = input;
+  return materialRequest(`/blocks/${blockId}/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ verifiedQuantity: 1, ...body }),
+  });
 }
 
 export function softDeleteV2Block(input: {
@@ -309,6 +406,14 @@ export function printV2Block(input: {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export function printV2Blocks(input: {
+  blockIds: string[];
+  reason?: string;
+  idempotencyKey: string;
+}): Promise<{ results: Array<{ entityId: string; duplicate: boolean; resultCode: string }> }> {
+  return materialRequest('/blocks/print-batch', { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function printV2Slide(input: {
@@ -382,15 +487,31 @@ export function createV2GrossingAnnotation(input: {
   });
 }
 
+export function getV2GrossingAnnotations(imageId: string): Promise<V2GrossingAnnotation[]> {
+  return materialRequest(`/material/grossings/images/${imageId}/annotations`);
+}
+
 export function measureV2GrossingImage(input: {
   imageId: string;
   geometryJson: string;
   value: number;
   unitCode: string;
   measurementModeCode: string;
-}): Promise<unknown> {
+}): Promise<V2GrossingMeasurement> {
   const { imageId, ...body } = input;
   return materialRequest(`/material/grossings/images/${imageId}/measurements`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getV2GrossingMeasurements(imageId: string): Promise<V2GrossingMeasurement[]> {
+  return materialRequest(`/material/grossings/images/${imageId}/measurements`);
+}
+
+export function deleteV2GrossingImage(input: { imageId: string; reason: string }): Promise<void> {
+  const { imageId, ...body } = input;
+  return materialRequest(`/material/grossings/images/${imageId}/delete`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
