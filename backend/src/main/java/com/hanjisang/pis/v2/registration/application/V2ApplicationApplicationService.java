@@ -227,11 +227,27 @@ public class V2ApplicationApplicationService {
 
     @Transactional
     public RegistrationResult register(UUID applicationId, RegisterApplicationCommand command) {
+        return registerItems(applicationId, null, command);
+    }
+
+    @Transactional
+    public RegistrationResult registerItem(UUID applicationId, UUID applicationItemId,
+            RegisterApplicationCommand command) {
+        if (applicationItemId == null) throw reject("V2-APPLICATION-ITEM-REQUIRED", "Application item is required");
+        return registerItems(applicationId, applicationItemId, command);
+    }
+
+    private RegistrationResult registerItems(UUID applicationId, UUID requestedItemId,
+            RegisterApplicationCommand command) {
         ActorContext actor = authorization.require(REGISTRATION_PERMISSION);
         ApplicationRow application = find(applicationId, actor);
         if ("CANCELLED".equals(application.statusCode())) throw reject("V2-APPLICATION-CANCELLED", "Cancelled Application cannot register");
         List<ApplicationItemRow> items = repository.findItems(applicationId).stream()
-                .filter(item -> !"REGISTERED".equals(item.statusCode())).toList();
+                .filter(item -> "PENDING".equals(item.statusCode()))
+                .filter(item -> requestedItemId == null || requestedItemId.equals(item.id())).toList();
+        if (requestedItemId != null && items.isEmpty()) {
+            throw reject("V2-APPLICATION-ITEM-NOT-PENDING", "Application item is not pending or does not exist");
+        }
         if (items.isEmpty()) return new RegistrationResult(applicationId, 0, true, List.of());
         List<CaseResultView> cases = new java.util.ArrayList<>();
         for (ApplicationItemRow item : items) {
@@ -248,7 +264,8 @@ public class V2ApplicationApplicationService {
             cases.add(new CaseResultView(caseId, created.caseNo(), item.id(), item.externalItemCode(),
                     item.businessTypeId(), created.duplicate()));
         }
-        repository.updateApplicationStatus(application.id(), "REGISTERED", actor.actorId(), Instant.now());
+        repository.updateApplicationStatus(application.id(), repository.hasPendingItems(application.id())
+                ? "PARTIALLY_REGISTERED" : "REGISTERED", actor.actorId(), Instant.now());
         audit.append("PIS-V2-APPLICATION-REGISTER", REGISTRATION_PERMISSION, actor, "ALLOWED", "COMPLETED",
                 application.id(), "V2-APPLICATION", UUID.randomUUID().toString(), "Application accepted and Cases created");
         return new RegistrationResult(application.id(), cases.size(), false, cases);
@@ -286,6 +303,7 @@ public class V2ApplicationApplicationService {
     private ApplicationQueueResult queueRow(ApplicationQueueRow row) {
         return new ApplicationQueueResult(row.applicationId(), row.applicationNo(), row.sourceTypeCode(),
                 row.sourceSystemCode(), row.patientReference(), row.patientName(), row.visitReference(),
+                row.patientSexCode(), row.patientBirthDate(),
                 row.applicationDepartment(), row.applicantReference(), row.appliedAt(), row.statusCode(), row.itemId(),
                 row.externalItemCode(), row.itemName(), row.specimenKindCode(), row.specimenDescription(),
                 row.itemStatusCode(), row.businessTypeCode());
@@ -365,6 +383,7 @@ public class V2ApplicationApplicationService {
             String specimenDescription, int sequenceNo, String statusCode) { }
     public record ApplicationQueueResult(UUID applicationId, String applicationNo, String sourceTypeCode,
             String sourceSystemCode, String patientReference, String patientName, String visitReference,
+            String patientSexCode, LocalDate patientBirthDate,
             String applicationDepartment, String applicantReference, Instant appliedAt, String statusCode,
             UUID applicationItemId, String externalItemCode, String itemName, String specimenKindCode,
             String specimenDescription, String itemStatusCode, String businessTypeCode) { }

@@ -3,263 +3,159 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type { V2AuthUser } from '../auth';
 import { appendNavigationContext } from '../navigation';
-import { businessTypeName, friendlyError } from '../uiText';
-import {
-  getV2ProductionWorkbench,
-  type V2ProductionItem,
-  type V2ProductionQueue,
-  type V2ProductionWorkbench,
-} from '../v2ProductionWorkbenchApi';
+import { friendlyError } from '../uiText';
 import {
   getV2MyWorkbench,
-  type V2CaseProgress,
+  type V2CapabilityQueue,
+  type V2CapabilityQueueItem,
   type V2MyWorkbench,
-  type V2WorkbenchItem,
 } from '../v2WorkspaceApi';
 
-const props = defineProps<{ authUser: V2AuthUser | null }>();
+defineProps<{ authUser: V2AuthUser | null }>();
 const emit = defineEmits<{ navigate: [path: string]; openSearch: [] }>();
 
-type QueueItem = {
-  key: string;
-  caseId: string;
-  pathologyNo: string;
-  patientReference: string;
-  businessType: string;
-  task: string;
-  detail: string;
-  waitingMinutes: number;
-  enteredAt: string;
-  path: string;
-  focused: boolean;
-};
-
-type QueueView = { code: string; label: string; items: QueueItem[] };
 type SavedWorkbenchState = {
   queue: string;
   filter: string;
-  sort: 'oldest' | 'newest';
+  department: string;
+  businessType: string;
+  from: string;
+  to: string;
+  sort: 'priority' | 'newest';
   page: number;
-  scrollY: number;
+  scrollTop: number;
 };
 
 const STATE_KEY = 'pis-v2-my-workbench-state';
 const PAGE_SIZE = 20;
-const emptyWorkbench: V2MyWorkbench = {
-  refreshedAt: '',
-  myWork: [],
-  publicPool: [],
-  counts: {
-    initial: 0,
-    review: 0,
-    audit: 0,
-    technicalResultReturned: 0,
-    withdrawnReport: 0,
-    publicPool: 0,
-  },
-  queues: {
-    histology: 0,
-    dehydration: 0,
-    embedding: 0,
-    cutting: 0,
-    staining: 0,
-    coverslipping: 0,
-    technical: 0,
-    frozen: 0,
-    withdrawn: 0,
-    cytologyPreparation: 0,
-    cytologyPreparationCases: [],
-  },
-  tracking: { registeredCases: [] },
-};
+const loading = ref(false);
+const error = ref('');
+const workbench = ref<V2MyWorkbench | null>(null);
 
 function readState(): SavedWorkbenchState {
   const fallback: SavedWorkbenchState = {
     queue: new URLSearchParams(window.location.search).get('queue') ?? '',
     filter: '',
-    sort: 'oldest',
+    department: '',
+    businessType: '',
+    from: '',
+    to: '',
+    sort: 'priority',
     page: 1,
-    scrollY: 0,
+    scrollTop: 0,
   };
   try {
     const saved = JSON.parse(
       sessionStorage.getItem(STATE_KEY) ?? '',
     ) as Partial<SavedWorkbenchState>;
     return {
+      ...fallback,
+      ...saved,
       queue: fallback.queue || saved.queue || '',
-      filter: saved.filter || '',
-      sort: saved.sort === 'newest' ? 'newest' : 'oldest',
+      sort: saved.sort === 'newest' ? 'newest' : 'priority',
       page: Math.max(1, Number(saved.page) || 1),
-      scrollY: Math.max(0, Number(saved.scrollY) || 0),
+      scrollTop: Math.max(0, Number(saved.scrollTop) || 0),
     };
   } catch {
     return fallback;
   }
 }
 
-const initialState = readState();
-const loading = ref(false);
-const error = ref('');
-const workbench = ref<V2MyWorkbench>(emptyWorkbench);
-const productionWorkbench = ref<V2ProductionWorkbench | null>(null);
-const activeQueue = ref(initialState.queue);
-const filter = ref(initialState.filter);
-const sort = ref<SavedWorkbenchState['sort']>(initialState.sort);
-const page = ref(initialState.page);
-const permissions = computed(() => new Set(props.authUser?.permissions ?? []));
+const initial = readState();
+const activeQueue = ref(initial.queue);
+const filter = ref(initial.filter);
+const department = ref(initial.department);
+const businessType = ref(initial.businessType);
+const from = ref(initial.from);
+const to = ref(initial.to);
+const sort = ref(initial.sort);
+const page = ref(initial.page);
 
-function can(permission: string) {
-  return permissions.value.has(permission);
+const queues = computed(() => workbench.value?.capabilityQueues ?? []);
+const pendingQueues = computed(() => queues.value.filter((queue) => queue.kind === 'PENDING'));
+const trackingQueues = computed(() => queues.value.filter((queue) => queue.kind === 'TRACKING'));
+const selectedQueue = computed(() => queues.value.find((queue) => queue.key === activeQueue.value));
+const businessTypes = computed(() =>
+  [
+    ...new Set(
+      (selectedQueue.value?.items ?? [])
+        .map((item) => item.businessType)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort(),
+);
+
+function itemText(item: V2CapabilityQueueItem) {
+  return [
+    item.businessDisplayId,
+    item.patientDisplay,
+    item.patientSummary,
+    item.visitReference,
+    item.businessType,
+    item.task,
+    item.detail,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLocaleLowerCase();
 }
 
-const hasProductionAccess = computed(() => can('P14-PERM-014') || can('P14-PERM-017'));
-
-function diagnosisItem(item: V2WorkbenchItem): QueueItem {
-  return {
-    key: `${item.workCode}-${item.caseId}`,
-    caseId: item.caseId,
-    pathologyNo: item.pathologyNo,
-    patientReference: item.patientReference,
-    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode),
-    task: item.workLabel,
-    detail: item.responsibilityName || '待处理',
-    waitingMinutes: item.waitingMinutes,
-    enteredAt: item.enteredAt,
-    path: `/v2/${item.workCode === 'WITHDRAWN_REPORT_REQUIRES_ATTENTION' ? 'reports' : 'diagnosis'}/${item.caseId}`,
-    focused: true,
-  };
-}
-
-function productionItem(item: V2ProductionItem): QueueItem {
-  const query = new URLSearchParams();
-  let route = 'production';
-  if (item.productionContext === 'FROZEN_ROUND') {
-    route = 'frozen';
-    if (item.productionContextId) query.set('roundId', item.productionContextId);
-  } else if (item.productionContext === 'TECHNICAL_ORDER') {
-    route = 'technical-orders';
-    if (item.orderId) query.set('focusId', item.orderId);
-  }
-  return {
-    key: `${item.productionContext}-${item.caseId}-${item.orderId ?? item.slideCode ?? ''}`,
-    caseId: item.caseId,
-    pathologyNo: item.pathologyNo,
-    patientReference: item.patientReference,
-    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode ?? ''),
-    task: item.taskSummary,
-    detail: item.materialSummary,
-    waitingMinutes: item.waitingMinutes,
-    enteredAt: item.enteredAt,
-    path: `/v2/${route}/${item.caseId}${query.size ? `?${query.toString()}` : ''}`,
-    focused: true,
-  };
-}
-
-function registrationItem(item: V2CaseProgress): QueueItem {
-  return {
-    key: `REGISTERED-${item.caseId}`,
-    caseId: item.caseId,
-    pathologyNo: item.pathologyNo,
-    patientReference: item.patientReference,
-    businessType: item.businessTypeName || businessTypeName(item.businessTypeCode),
-    task: item.currentStageLabel,
-    detail: item.currentResponsible || item.material.status,
-    waitingMinutes: item.waitingMinutes,
-    enteredAt: item.enteredAt,
-    path: `/v2/cases/${item.caseId}`,
-    focused: false,
-  };
-}
-
-function personalQueue(code: string, label: string): QueueView {
-  return {
-    code,
-    label,
-    items: workbench.value.myWork.filter((item) => item.workCode === code).map(diagnosisItem),
-  };
-}
-
-function productionQueue(queue: V2ProductionQueue): QueueView {
-  return { code: queue.code, label: queue.label, items: queue.items.map(productionItem) };
-}
-
-const queues = computed<QueueView[]>(() => {
-  const result: QueueView[] = [];
-  if (can('P14-PERM-004')) {
-    result.push(
-      { code: 'REGISTRATION_PENDING', label: '待登记', items: [] },
-      { code: 'REGISTRATION_RETURNED', label: '退回待处理', items: [] },
-      {
-        code: 'REGISTERED_TODAY',
-        label: '我今天登记',
-        items: workbench.value.tracking.registeredCases.map(registrationItem),
-      },
-    );
-  }
-  if (hasProductionAccess.value && productionWorkbench.value) {
-    const production = productionWorkbench.value.queues;
-    if (can('P14-PERM-014')) {
-      result.push(productionQueue(production.routineProduction));
-      result.push(productionQueue(production.cytologyProduction));
-      result.push(productionQueue(production.incompleteSlides));
-    }
-    if (can('P14-PERM-008')) result.push(productionQueue(production.frozenProduction));
-    if (can('P14-PERM-017')) result.push(productionQueue(production.technicalOrders));
-    result.push(productionQueue(production.exceptions));
-  }
-  if (can('P14-PERM-034')) {
-    result.push(personalQueue('INITIAL', '待初诊'));
-    result.push(personalQueue('REVIEW', '待复诊'));
-    result.push(personalQueue('TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION', '新技术结果'));
-    result.push({
-      code: 'PUBLIC_POOL',
-      label: '待接诊',
-      items: workbench.value.publicPool.map(diagnosisItem),
-    });
-  }
-  if (can('P14-PERM-035')) result.push(personalQueue('AUDIT', '待审核'));
-  if (can('P14-PERM-036')) {
-    result.push(personalQueue('WITHDRAWN_REPORT_REQUIRES_ATTENTION', '撤回待处理'));
-  }
-  return result;
-});
-
-const selectedQueue = computed(() => queues.value.find((item) => item.code === activeQueue.value));
 const filteredItems = computed(() => {
   const needle = filter.value.trim().toLocaleLowerCase();
-  const items = (selectedQueue.value?.items ?? []).filter((item) =>
-    needle
-      ? [item.pathologyNo, item.patientReference, item.businessType, item.task, item.detail]
-          .join(' ')
-          .toLocaleLowerCase()
-          .includes(needle)
-      : true,
-  );
+  const start = from.value ? new Date(`${from.value}T00:00:00`).getTime() : null;
+  const end = to.value ? new Date(`${to.value}T23:59:59.999`).getTime() : null;
+  const items = (selectedQueue.value?.items ?? []).filter((item) => {
+    const entered = new Date(item.enteredAt).getTime();
+    return (
+      (!needle || itemText(item).includes(needle)) &&
+      (!department.value || itemText(item).includes(department.value.trim().toLocaleLowerCase())) &&
+      (!businessType.value || item.businessType === businessType.value) &&
+      (start === null || entered >= start) &&
+      (end === null || entered <= end)
+    );
+  });
   return [...items].sort((left, right) => {
-    const difference = new Date(left.enteredAt).getTime() - new Date(right.enteredAt).getTime();
-    return sort.value === 'oldest' ? difference : -difference;
+    if (sort.value === 'newest') {
+      return new Date(right.enteredAt).getTime() - new Date(left.enteredAt).getTime();
+    }
+    if (left.urgent !== right.urgent) return left.urgent ? -1 : 1;
+    return right.waitingMinutes - left.waitingMinutes;
   });
 });
+
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / PAGE_SIZE)));
 const visibleItems = computed(() =>
   filteredItems.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 );
 
-function persistState(scrollY = window.scrollY) {
+function waitingText(minutes: number) {
+  if (minutes < 60) return `${minutes}分钟`;
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const rest = minutes % 60;
+  if (days) return `${days}天${hours}小时`;
+  return `${hours}小时${rest ? `${rest}分钟` : ''}`;
+}
+
+function persistState(scrollTop = window.scrollY) {
   sessionStorage.setItem(
     STATE_KEY,
     JSON.stringify({
       queue: activeQueue.value,
       filter: filter.value,
+      department: department.value,
+      businessType: businessType.value,
+      from: from.value,
+      to: to.value,
       sort: sort.value,
       page: page.value,
-      scrollY,
-    }),
+      scrollTop,
+    } satisfies SavedWorkbenchState),
   );
 }
 
-function selectQueue(code: string) {
-  activeQueue.value = code;
+function selectQueue(queue: V2CapabilityQueue) {
+  activeQueue.value = queue.key;
   page.value = 1;
 }
 
@@ -268,32 +164,31 @@ function workbenchReturnPath() {
   return `/v2/workbench?${query.toString()}`;
 }
 
-function openItem(item: QueueItem) {
+function openItem(item: V2CapabilityQueueItem) {
+  if (!item.availableActions.length || !item.workspaceDestination) return;
   persistState();
-  const path = appendNavigationContext(item.path, {
-    origin: 'workbench',
-    queue: activeQueue.value,
-    returnTo: workbenchReturnPath(),
-  });
-  emit('navigate', path);
+  emit(
+    'navigate',
+    appendNavigationContext(item.workspaceDestination, {
+      origin: 'workbench',
+      queue: activeQueue.value,
+      returnTo: workbenchReturnPath(),
+    }),
+  );
 }
 
 async function loadWorkbench() {
   loading.value = true;
   error.value = '';
   try {
-    const requests: [Promise<V2MyWorkbench>, Promise<V2ProductionWorkbench | null>] = [
-      getV2MyWorkbench(),
-      hasProductionAccess.value ? getV2ProductionWorkbench() : Promise.resolve(null),
-    ];
-    [workbench.value, productionWorkbench.value] = await Promise.all(requests);
-    if (!queues.value.some((queue) => queue.code === activeQueue.value)) {
+    workbench.value = await getV2MyWorkbench();
+    if (!queues.value.some((queue) => queue.key === activeQueue.value)) {
       activeQueue.value =
-        queues.value.find((queue) => queue.items.length)?.code ?? queues.value[0]?.code ?? '';
+        queues.value.find((queue) => queue.count > 0)?.key ?? queues.value[0]?.key ?? '';
     }
     page.value = Math.min(page.value, totalPages.value);
     await nextTick();
-    window.scrollTo({ top: initialState.scrollY, behavior: 'auto' });
+    window.scrollTo({ top: initial.scrollTop, behavior: 'auto' });
   } catch (requestError) {
     error.value = friendlyError(requestError, '工作列表暂时无法加载，请刷新后重试。');
   } finally {
@@ -301,65 +196,90 @@ async function loadWorkbench() {
   }
 }
 
-watch([activeQueue, filter, sort, page], () => persistState());
-watch([filter, sort], () => (page.value = 1));
+watch([activeQueue, filter, department, businessType, from, to, sort, page], () => persistState());
+watch([filter, department, businessType, from, to, sort], () => (page.value = 1));
 onMounted(() => void loadWorkbench());
 onUnmounted(() => persistState());
 </script>
 
 <template>
-  <section class="workbench-home" aria-label="我的工作台">
-    <h1 class="visually-hidden">我的工作</h1>
-    <div class="workbench-command-bar">
-      <div class="workbench-filter-controls">
-        <label>
-          <span class="visually-hidden">筛选当前队列</span>
-          <input v-model="filter" type="search" placeholder="筛选病理号、患者或当前事项" />
-        </label>
-        <label>
-          <span class="visually-hidden">排序</span>
-          <select v-model="sort" aria-label="工作列表排序">
-            <option value="oldest">等待最久优先</option>
-            <option value="newest">最新进入优先</option>
-          </select>
-        </label>
-      </div>
+  <section class="workbench-home" aria-label="我的工作">
+    <header class="workbench-title-row">
+      <h1>我的工作</h1>
       <div class="heading-actions">
-        <button
-          v-if="can('P14-PERM-004')"
-          class="secondary-button"
-          type="button"
-          @click="emit('navigate', '/v2/registration')"
-        >
-          登记
-        </button>
-        <button class="secondary-button" type="button" @click="emit('openSearch')">查找病例</button>
+        <button class="secondary-button" type="button" @click="emit('openSearch')">全局搜索</button>
         <button class="secondary-button" type="button" :disabled="loading" @click="loadWorkbench">
           {{ loading ? '刷新中…' : '刷新' }}
         </button>
       </div>
-    </div>
+    </header>
 
     <p v-if="error" class="feedback warning" role="alert">{{ error }}</p>
 
-    <nav class="workbench-queue-tabs" role="tablist" aria-label="我的工作队列">
-      <button
-        v-for="queue in queues"
-        :key="queue.code"
-        type="button"
-        role="tab"
-        :aria-selected="activeQueue === queue.code"
-        :class="{ active: activeQueue === queue.code }"
-        @click="selectQueue(queue.code)"
+    <div class="workbench-queue-groups">
+      <nav v-if="pendingQueues.length" class="workbench-queue-tabs" aria-label="待处理队列">
+        <span class="queue-group-label">待处理</span>
+        <button
+          v-for="queue in pendingQueues"
+          :key="queue.key"
+          type="button"
+          :aria-pressed="activeQueue === queue.key"
+          :class="{ active: activeQueue === queue.key }"
+          @click="selectQueue(queue)"
+        >
+          <span>{{ queue.label }}</span
+          ><strong>{{ queue.count }}</strong>
+        </button>
+      </nav>
+      <nav
+        v-if="trackingQueues.length"
+        class="workbench-queue-tabs tracking"
+        aria-label="我的今日记录"
       >
-        <span>{{ queue.label }}</span
-        ><strong>{{ queue.items.length }}</strong>
-      </button>
-    </nav>
+        <span class="queue-group-label">我的今日记录</span>
+        <button
+          v-for="queue in trackingQueues"
+          :key="queue.key"
+          type="button"
+          :aria-pressed="activeQueue === queue.key"
+          :class="{ active: activeQueue === queue.key }"
+          @click="selectQueue(queue)"
+        >
+          <span>{{ queue.label }}</span
+          ><strong>{{ queue.count }}</strong>
+        </button>
+      </nav>
+    </div>
 
-    <section class="workbench-dense-list" aria-label="工作列表">
+    <div class="workbench-command-bar" aria-label="筛选当前列表">
+      <div class="workbench-filter-controls">
+        <label
+          >关键词<input
+            v-model="filter"
+            type="search"
+            placeholder="患者、申请号、病理号、门诊或住院号"
+        /></label>
+        <label>申请科室<input v-model="department" type="search" placeholder="全部科室" /></label>
+        <label
+          >申请类型<select v-model="businessType">
+            <option value="">全部类型</option>
+            <option v-for="item in businessTypes" :key="item" :value="item">{{ item }}</option>
+          </select></label
+        >
+        <label>开始日期<input v-model="from" type="date" /></label>
+        <label>结束日期<input v-model="to" type="date" /></label>
+        <label
+          >排序<select v-model="sort">
+            <option value="priority">加急与等待最久优先</option>
+            <option value="newest">最新进入优先</option>
+          </select></label
+        >
+      </div>
+    </div>
+
+    <section class="workbench-dense-list" aria-label="实际工作列表">
       <header class="workbench-list-header">
-        <span>病理号 / 患者</span><span>当前事项</span><span>等待</span><span>操作</span>
+        <span>业务编号 / 患者</span><span>当前事项</span><span>等待</span><span>操作</span>
       </header>
       <div v-if="loading" class="list-skeleton" aria-label="正在加载工作列表">
         <span></span><span></span><span></span>
@@ -373,21 +293,33 @@ onUnmounted(() => persistState());
         @click="openItem(item)"
       >
         <span
-          ><strong>{{ item.pathologyNo }}</strong
-          ><small>{{ item.patientReference }} · {{ item.businessType }}</small></span
+          ><strong>{{ item.businessDisplayId }}</strong
+          ><small
+            >{{ item.patientDisplay
+            }}<template v-if="item.patientSummary"> · {{ item.patientSummary }}</template></small
+          ></span
         >
         <span
           ><strong>{{ item.task }}</strong
-          ><small>{{ item.detail }}</small></span
+          ><small
+            >{{ item.businessType
+            }}<template v-if="item.detail"> · {{ item.detail }}</template></small
+          ></span
         >
         <span
-          ><strong>{{ item.waitingMinutes }} 分钟</strong><small>进入当前队列</small></span
+          ><strong>{{ waitingText(item.waitingMinutes) }}</strong
+          ><small>{{ item.urgent ? '加急' : '进入当前队列' }}</small></span
         >
-        <span class="workbench-row-action">{{ item.focused ? '开始处理' : '查看病例' }} →</span>
+        <span class="workbench-row-action"
+          >{{ selectedQueue?.kind === 'TRACKING' ? '查看病例' : '开始处理' }} →</span
+        >
       </button>
       <div v-if="!loading && !visibleItems.length" class="empty-state compact">
-        <strong>{{ filter ? '没有符合筛选条件的工作' : '当前队列没有待处理项' }}</strong>
-        <span>{{ filter ? '请调整筛选条件。' : '新任务进入后会显示在这里。' }}</span>
+        <strong>{{
+          filter || department || businessType || from || to
+            ? '没有符合筛选条件的工作'
+            : `${selectedQueue?.label ?? '当前队列'} 0`
+        }}</strong>
       </div>
     </section>
 

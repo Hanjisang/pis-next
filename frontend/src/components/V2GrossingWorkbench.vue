@@ -17,6 +17,7 @@ import {
   specimenKindName,
 } from '../uiText';
 import { getV2Specimen, updateV2Specimen, type V2SpecimenResult } from '../v2Api';
+import { getV2MyWorkbench, type V2CapabilityQueueItem } from '../v2WorkspaceApi';
 import {
   associateV2Specimen,
   completeV2Grossing,
@@ -74,6 +75,7 @@ const notice = ref('');
 const doctors = ref<Array<{ id: string; displayName: string; title?: string | null }>>([]);
 const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
 const historyDrawerOpen = ref(false);
+const nextWorkbenchItem = ref<V2CapabilityQueueItem | null>(null);
 const grossingImages = ref<V2GrossingImage[]>([]);
 const selectedImageId = ref('');
 const imageBusy = ref(false);
@@ -443,7 +445,28 @@ function completeGrossing() {
     });
     notice.value = `取材已完成，已生成 ${result.createdSlideCount} 张待制玻片。`;
     await loadWorkspace();
+    if (props.origin === 'workbench' && props.queue) {
+      const latest = await getV2MyWorkbench();
+      nextWorkbenchItem.value =
+        latest.capabilityQueues.find((queue) => queue.key === props.queue)?.items[0] ?? null;
+    }
   });
+}
+
+function openNextWorkbenchItem() {
+  if (!nextWorkbenchItem.value) return;
+  emit(
+    'navigate',
+    appendNavigationContext(nextWorkbenchItem.value.workspaceDestination, {
+      origin: 'workbench',
+      queue: props.queue,
+      returnTo: props.returnTo,
+    }),
+  );
+}
+
+function returnToWorkbench() {
+  emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
 }
 
 onMounted(() => void loadDoctors());
@@ -803,7 +826,22 @@ onMounted(() => void loadDoctors());
           >
             完成取材
           </button>
-          <span v-if="workspace.grossing?.completedAt" class="status-pill success">取材已完成</span>
+          <template v-if="workspace.grossing?.completedAt && props.origin === 'workbench'">
+            <button
+              v-if="nextWorkbenchItem"
+              class="primary-button"
+              type="button"
+              @click="openNextWorkbenchItem"
+            >
+              取材完成并下一例
+            </button>
+            <button class="secondary-button" type="button" @click="returnToWorkbench">
+              取材完成并返回工作台
+            </button>
+          </template>
+          <span v-else-if="workspace.grossing?.completedAt" class="status-pill success"
+            >取材已完成</span
+          >
         </div>
       </div>
     </template>

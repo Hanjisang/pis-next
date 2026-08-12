@@ -103,6 +103,13 @@ public class V2ApplicationController {
                 request.printerProfileCode()));
     }
 
+    @PostMapping("/{applicationId}/items/{applicationItemId}/register")
+    public V2ApplicationApplicationService.RegistrationResult registerItem(@PathVariable UUID applicationId,
+            @PathVariable UUID applicationItemId, @RequestBody RegisterRequest request) {
+        return service.registerItem(applicationId, applicationItemId, new RegisterApplicationCommand(
+                request.receiptKindCode(), request.printerProfileCode()));
+    }
+
     private static List<ApplicationItemCommand> items(List<ApplicationItemRequest> values) {
         if (values == null) return List.of();
         return values.stream().map(item -> new ApplicationItemCommand(item.externalItemCode(), item.itemName(),

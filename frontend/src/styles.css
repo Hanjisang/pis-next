@@ -4463,6 +4463,36 @@ button.dense-report-row:hover {
   gap: 10px;
 }
 
+.workbench-title-row {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workbench-title-row h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.workbench-queue-groups {
+  display: grid;
+  gap: 6px;
+}
+
+.queue-group-label {
+  display: inline-flex;
+  min-width: 96px;
+  align-items: center;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .workbench-command-bar,
 .workbench-filter-controls,
 .workbench-pagination {
@@ -4481,7 +4511,15 @@ button.dense-report-row:hover {
 }
 
 .workbench-filter-controls label:first-child {
-  width: min(440px, 48vw);
+  min-width: 260px;
+}
+
+.workbench-filter-controls label {
+  display: grid;
+  min-width: 120px;
+  gap: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
 }
 
 .workbench-filter-controls input,
@@ -4554,13 +4592,13 @@ button.dense-report-row:hover {
 
 .workbench-dense-row {
   width: 100%;
-  min-height: 58px;
+  min-height: 52px;
   border: 0;
   border-top: 1px solid var(--border-subtle);
   background: transparent;
   color: inherit;
   cursor: pointer;
-  padding: 7px 12px;
+  padding: 5px 12px;
   text-align: left;
 }
 

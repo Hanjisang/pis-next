@@ -88,6 +88,34 @@ export type V2MyWorkbench = {
   counts: V2WorkbenchCounts;
   queues: V2WorkbenchQueues;
   tracking: { registeredCases: V2CaseProgress[] };
+  capabilityQueues: V2CapabilityQueue[];
+};
+
+export type V2CapabilityQueue = {
+  key: string;
+  label: string;
+  kind: 'PENDING' | 'TRACKING';
+  count: number;
+  items: V2CapabilityQueueItem[];
+};
+
+export type V2CapabilityQueueItem = {
+  key: string;
+  caseId: string | null;
+  applicationId: string | null;
+  applicationItemId: string | null;
+  businessDisplayId: string;
+  patientDisplay: string;
+  patientSummary: string | null;
+  visitReference: string | null;
+  businessType: string | null;
+  task: string;
+  detail: string | null;
+  enteredAt: string;
+  waitingMinutes: number;
+  urgent: boolean;
+  availableActions: string[];
+  workspaceDestination: string;
 };
 
 export async function getV2MyWorkbench(): Promise<V2MyWorkbench> {
@@ -120,6 +148,7 @@ export async function getV2MyWorkbench(): Promise<V2MyWorkbench> {
       cytologyPreparationCases: [],
     },
     tracking: body.tracking ?? { registeredCases: [] },
+    capabilityQueues: body.capabilityQueues ?? [],
   };
 }
 

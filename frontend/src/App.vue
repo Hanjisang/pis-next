@@ -52,7 +52,7 @@ const passwordNotice = ref('');
 const passwordDraft = ref({ currentPassword: '', newPassword: '', confirmation: '' });
 
 const routeTitles: Record<V2RouteName, string> = {
-  workbench: '工作台',
+  workbench: '我的工作',
   case: '病例中心',
   registration: '登记',
   grossing: '取材',
@@ -312,6 +312,9 @@ onUnmounted(() => {
         <V2RegistrationWorkbench
           v-else-if="route.name === 'registration'"
           :auth-user="authUser"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
           @navigate="navigate"
         />
         <V2GrossingWorkbench

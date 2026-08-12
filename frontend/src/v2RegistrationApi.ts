@@ -151,6 +151,10 @@ export function createV2Application(input: {
   return applicationRequest('', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function getV2Application(applicationId: string): Promise<V2ApplicationResult> {
+  return applicationRequest(`/${encodeURIComponent(applicationId)}`, { method: 'GET' });
+}
+
 export function registerV2Application(
   applicationId: string,
 ): Promise<V2ApplicationRegistrationResult> {
@@ -161,4 +165,20 @@ export function registerV2Application(
       printerProfileCode: 'MOCK://SYNTH-PRINTER',
     }),
   });
+}
+
+export function registerV2ApplicationItem(
+  applicationId: string,
+  applicationItemId: string,
+): Promise<V2ApplicationRegistrationResult> {
+  return applicationRequest(
+    `/${encodeURIComponent(applicationId)}/items/${encodeURIComponent(applicationItemId)}/register`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        receiptKindCode: 'REGISTRATION',
+        printerProfileCode: 'MOCK://SYNTH-PRINTER',
+      }),
+    },
+  );
 }

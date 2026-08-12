@@ -81,7 +81,7 @@ public class JdbcV2WorkbenchRepository {
                 """, (rs, rowNum) -> row(rs), actorReference, organizationReference);
     }
 
-    public List<WorkbenchRow> findWithdrawnReports(String organizationReference) {
+    public List<WorkbenchRow> findWithdrawnReports(String organizationReference, String actorReference) {
         return jdbc.query("""
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
                        COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
@@ -95,13 +95,101 @@ public class JdbcV2WorkbenchRepository {
                 LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = (
                     SELECT MAX(ctx2.snapshot_version_no) FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
                 JOIN pis_v2.report r ON r.case_id = c.id
-                LEFT JOIN pis_v2.doctor_identity di ON CAST(di.id AS VARCHAR) = r.withdrawn_by_ref
+                JOIN pis_v2.diagnosis d ON d.case_id = c.id AND d.organization_reference = c.organization_reference
+                JOIN pis_v2.responsibility_unit current_r ON current_r.diagnosis_id = d.id
+                    AND current_r.doctor_id = ? AND current_r.completed_at IS NULL AND current_r.ended_at IS NULL
+                LEFT JOIN pis_v2.doctor_identity di ON CAST(di.id AS VARCHAR) = current_r.doctor_id
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
                   AND r.status_code = 'WITHDRAWN'
                 GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name, ctx.patient_reference,
-                         di.display_name, r.withdrawn_by_ref, c.created_at
+                         di.display_name, current_r.doctor_id, c.created_at
                 ORDER BY MAX(r.withdrawn_at) DESC, c.id
-                """, (rs, rowNum) -> row(rs), organizationReference);
+                """, (rs, rowNum) -> row(rs), actorReference, organizationReference);
+    }
+
+    public List<GrossingRow> findPendingGrossing(String organizationReference, boolean frozen) {
+        return jdbc.query("""
+                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       COUNT(DISTINCT s.id) AS specimen_count,
+                       COALESCE(string_agg(DISTINCT NULLIF(s.description, ''), '；'), '标本信息待补充') AS specimen_summary,
+                       c.created_at AS entered_at,
+                       pa.application_department,
+                       fr.id AS round_id, fr.round_no, fr.arrival_time
+                FROM pis_v2.pathology_case c
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                JOIN pis_v2.specimen s ON s.case_id = c.id AND s.deleted_at IS NULL
+                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = (
+                    SELECT MAX(latest.snapshot_version_no) FROM pis_v2.case_context_snapshot latest
+                    WHERE latest.case_id = c.id)
+                LEFT JOIN pis_v2.pathology_application_case pac ON pac.case_id = c.id
+                LEFT JOIN pis_v2.pathology_application pa ON pa.id = pac.application_id
+                LEFT JOIN pis_v2.frozen_round fr ON fr.case_id = c.id AND fr.status_code = 'OPEN'
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND ((? = TRUE AND bt.modality_code = 'FROZEN' AND fr.id IS NOT NULL)
+                    OR (? = FALSE AND bt.modality_code = 'TISSUE'))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM pis_v2.grossing g
+                    WHERE g.case_id = c.id AND g.deleted_at IS NULL
+                      AND ((? = TRUE AND g.source_type = 'FROZEN_CONTEXT' AND g.source_reference_id = fr.id)
+                        OR (? = FALSE AND g.source_type = 'INITIAL'))
+                      AND g.completed_at IS NOT NULL)
+                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name, ctx.patient_reference,
+                         c.created_at, pa.application_department, fr.id, fr.round_no, fr.arrival_time
+                ORDER BY COALESCE(fr.arrival_time, c.created_at), c.id
+                """, (rs, rowNum) -> new GrossingRow(rs.getObject("id", UUID.class), rs.getString("case_no"),
+                rs.getString("patient_reference"), rs.getString("business_type_code"), rs.getString("display_name"),
+                rs.getInt("specimen_count"), rs.getString("specimen_summary"),
+                rs.getTimestamp("entered_at").toInstant(), rs.getString("application_department"),
+                rs.getObject("round_id", UUID.class), rs.getObject("round_no", Integer.class),
+                rs.getTimestamp("arrival_time") == null ? null : rs.getTimestamp("arrival_time").toInstant()),
+                organizationReference, frozen, frozen, frozen, frozen);
+    }
+
+    public List<GrossingRow> findGrossedToday(String organizationReference, String actorReference) {
+        return jdbc.query("""
+                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       COUNT(DISTINCT gs.specimen_id) AS specimen_count,
+                       COALESCE(string_agg(DISTINCT NULLIF(s.description, ''), '；'), '标本信息待补充') AS specimen_summary,
+                       g.completed_at AS entered_at, NULL AS application_department,
+                       NULL AS round_id, NULL AS round_no, NULL AS arrival_time
+                FROM pis_v2.grossing g
+                JOIN pis_v2.pathology_case c ON c.id = g.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.grossing_specimen gs ON gs.grossing_id = g.id AND gs.deleted_at IS NULL
+                LEFT JOIN pis_v2.specimen s ON s.id = gs.specimen_id
+                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = (
+                    SELECT MAX(latest.snapshot_version_no) FROM pis_v2.case_context_snapshot latest
+                    WHERE latest.case_id = c.id)
+                WHERE g.organization_reference = ? AND g.completed_by_ref = ?
+                  AND g.completed_at >= CURRENT_DATE AND g.deleted_at IS NULL
+                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name, ctx.patient_reference,
+                         g.id, g.completed_at
+                ORDER BY g.completed_at DESC, g.id
+                """, (rs, rowNum) -> new GrossingRow(rs.getObject("id", UUID.class), rs.getString("case_no"),
+                rs.getString("patient_reference"), rs.getString("business_type_code"), rs.getString("display_name"),
+                rs.getInt("specimen_count"), rs.getString("specimen_summary"),
+                rs.getTimestamp("entered_at").toInstant(), null, null, null, null),
+                organizationReference, actorReference);
+    }
+
+    public List<RegisteredRow> findRegisteredToday(String organizationReference, String actorReference) {
+        return jdbc.query("""
+                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       c.created_at
+                FROM pis_v2.pathology_case c
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = (
+                    SELECT MAX(latest.snapshot_version_no) FROM pis_v2.case_context_snapshot latest
+                    WHERE latest.case_id = c.id)
+                WHERE c.organization_reference = ? AND c.created_by_ref = ?
+                  AND c.created_at >= CURRENT_DATE
+                ORDER BY c.created_at DESC, c.id
+                """, (rs, rowNum) -> new RegisteredRow(rs.getObject("id", UUID.class), rs.getString("case_no"),
+                rs.getString("patient_reference"), rs.getString("business_type_code"), rs.getString("display_name"),
+                rs.getTimestamp("created_at").toInstant()), organizationReference, actorReference);
     }
 
     public List<WorkbenchRow> findCytologyPreparation(String organizationReference) {
@@ -144,7 +232,7 @@ public class JdbcV2WorkbenchRepository {
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
                        COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
                        'PUBLIC_POOL' AS work_code,
-                       '公共病例池' AS work_label,
+                       '待接诊' AS work_label,
                        NULL AS responsibility_name,
                        c.created_at AS occurred_at,
                        c.created_at AS case_created_at
@@ -261,4 +349,11 @@ public class JdbcV2WorkbenchRepository {
 
     public record QueueCounts(int histology, int dehydration, int embedding, int cutting, int staining,
             int coverslipping, int technical, int frozen, int withdrawn, int cytologyPreparation) { }
+
+    public record GrossingRow(UUID caseId, String pathologyNo, String patientReference, String businessTypeCode,
+            String businessTypeName, int specimenCount, String specimenSummary, Instant enteredAt,
+            String sourceDepartment, UUID roundId, Integer roundNo, Instant roundStartedAt) { }
+
+    public record RegisteredRow(UUID caseId, String pathologyNo, String patientReference, String businessTypeCode,
+            String businessTypeName, Instant registeredAt) { }
 }

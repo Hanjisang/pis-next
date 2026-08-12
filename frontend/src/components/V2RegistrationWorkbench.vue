@@ -4,10 +4,14 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import type { V2AuthUser } from '../auth';
 import { getV2Case, registerV2Specimen, type V2CaseResult } from '../v2Api';
 import { businessTypeName, friendlyError } from '../uiText';
+import { appendNavigationContext, safeLocalPath, type V2Route } from '../navigation';
+import { getV2MyWorkbench } from '../v2WorkspaceApi';
 import {
   createV2Application,
+  getV2Application,
   getV2RegistrationQueue,
   registerV2Application,
+  registerV2ApplicationItem,
   registerV2InboundApplication,
   type V2RegistrationQueue,
 } from '../v2RegistrationApi';
@@ -31,7 +35,15 @@ type BusinessOption = {
   modalityCode: string;
 };
 
-const props = defineProps<{ authUser?: V2AuthUser | null }>();
+const props = withDefaults(
+  defineProps<{
+    authUser?: V2AuthUser | null;
+    origin?: V2Route['origin'];
+    queue?: string;
+    returnTo?: string;
+  }>(),
+  { authUser: null, origin: 'direct', queue: '', returnTo: '' },
+);
 const emit = defineEmits<{ navigate: [path: string] }>();
 
 const businessOptions = ref<BusinessOption[]>([
@@ -91,6 +103,12 @@ const registrationQueue = ref<V2RegistrationQueue | null>(null);
 const queueLoading = ref(false);
 const historyDrawerOpen = ref(false);
 const inboundApplicationId = ref('');
+const routeQuery = new URLSearchParams(window.location.search);
+const queuedApplicationId = routeQuery.get('applicationId') ?? '';
+const queuedApplicationItemId = routeQuery.get('applicationItemId') ?? '';
+const queueKey = props.queue || routeQuery.get('queue') || 'REGISTRATION_PENDING';
+const returnTo = safeLocalPath(props.returnTo || routeQuery.get('returnTo')) || '/v2/workbench';
+const fromWorkbench = props.origin === 'workbench' && Boolean(queuedApplicationItemId);
 const selectedInboundApplication = computed(() =>
   registrationQueue.value?.pendingApplications.find(
     (item) => item.applicationId === inboundApplicationId.value,
@@ -246,7 +264,16 @@ async function submitRegistration() {
   try {
     progress.value = '正在生成病理号…';
     let createdCase: V2CaseResult;
-    if (inboundApplicationId.value) {
+    if (queuedApplicationId && queuedApplicationItemId) {
+      progress.value = '正在保存申请和登记记录…';
+      const registration = await registerV2ApplicationItem(
+        queuedApplicationId,
+        queuedApplicationItemId,
+      );
+      const firstCase = registration.cases[0];
+      if (!firstCase) throw new Error('电子申请登记未创建病例');
+      createdCase = await getV2Case(firstCase.caseId);
+    } else if (inboundApplicationId.value) {
       createdCase = await registerV2InboundApplication(inboundApplicationId.value);
     } else {
       progress.value = '正在保存申请和登记记录…';
@@ -298,6 +325,52 @@ async function submitRegistration() {
   }
 }
 
+async function openNextWorkbenchItem() {
+  const latest = await getV2MyWorkbench();
+  const queue = latest.capabilityQueues.find((item) => item.key === queueKey);
+  const next = queue?.items[0];
+  if (!next) {
+    emit('navigate', returnTo);
+    return;
+  }
+  emit(
+    'navigate',
+    appendNavigationContext(next.workspaceDestination, {
+      origin: 'workbench',
+      queue: queueKey,
+      returnTo,
+    }),
+  );
+}
+
+async function loadQueuedApplication() {
+  if (!queuedApplicationId || !queuedApplicationItemId) return;
+  try {
+    const application = await getV2Application(queuedApplicationId);
+    const item = application.items.find(
+      (candidate) => candidate.itemId === queuedApplicationItemId,
+    );
+    if (!item || item.statusCode !== 'PENDING') throw new Error('该申请项目已不在待登记队列');
+    draft.patientReference = application.patientReference;
+    draft.visitReference = application.visitReference ?? '';
+    draft.applicationNo = application.applicationNo;
+    const mapped = businessOptions.value.find(
+      (option) => option.applicationItemCode === item.externalItemCode,
+    );
+    if (mapped) draft.businessTypeCode = mapped.code;
+    specimens.value = [
+      {
+        ...createSpecimenDraft(0),
+        specimenKindCode: item.specimenKindCode ?? mapped?.defaultSpecimenKindCode ?? 'TISSUE',
+        collectionSite: item.specimenDescription ?? application.specimenDescription ?? '',
+      },
+    ];
+    queueMode.value = 'MANUAL';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '待登记申请无法加载。');
+  }
+}
+
 function nextWorkspacePath(): string {
   if (!completedCase.value) return '/v2/workbench';
   if (draft.businessTypeCode === 'FROZEN') return `/v2/frozen/${completedCase.value.caseId}`;
@@ -313,7 +386,10 @@ function nextWorkspacePath(): string {
   return `/v2/grossing/${completedCase.value.caseId}`;
 }
 
-onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
+onMounted(async () => {
+  await Promise.all([loadMappings(), loadRegistrationQueue()]);
+  await loadQueuedApplication();
+});
 </script>
 
 <template>
@@ -337,7 +413,20 @@ onMounted(() => void Promise.all([loadMappings(), loadRegistrationQueue()]));
           businessTypeName(completedCase.businessTypeCode)
         }}。</span
       >
-      <button class="primary-button" type="button" @click="emit('navigate', nextWorkspacePath())">
+      <span v-if="fromWorkbench" class="heading-actions">
+        <button class="primary-button" type="button" @click="openNextWorkbenchItem">
+          登记并下一例
+        </button>
+        <button class="secondary-button" type="button" @click="emit('navigate', returnTo)">
+          登记并返回工作台
+        </button>
+      </span>
+      <button
+        v-else
+        class="primary-button"
+        type="button"
+        @click="emit('navigate', nextWorkspacePath())"
+      >
         进入下一步
       </button>
     </section>

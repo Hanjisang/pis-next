@@ -84,7 +84,8 @@ public class JdbcV2ApplicationRepository {
     public List<ApplicationQueueRow> findQueue(String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT a.id, a.application_no, a.source_type_code, a.source_system_code, a.patient_reference,
-                       a.patient_name, a.visit_reference, a.application_department, a.applicant_reference,
+                       a.patient_name, a.patient_sex_code, a.patient_birth_date, a.visit_reference,
+                       a.application_department, a.applicant_reference,
                        a.applied_at, a.status_code, i.id AS item_id, i.external_item_code, i.item_name,
                        i.specimen_kind_code, i.specimen_description, i.status_code AS item_status,
                        bt.business_type_code
@@ -96,11 +97,20 @@ public class JdbcV2ApplicationRepository {
                 """, (rs, rowNum) -> new ApplicationQueueRow(rs.getObject("id", UUID.class),
                 rs.getString("application_no"), rs.getString("source_type_code"),
                 rs.getString("source_system_code"), rs.getString("patient_reference"), rs.getString("patient_name"),
+                rs.getString("patient_sex_code"), rs.getObject("patient_birth_date", java.time.LocalDate.class),
                 rs.getString("visit_reference"), rs.getString("application_department"),
                 rs.getString("applicant_reference"), rs.getTimestamp("applied_at").toInstant(),
                 rs.getString("status_code"), rs.getObject("item_id", UUID.class), rs.getString("external_item_code"),
                 rs.getString("item_name"), rs.getString("specimen_kind_code"), rs.getString("specimen_description"),
                 rs.getString("item_status"), rs.getString("business_type_code")), organizationReference);
+    }
+
+    public boolean hasPendingItems(UUID applicationId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.pathology_application_item
+                WHERE application_id = ? AND status_code = 'PENDING'
+                """, Integer.class, applicationId);
+        return count != null && count > 0;
     }
 
     public List<DeliveryRow> findDeliveries(UUID applicationId, String organizationReference) {
@@ -298,7 +308,8 @@ public class JdbcV2ApplicationRepository {
             int sequenceNo, String statusCode) { }
 
     public record ApplicationQueueRow(UUID applicationId, String applicationNo, String sourceTypeCode,
-            String sourceSystemCode, String patientReference, String patientName, String visitReference,
+            String sourceSystemCode, String patientReference, String patientName, String patientSexCode,
+            java.time.LocalDate patientBirthDate, String visitReference,
             String applicationDepartment, String applicantReference, Instant appliedAt, String statusCode,
             UUID itemId, String externalItemCode, String itemName, String specimenKindCode,
             String specimenDescription, String itemStatusCode, String businessTypeCode) { }

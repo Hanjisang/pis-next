@@ -2,6 +2,8 @@ package com.hanjisang.pis.v2.workbench.application;
 
 import java.time.Instant;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.Period;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,6 +20,12 @@ import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository;
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.QueueCounts;
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.WorkbenchRow;
+import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.GrossingRow;
+import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.RegisteredRow;
+import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationService;
+import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationService.ApplicationQueueResult;
+import com.hanjisang.pis.v2.production.application.V2ProductionWorkbenchApplicationService;
+import com.hanjisang.pis.v2.production.application.V2ProductionWorkbenchApplicationService.ProductionItem;
 
 @Service
 public class V2WorkbenchApplicationService {
@@ -28,16 +36,22 @@ public class V2WorkbenchApplicationService {
     private static final String REPORT_SIGN_OUT = "P14-PERM-036";
     private static final String TECHNICAL_EXECUTION = "P14-PERM-017";
     private static final String REGISTRATION = "P14-PERM-004";
+    private static final String GROSSING = "P14-PERM-013";
 
     private final JdbcV2WorkbenchRepository repository;
     private final P15AuthorizationService authorization;
     private final CaseProgressProjectionApplicationService progressProjection;
+    private final V2ApplicationApplicationService applications;
+    private final V2ProductionWorkbenchApplicationService production;
 
     public V2WorkbenchApplicationService(JdbcV2WorkbenchRepository repository,
-            P15AuthorizationService authorization, CaseProgressProjectionApplicationService progressProjection) {
+            P15AuthorizationService authorization, CaseProgressProjectionApplicationService progressProjection,
+            V2ApplicationApplicationService applications, V2ProductionWorkbenchApplicationService production) {
         this.repository = repository;
         this.authorization = authorization;
         this.progressProjection = progressProjection;
+        this.applications = applications;
+        this.production = production;
     }
 
     @Transactional(readOnly = true)
@@ -55,7 +69,7 @@ public class V2WorkbenchApplicationService {
                     .map(row -> workItem(row, availableActions(row.workCode(), user))).toList());
         }
         if (hasAny(user, REPORT_SIGN_OUT)) {
-            myWork.addAll(repository.findWithdrawnReports(actor.hospitalScope()).stream()
+            myWork.addAll(repository.findWithdrawnReports(actor.hospitalScope(), actorReference).stream()
                     .map(row -> workItem(row, availableActions(row.workCode(), user))).toList());
         }
         List<WorkbenchRow> publicRows = hasAny(user, DIAGNOSIS_INITIAL)
@@ -71,10 +85,124 @@ public class V2WorkbenchApplicationService {
                 count(myWork, "INITIAL"), count(myWork, "REVIEW"), count(myWork, "AUDIT"),
                 count(myWork, "TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION"),
                 count(myWork, "WITHDRAWN_REPORT_REQUIRES_ATTENTION"), publicPool.size());
+        List<CapabilityQueue> capabilityQueues = capabilityQueues(actor, user, myWork, publicPool);
         return new WorkbenchResult(Instant.now(), myWork, publicPool, counts,
                 QueueSummary.from(queueCounts, user, cytologyPreparationCases),
-                hasAny(user, REGISTRATION) ? new TrackingSummary(progressProjection.registeredCases())
-                        : new TrackingSummary(List.of()));
+                new TrackingSummary(List.of()), capabilityQueues);
+    }
+
+    private List<CapabilityQueue> capabilityQueues(ActorContext actor, AuthenticatedUser user,
+            List<WorkItem> myWork, List<WorkItem> publicPool) {
+        List<CapabilityQueue> result = new ArrayList<>();
+        if (hasAny(user, REGISTRATION)) {
+            List<QueueItem> pending = applications.queue().stream()
+                    .filter(item -> "PENDING".equals(item.itemStatusCode()))
+                    .map(this::registrationItem).toList();
+            result.add(queue("REGISTRATION_PENDING", "待登记", "PENDING", pending));
+            result.add(queue("REGISTERED_TODAY", "我今天登记", "TRACKING",
+                    repository.findRegisteredToday(actor.hospitalScope(), actor.actorId()).stream()
+                            .map(this::registeredItem).toList()));
+        }
+        if (hasAny(user, GROSSING)) {
+            result.add(queue("GROSSING_PENDING", "待取材", "PENDING",
+                    repository.findPendingGrossing(actor.hospitalScope(), false).stream()
+                            .map(row -> grossingItem(row, false, false)).toList()));
+            result.add(queue("FROZEN_GROSSING", "冰冻待取材", "PENDING",
+                    repository.findPendingGrossing(actor.hospitalScope(), true).stream()
+                            .map(row -> grossingItem(row, true, false)).toList()));
+            result.add(queue("GROSSED_TODAY", "我今天取材", "TRACKING",
+                    repository.findGrossedToday(actor.hospitalScope(), actor.actorId()).stream()
+                            .map(row -> grossingItem(row, false, true)).toList()));
+        }
+        if (hasAny(user, "P14-PERM-014", TECHNICAL_EXECUTION)) {
+            var queues = production.workbench().queues();
+            if (hasAny(user, "P14-PERM-014")) {
+                result.add(productionQueue(queues.routineProduction()));
+                result.add(productionQueue(queues.cytologyProduction()));
+                result.add(productionQueue(queues.incompleteSlides()));
+            }
+            if (hasAny(user, "P14-PERM-008")) result.add(productionQueue(queues.frozenProduction()));
+            if (hasAny(user, TECHNICAL_EXECUTION)) result.add(productionQueue(queues.technicalOrders()));
+            result.add(productionQueue(queues.exceptions()));
+        }
+        if (hasAny(user, DIAGNOSIS_INITIAL)) {
+            result.add(diagnosisQueue("PUBLIC_POOL", "待接诊", publicPool));
+            result.add(diagnosisQueue("INITIAL", "待初诊", myWork));
+            result.add(diagnosisQueue("REVIEW", "待复诊", myWork));
+            result.add(diagnosisQueue("TECHNICAL_RESULT_RETURNED_REQUIRES_ATTENTION", "新技术结果", myWork));
+        }
+        if (hasAny(user, DIAGNOSIS_AUDIT)) result.add(diagnosisQueue("AUDIT", "待审核", myWork));
+        if (hasAny(user, REPORT_SIGN_OUT)) result.add(diagnosisQueue(
+                "WITHDRAWN_REPORT_REQUIRES_ATTENTION", "撤回待处理", myWork));
+        return List.copyOf(result);
+    }
+
+    private CapabilityQueue diagnosisQueue(String code, String label, List<WorkItem> source) {
+        return queue(code, label, "PENDING", source.stream().filter(item -> code.equals(item.workCode()))
+                .map(item -> new QueueItem(code + "-" + item.caseId(), item.caseId(), null, null,
+                        item.pathologyNo(), item.patientReference(), null, null, item.businessTypeName(),
+                        item.workLabel(), item.responsibilityName(), item.enteredAt(), item.waitingMinutes(), false,
+                        item.availableActions(), item.deepLink())).toList());
+    }
+
+    private QueueItem registrationItem(ApplicationQueueResult item) {
+        String age = item.patientBirthDate() == null ? null
+                : Period.between(item.patientBirthDate(), LocalDate.now()).getYears() + "岁";
+        String patient = item.patientName() == null || item.patientName().isBlank()
+                ? item.patientReference() : item.patientName();
+        String summary = String.join(" · ", java.util.stream.Stream.of(item.patientSexCode(), age,
+                item.visitReference(), item.applicationDepartment(), item.applicantReference())
+                .filter(value -> value != null && !value.isBlank()).toList());
+        String detail = String.join(" · ", java.util.stream.Stream.of(item.itemName(), item.externalItemCode(),
+                item.specimenDescription(), item.specimenKindCode()).filter(value -> value != null && !value.isBlank())
+                .toList());
+        long waiting = waiting(item.appliedAt());
+        String link = "/v2/registration?applicationId=" + item.applicationId() + "&applicationItemId="
+                + item.applicationItemId();
+        return new QueueItem("REGISTRATION-" + item.applicationItemId(), null, item.applicationId(),
+                item.applicationItemId(), item.applicationNo(), patient, summary, item.visitReference(),
+                item.businessTypeCode(), item.externalItemCode(), detail, item.appliedAt(), waiting, false,
+                Set.of("OPEN", "REGISTER"), link);
+    }
+
+    private QueueItem registeredItem(RegisteredRow item) {
+        return new QueueItem("REGISTERED-" + item.caseId(), item.caseId(), null, null, item.pathologyNo(),
+                item.patientReference(), null, null, item.businessTypeName(), "登记完成",
+                "本人今日登记", item.registeredAt(), waiting(item.registeredAt()), false, Set.of("OPEN_CASE"),
+                "/v2/cases/" + item.caseId());
+    }
+
+    private QueueItem grossingItem(GrossingRow item, boolean frozen, boolean tracking) {
+        Instant entered = item.roundStartedAt() == null ? item.enteredAt() : item.roundStartedAt();
+        String task = frozen ? "第 " + item.roundNo() + " 轮取材" : tracking ? "取材已完成" : "取材";
+        String detail = item.specimenCount() + " 个标本 · " + item.specimenSummary()
+                + (item.sourceDepartment() == null ? "" : " · " + item.sourceDepartment());
+        String link = tracking ? "/v2/cases/" + item.caseId() : "/v2/grossing/" + item.caseId()
+                + (frozen ? "?roundId=" + item.roundId() : "");
+        return new QueueItem((tracking ? "GROSSED-" : "GROSSING-") + item.caseId()
+                + (item.roundId() == null ? "" : "-" + item.roundId()), item.caseId(), null, null,
+                item.pathologyNo(), item.patientReference(), null, null, item.businessTypeName(), task, detail,
+                entered, waiting(entered), false, tracking ? Set.of("OPEN_CASE") : Set.of("OPEN", "GROSS"), link);
+    }
+
+    private CapabilityQueue productionQueue(V2ProductionWorkbenchApplicationService.QueueView source) {
+        return queue(source.code(), source.label(), "PENDING", source.items().stream().map(this::productionItem).toList());
+    }
+
+    private QueueItem productionItem(ProductionItem item) {
+        return new QueueItem(item.productionContext() + "-" + item.caseId() + "-"
+                + (item.orderId() == null ? item.slideCode() == null ? "CASE" : item.slideCode() : item.orderId()),
+                item.caseId(), null, null, item.pathologyNo(), item.patientReference(), null, null,
+                item.businessTypeName(), item.taskSummary(), item.materialSummary(), item.enteredAt(),
+                item.waitingMinutes(), false, item.availableActions(), item.deepLink());
+    }
+
+    private static CapabilityQueue queue(String key, String label, String kind, List<QueueItem> items) {
+        return new CapabilityQueue(key, label, kind, items.size(), items);
+    }
+
+    private static long waiting(Instant enteredAt) {
+        return Math.max(0, Duration.between(enteredAt == null ? Instant.now() : enteredAt, Instant.now()).toMinutes());
     }
 
     private static WorkItem workItem(WorkbenchRow row, Set<String> actions) {
@@ -120,7 +248,14 @@ public class V2WorkbenchApplicationService {
     }
 
     public record WorkbenchResult(Instant refreshedAt, List<WorkItem> myWork, List<WorkItem> publicPool,
-            Counts counts, QueueSummary queues, TrackingSummary tracking) { }
+            Counts counts, QueueSummary queues, TrackingSummary tracking, List<CapabilityQueue> capabilityQueues) { }
+
+    public record CapabilityQueue(String key, String label, String kind, int count, List<QueueItem> items) { }
+
+    public record QueueItem(String key, UUID caseId, UUID applicationId, UUID applicationItemId,
+            String businessDisplayId, String patientDisplay, String patientSummary, String visitReference,
+            String businessType, String task, String detail, Instant enteredAt, long waitingMinutes, boolean urgent,
+            Set<String> availableActions, String workspaceDestination) { }
 
     public record TrackingSummary(List<CaseProgressProjectionApplicationService.CaseProgress> registeredCases) { }
 
