@@ -80,6 +80,11 @@ public class V2GrossingImageController {
                 request.unitCode(), request.measurementModeCode()));
     }
 
+    @GetMapping("/images/{imageId}/measurements")
+    public List<V2GrossingImageApplicationService.MeasurementResult> measurements(@PathVariable UUID imageId) {
+        return service.measurements(imageId);
+    }
+
     @PostMapping("/images/{imageId}/delete")
     public void deleteImage(@PathVariable UUID imageId, @RequestBody DeleteRequest request) {
         service.deleteImage(imageId, new DeleteImageCommand(request.reason()));

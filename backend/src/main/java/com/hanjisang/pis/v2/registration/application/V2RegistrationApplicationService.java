@@ -151,18 +151,19 @@ public class V2RegistrationApplicationService {
         ActorContext actor = authorization.require("P14-PERM-008");
         validate(command.caseId(), "病例内部ID不能为空");
         validate(command.specimenCode(), "标本代码不能为空");
+        validate(command.specimenName(), "标本名称不能为空");
         validate(command.specimenKindCode(), "标本类型不能为空");
+        validate(command.creationSourceCode(), "标本创建来源不能为空");
         validate(command.sourceKindCode(), "标本来源类型不能为空");
         validate(command.sourceReference(), "标本来源引用不能为空");
-        validate(command.collectionSite(), "标本来源部位不能为空");
-        validate(command.collectionMethodCode(), "标本采集方式不能为空");
         validate(command.idempotencyKey(), "幂等键不能为空");
 
-        String digest = digest(command.caseId().toString(), command.specimenCode(), command.specimenKindCode(),
+        String digest = digest(command.caseId().toString(), command.specimenCode(), command.specimenName(),
+                command.specimenKindCode(), command.creationSourceCode(),
                 command.sourceKindCode(), command.sourceReference(), command.collectionSite(),
                 command.collectionMethodCode(), command.lateralityCode(), command.quantityValue(),
                 command.quantityUnitCode(), command.description(), command.removedAt(), command.fixedAt(),
-                command.receivedAt(), command.labelCode());
+                command.receivedAt(), command.labelCode(), command.creationReason());
         var existing = repository.findIdempotency(SPECIMEN_OPERATION, command.idempotencyKey());
         if (existing.isPresent()) {
             return replaySpecimen(existing.get(), digest, actor);
@@ -174,10 +175,10 @@ public class V2RegistrationApplicationService {
             throw reject("P12-ERR-010", "已取消V2病例不能登记标本");
         }
         if (repository.findSpecimenIdByCode(pathologyCase.id(), command.specimenCode()).isPresent()) {
-            throw reject("P12-ERR-022", "同一病例下标本代码已存在");
+            throw conflict("同一病例下标本代码已存在");
         }
         if (repository.findSpecimenIdByLabel(actor.hospitalScope(), command.labelCode()).isPresent()) {
-            throw reject("P12-ERR-022", "标签已绑定其他V2标本，不能重复使用");
+            throw conflict("标签已绑定其他V2标本，不能重复使用");
         }
 
         Instant now = Instant.now();
@@ -189,16 +190,23 @@ public class V2RegistrationApplicationService {
         }
         String specimenNo = repository.allocateNumber(actor.hospitalScope(), pathologyCase.businessTypeCode(),
                 "SPECIMEN", now);
-        Specimen specimen = Specimen.register(specimenId, pathologyCase.id(), specimenNo, command.specimenCode(),
-                command.specimenKindCode(), command.sourceKindCode(), command.sourceReference(),
-                command.collectionSite(), command.collectionMethodCode(), command.lateralityCode(),
-                command.quantityValue(), command.quantityUnitCode(), command.description(), command.removedAt(),
-                command.fixedAt(), command.receivedAt(), command.labelCode());
+        Specimen specimen;
+        try {
+            specimen = Specimen.registerWithSource(specimenId, pathologyCase.id(), specimenNo,
+                    command.specimenCode(), command.specimenName(), command.specimenKindCode(),
+                    command.creationSourceCode(), command.sourceKindCode(), command.sourceReference(),
+                    command.collectionSite(), command.collectionMethodCode(), command.lateralityCode(),
+                    command.quantityValue(), command.quantityUnitCode(), command.description(), command.removedAt(),
+                    command.fixedAt(), command.receivedAt(), command.labelCode());
+        } catch (IllegalArgumentException exception) {
+            throw new P15BusinessException("V2-SPECIMEN-INVALID", exception.getMessage(), 400);
+        }
         repository.insertSpecimen(specimen, actor.hospitalScope(), actor.actorId(), now);
 
         String correlationId = UUID.randomUUID().toString();
         audit.append("PIS-V2-I01-SPECIMEN-REGISTER", "P14-PERM-008", actor, "ALLOWED", "COMPLETED", specimenId,
-                "V2-SPECIMEN", correlationId, "V2标本已登记");
+                "V2-SPECIMEN", correlationId, command.creationReason() == null ? "V2标本已登记"
+                        : command.creationReason());
         return SpecimenResult.created(specimen, false, "PIS-V2-SPECIMEN-REGISTERED");
     }
 
@@ -207,26 +215,32 @@ public class V2RegistrationApplicationService {
         ActorContext actor = authorization.require("P14-PERM-008");
         validate(specimenId, "标本内部ID不能为空");
         validate(command.specimenCode(), "标本代码不能为空");
+        validate(command.specimenName(), "标本名称不能为空");
         validate(command.specimenKindCode(), "标本类型不能为空");
         validate(command.sourceKindCode(), "标本来源类型不能为空");
         validate(command.sourceReference(), "标本来源引用不能为空");
-        validate(command.collectionSite(), "标本来源部位不能为空");
-        validate(command.collectionMethodCode(), "标本采集方式不能为空");
         Specimen specimen = findSpecimen(specimenId, actor);
         requireExpectedVersion(specimen, command.expectedVersion());
         String beforeSpecimenCode = specimen.specimenCode();
+        String beforeSpecimenName = specimen.specimenName();
         String beforeCollectionSite = specimen.collectionSite();
+        String beforeDescription = specimen.description();
+        BigDecimal beforeQuantity = specimen.quantityValue();
+        if (repository.specimenHasDownstreamReferences(specimenId, actor.hospitalScope())) {
+            validate(command.reason(), "已有下游材料的标本修正必须填写原因");
+        }
         if (repository.findSpecimenIdByCode(specimen.caseId(), command.specimenCode())
                 .filter(existingId -> !existingId.equals(specimenId)).isPresent()) {
-            throw reject("P12-ERR-022", "同一病例下标本代码已存在");
+            throw conflict("同一病例下标本代码已存在");
         }
         if (repository.findSpecimenIdByLabel(actor.hospitalScope(), command.labelCode())
                 .filter(existingId -> !existingId.equals(specimenId)).isPresent()) {
-            throw reject("P12-ERR-022", "标签已绑定其他V2标本，不能重复使用");
+            throw conflict("标签已绑定其他V2标本，不能重复使用");
         }
         Instant now = Instant.now();
         try {
-            specimen.updateDetails(command.specimenCode(), command.specimenKindCode(), command.sourceKindCode(),
+            specimen.updateDetails(command.specimenCode(), command.specimenName(), command.specimenKindCode(),
+                    command.sourceKindCode(),
                     command.sourceReference(), command.collectionSite(), command.collectionMethodCode(),
                     command.lateralityCode(), command.quantityValue(), command.quantityUnitCode(),
                     command.description(), command.removedAt(), command.fixedAt(), command.receivedAt(),
@@ -235,12 +249,17 @@ public class V2RegistrationApplicationService {
             throw reject("P12-ERR-010", exception.getMessage());
         }
         if (!repository.updateSpecimen(specimen, actor.hospitalScope(), command.expectedVersion(), actor.actorId(), now)) {
-            throw reject("P12-ERR-010", "V2标本版本冲突，修改未生效");
+            throw conflict("标本版本冲突，修改未生效");
         }
         audit.appendWithChanges("PIS-V2-I01-SPECIMEN-UPDATE", "P14-PERM-008", actor, "COMPLETED", specimenId,
                 "V2-SPECIMEN", UUID.randomUUID().toString(), "标本信息已修改",
                 List.of(new AuditChange("specimenCode", "标本代码", beforeSpecimenCode, specimen.specimenCode()),
-                        new AuditChange("collectionSite", "标本部位", beforeCollectionSite, specimen.collectionSite())));
+                        new AuditChange("specimenName", "标本名称", beforeSpecimenName, specimen.specimenName()),
+                        new AuditChange("collectionSite", "标本部位", beforeCollectionSite, specimen.collectionSite()),
+                        new AuditChange("description", "标本描述", beforeDescription, specimen.description()),
+                        new AuditChange("quantity", "标本数量", String.valueOf(beforeQuantity),
+                                String.valueOf(specimen.quantityValue())),
+                        new AuditChange("reason", "修正原因", null, command.reason())));
         return SpecimenResult.created(specimen, false, "PIS-V2-SPECIMEN-UPDATED");
     }
 
@@ -251,6 +270,9 @@ public class V2RegistrationApplicationService {
         validate(command.reason(), "标本软删除原因不能为空");
         Specimen specimen = findSpecimen(specimenId, actor);
         requireExpectedVersion(specimen, command.expectedVersion());
+        if (repository.specimenHasDownstreamReferences(specimenId, actor.hospitalScope())) {
+            throw new P15BusinessException("V2-SPECIMEN-IN-USE", "标本已有取材或下游材料，不能取消", 409);
+        }
         Instant now = Instant.now();
         try {
             specimen.softDelete(command.reason(), now);
@@ -259,7 +281,7 @@ public class V2RegistrationApplicationService {
         }
         if (!repository.softDeleteSpecimen(specimenId, actor.hospitalScope(), command.expectedVersion(), command.reason(),
                 actor.actorId(), now)) {
-            throw reject("P12-ERR-010", "V2标本版本冲突，软删除未生效");
+            throw conflict("标本版本冲突，取消未生效");
         }
         audit.append("PIS-V2-I01-SPECIMEN-SOFT-DELETE", "P14-PERM-010", actor, "ALLOWED", "COMPLETED", specimenId,
                 "V2-SPECIMEN", UUID.randomUUID().toString(), command.reason());
@@ -294,14 +316,19 @@ public class V2RegistrationApplicationService {
         Specimen source = findSpecimen(specimenId, actor);
         if (source.deleted()) throw reject("P12-ERR-010", "Deleted specimen cannot be split");
         SpecimenResult child = registerSpecimen(new RegisterSpecimenCommand(source.caseId(),
-                command.childSpecimenCode(), command.specimenKindCode() == null ? source.specimenKindCode()
+                command.childSpecimenCode(),
+                command.childSpecimenName() == null ? source.specimenName() : command.childSpecimenName(),
+                command.specimenKindCode() == null ? source.specimenKindCode()
                         : command.specimenKindCode(),
+                Specimen.GROSSING_SPLIT,
                 command.sourceKindCode() == null ? source.sourceKindCode() : command.sourceKindCode(),
-                source.sourceReference(), source.collectionSite(), source.collectionMethodCode(),
+                source.sourceReference(), command.collectionSite() == null ? source.collectionSite()
+                        : command.collectionSite(), source.collectionMethodCode(),
                 command.lateralityCode() == null ? source.lateralityCode() : command.lateralityCode(),
                 command.quantityValue(), command.quantityUnitCode(),
                 command.description() == null ? source.description() : command.description(), source.removedAt(),
                 source.fixedAt(), source.receivedAt(), command.labelCode(),
+                command.reason(),
                 "specimen-split-" + specimenId + "-" + command.childSpecimenCode()));
         repository.insertSpecimenSplit(specimenId, child.specimenId(), command.quantityValue(), command.reason(),
                 actor.hospitalScope(), actor.actorId(), Instant.now());
@@ -457,7 +484,7 @@ public class V2RegistrationApplicationService {
 
     @Transactional(readOnly = true)
     public SpecimenResult getSpecimen(UUID specimenId) {
-        ActorContext actor = authorization.require("P14-PERM-049");
+        ActorContext actor = authorization.require("P14-PERM-048");
         return SpecimenResult.read(findSpecimen(specimenId, actor));
     }
 
@@ -509,13 +536,13 @@ public class V2RegistrationApplicationService {
 
     private static void requireExpectedVersion(Specimen specimen, long expectedVersion) {
         if (specimen.concurrencyVersion() != expectedVersion) {
-            throw reject("P12-ERR-010", "V2标本版本冲突，请重新读取后重试");
+            throw conflict("标本版本冲突，请重新读取后重试");
         }
     }
 
     private void verifyDigest(IdempotencyResult existing, String digest) {
         if (!existing.payloadDigest().equals(digest)) {
-            throw reject("P12-ERR-003", "相同幂等键对应的V2请求摘要冲突");
+            throw conflict("相同幂等键对应的标本请求摘要冲突");
         }
     }
 
@@ -527,6 +554,10 @@ public class V2RegistrationApplicationService {
 
     private static P15BusinessException reject(String code, String message) {
         return new P15BusinessException(code, message);
+    }
+
+    private static P15BusinessException conflict(String message) {
+        return new P15BusinessException("V2-BUSINESS-CONFLICT", message, 409);
     }
 
     private static String digest(Object... values) {
@@ -544,10 +575,24 @@ public class V2RegistrationApplicationService {
     public record CreateCaseCommand(String sourceSystemCode, String externalApplicationId, String applicationItemCode,
             String patientReference, String visitReference, String idempotencyKey) { }
 
-    public record RegisterSpecimenCommand(UUID caseId, String specimenCode, String specimenKindCode,
-            String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
+    public record RegisterSpecimenCommand(UUID caseId, String specimenCode, String specimenName,
+            String specimenKindCode, String creationSourceCode, String sourceKindCode, String sourceReference,
+            String collectionSite, String collectionMethodCode,
             String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
-            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, String idempotencyKey) {
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, String creationReason,
+            String idempotencyKey) {
+        public RegisterSpecimenCommand(UUID caseId, String specimenCode, String specimenKindCode,
+                String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
+                String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+                Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, String idempotencyKey) {
+            this(caseId, specimenCode,
+                    collectionSite == null || collectionSite.isBlank() ? specimenKindCode : collectionSite,
+                    specimenKindCode, "EXTERNAL".equals(sourceKindCode) ? Specimen.EXTERNAL_INPUT : Specimen.REGISTRATION,
+                    sourceKindCode, sourceReference, collectionSite,
+                    collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt,
+                    fixedAt, receivedAt, labelCode, null, idempotencyKey);
+        }
+
         public RegisterSpecimenCommand(UUID caseId, String specimenCode, String specimenKindCode,
                 String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
                 String labelCode, String idempotencyKey) {
@@ -556,10 +601,21 @@ public class V2RegistrationApplicationService {
         }
     }
 
-    public record UpdateSpecimenCommand(String specimenCode, String specimenKindCode, String sourceKindCode,
+    public record UpdateSpecimenCommand(String specimenCode, String specimenName, String specimenKindCode,
+            String sourceKindCode,
             String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
             BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
-            Instant fixedAt, Instant receivedAt, String labelCode, long expectedVersion) {
+            Instant fixedAt, Instant receivedAt, String labelCode, long expectedVersion, String reason) {
+        public UpdateSpecimenCommand(String specimenCode, String specimenKindCode, String sourceKindCode,
+                String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
+                BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
+                Instant fixedAt, Instant receivedAt, String labelCode, long expectedVersion) {
+            this(specimenCode, collectionSite == null || collectionSite.isBlank() ? specimenKindCode : collectionSite,
+                    specimenKindCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode,
+                    lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                    labelCode, expectedVersion, null);
+        }
+
         public UpdateSpecimenCommand(String specimenCode, String specimenKindCode, String sourceKindCode,
                 String sourceReference, String collectionSite, String collectionMethodCode, String labelCode,
                 long expectedVersion) {
@@ -578,9 +634,16 @@ public class V2RegistrationApplicationService {
             String reason, Instant changedAt, String changedBy) { }
     public record ReceiveSpecimenCommand(String verificationCode, String actualDescription, String reason,
             Instant receivedAt, long expectedVersion) { }
-    public record SplitSpecimenCommand(String childSpecimenCode, String specimenKindCode, String sourceKindCode,
-            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
-            String labelCode, String reason) { }
+    public record SplitSpecimenCommand(String childSpecimenCode, String childSpecimenName, String specimenKindCode,
+            String sourceKindCode, String collectionSite, String lateralityCode, BigDecimal quantityValue,
+            String quantityUnitCode, String description, String labelCode, String reason) {
+        public SplitSpecimenCommand(String childSpecimenCode, String specimenKindCode, String sourceKindCode,
+                String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+                String labelCode, String reason) {
+            this(childSpecimenCode, null, specimenKindCode, sourceKindCode, null, lateralityCode, quantityValue,
+                    quantityUnitCode, description, labelCode, reason);
+        }
+    }
 
     public record CaseResult(UUID caseId, String caseNo, String businessTypeCode, String patientReference,
             String visitReference, String applicationNo, String lifecycleStateCode, boolean numberBindingActive,
@@ -618,14 +681,16 @@ public class V2RegistrationApplicationService {
             String patientReference, Instant registeredAt) { }
 
     public record SpecimenResult(UUID specimenId, UUID caseId, String specimenNo, String specimenCode,
-            String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
+            String specimenName, String specimenKindCode, String creationSourceCode, String sourceKindCode,
+            String sourceReference, String collectionSite,
             String collectionMethodCode, String lateralityCode, BigDecimal quantityValue, String quantityUnitCode,
             String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode,
             Instant deletedAt, String deletionReason, long concurrencyVersion, boolean duplicate,
             String eventTypeCode) {
         static SpecimenResult created(Specimen specimen, boolean duplicate, String eventTypeCode) {
             return new SpecimenResult(specimen.id(), specimen.caseId(), specimen.specimenNo(), specimen.specimenCode(),
-                    specimen.specimenKindCode(), specimen.sourceKindCode(), specimen.sourceReference(),
+                    specimen.specimenName(), specimen.specimenKindCode(), specimen.creationSourceCode(),
+                    specimen.sourceKindCode(), specimen.sourceReference(),
                     specimen.collectionSite(), specimen.collectionMethodCode(), specimen.lateralityCode(),
                     specimen.quantityValue(), specimen.quantityUnitCode(), specimen.description(), specimen.removedAt(),
                     specimen.fixedAt(), specimen.receivedAt(), specimen.labelCode(), specimen.deletedAt(),

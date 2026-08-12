@@ -101,10 +101,16 @@ public class V2RegistrationController {
     public V2RegistrationApplicationService.SpecimenResult registerSpecimen(
             @RequestBody RegisterSpecimenRequest request) {
         return service.registerSpecimen(new RegisterSpecimenCommand(request.caseId(), request.specimenCode(),
-                request.specimenKindCode(), request.sourceKindCode(), request.sourceReference(),
+                request.specimenName() == null || request.specimenName().isBlank()
+                        ? (request.collectionSite() == null || request.collectionSite().isBlank()
+                                ? request.specimenKindCode() : request.collectionSite())
+                        : request.specimenName(), request.specimenKindCode(),
+                request.creationSourceCode() == null ? "REGISTRATION" : request.creationSourceCode(),
+                request.sourceKindCode(), request.sourceReference(),
                 request.collectionSite(), request.collectionMethodCode(), request.lateralityCode(),
                 request.quantityValue(), request.quantityUnitCode(), request.description(), request.removedAt(),
-                request.fixedAt(), request.receivedAt(), request.labelCode(), request.idempotencyKey()));
+                request.fixedAt(), request.receivedAt(), request.labelCode(), request.creationReason(),
+                request.idempotencyKey()));
     }
 
     @GetMapping("/specimens/{specimenId}")
@@ -116,10 +122,15 @@ public class V2RegistrationController {
     public V2RegistrationApplicationService.SpecimenResult updateSpecimen(@PathVariable UUID specimenId,
             @RequestBody UpdateSpecimenRequest request) {
         return service.updateSpecimen(specimenId, new UpdateSpecimenCommand(request.specimenCode(),
-                request.specimenKindCode(), request.sourceKindCode(), request.sourceReference(),
+                request.specimenName() == null || request.specimenName().isBlank()
+                        ? (request.collectionSite() == null || request.collectionSite().isBlank()
+                                ? request.specimenKindCode() : request.collectionSite())
+                        : request.specimenName(), request.specimenKindCode(), request.sourceKindCode(),
+                request.sourceReference(),
                 request.collectionSite(), request.collectionMethodCode(), request.lateralityCode(),
                 request.quantityValue(), request.quantityUnitCode(), request.description(), request.removedAt(),
-                request.fixedAt(), request.receivedAt(), request.labelCode(), request.expectedVersion()));
+                request.fixedAt(), request.receivedAt(), request.labelCode(), request.expectedVersion(),
+                request.reason()));
     }
 
     @PostMapping("/specimens/{specimenId}/soft-delete")
@@ -140,7 +151,8 @@ public class V2RegistrationController {
     public V2RegistrationApplicationService.SpecimenResult splitSpecimen(@PathVariable UUID specimenId,
             @RequestBody SplitSpecimenRequest request) {
         return service.splitSpecimen(specimenId, new SplitSpecimenCommand(request.childSpecimenCode(),
-                request.specimenKindCode(), request.sourceKindCode(), request.lateralityCode(),
+                request.childSpecimenName(), request.specimenKindCode(), request.sourceKindCode(),
+                request.collectionSite(), request.lateralityCode(),
                 request.quantityValue(), request.quantityUnitCode(), request.description(), request.labelCode(),
                 request.reason()));
     }
@@ -148,15 +160,18 @@ public class V2RegistrationController {
     public record CreateCaseRequest(String sourceSystemCode, String externalApplicationId, String applicationItemCode,
             String patientReference, String visitReference, String idempotencyKey) { }
 
-    public record RegisterSpecimenRequest(UUID caseId, String specimenCode, String specimenKindCode,
-            String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
+    public record RegisterSpecimenRequest(UUID caseId, String specimenCode, String specimenName,
+            String specimenKindCode, String creationSourceCode, String sourceKindCode, String sourceReference,
+            String collectionSite, String collectionMethodCode,
             String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
-            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, String idempotencyKey) { }
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, String creationReason,
+            String idempotencyKey) { }
 
-    public record UpdateSpecimenRequest(String specimenCode, String specimenKindCode, String sourceKindCode,
+    public record UpdateSpecimenRequest(String specimenCode, String specimenName, String specimenKindCode,
+            String sourceKindCode,
             String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
             BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
-            Instant fixedAt, Instant receivedAt, String labelCode, long expectedVersion) { }
+            Instant fixedAt, Instant receivedAt, String labelCode, long expectedVersion, String reason) { }
 
     public record SoftDeleteSpecimenRequest(long expectedVersion, String reason) { }
 
@@ -166,7 +181,7 @@ public class V2RegistrationController {
             String printerProfileCode) { }
     public record ReceiveSpecimenRequest(String verificationCode, String actualDescription, String reason,
             Instant receivedAt, long expectedVersion) { }
-    public record SplitSpecimenRequest(String childSpecimenCode, String specimenKindCode, String sourceKindCode,
-            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
-            String labelCode, String reason) { }
+    public record SplitSpecimenRequest(String childSpecimenCode, String childSpecimenName, String specimenKindCode,
+            String sourceKindCode, String collectionSite, String lateralityCode, BigDecimal quantityValue,
+            String quantityUnitCode, String description, String labelCode, String reason) { }
 }

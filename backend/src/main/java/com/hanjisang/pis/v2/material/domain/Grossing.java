@@ -88,6 +88,9 @@ public final class Grossing {
 
     public void complete(Instant completedAt, String completedBy) {
         ensureActive();
+        if (this.completedAt != null) {
+            throw new IllegalStateException("取材已经完成");
+        }
         this.completedAt = Objects.requireNonNull(completedAt, "取材完成时间不能为空");
         this.completedBy = required(completedBy, "取材完成人不能为空");
         concurrencyVersion++;
@@ -98,10 +101,19 @@ public final class Grossing {
         if (completedAt == null) {
             throw new IllegalStateException("未完成取材不能重新打开");
         }
-        completedAt = null;
-        completedBy = null;
         concurrencyVersion++;
         Objects.requireNonNull(reopenedAt, "重开时间不能为空");
+    }
+
+    public void correctCompletedDetails(String grossDescription, String grossingInstruction,
+            String grossingDoctorId, String recorderId) {
+        ensureActive();
+        if (completedAt == null) throw new IllegalStateException("只有已完成取材可以执行授权修正");
+        this.grossDescription = required(grossDescription, "取材描述不能为空");
+        this.grossingInstruction = optional(grossingInstruction);
+        this.grossingDoctorId = required(grossingDoctorId, "取材医生不能为空");
+        this.recorderId = required(recorderId, "取材记录人不能为空");
+        concurrencyVersion++;
     }
 
     public void softDelete(String reason, Instant deletedAt) {

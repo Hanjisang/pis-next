@@ -318,13 +318,15 @@ public class JdbcV2RegistrationRepository {
     public void insertSpecimen(Specimen specimen, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.specimen
-                    (id, case_id, specimen_no, specimen_code, specimen_kind_code, source_kind_code, source_reference,
+                    (id, case_id, specimen_no, specimen_code, specimen_name, specimen_kind_code,
+                     creation_source_code, source_kind_code, source_reference,
                      collection_site, collection_method_code, laterality_code, quantity_value, quantity_unit_code,
                      description, removed_at, fixed_at, received_at, label_code, concurrency_version,
                      organization_reference, created_at, created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, specimen.id(), specimen.caseId(), specimen.specimenNo(), specimen.specimenCode(),
-                specimen.specimenKindCode(), specimen.sourceKindCode(), specimen.sourceReference(),
+                specimen.specimenName(), specimen.specimenKindCode(), specimen.creationSourceCode(),
+                specimen.sourceKindCode(), specimen.sourceReference(),
                 specimen.collectionSite(), specimen.collectionMethodCode(), specimen.lateralityCode(),
                 specimen.quantityValue(), specimen.quantityUnitCode(), specimen.description(),
                 timestamp(specimen.removedAt()), timestamp(specimen.fixedAt()), timestamp(specimen.receivedAt()),
@@ -334,7 +336,8 @@ public class JdbcV2RegistrationRepository {
 
     public Optional<Specimen> findSpecimen(UUID specimenId, String organizationReference) {
         return jdbcTemplate.query("""
-                SELECT id, case_id, specimen_no, specimen_code, specimen_kind_code, source_kind_code, source_reference,
+                SELECT id, case_id, specimen_no, specimen_code, specimen_name, specimen_kind_code,
+                       creation_source_code, source_kind_code, source_reference,
                        collection_site, collection_method_code, laterality_code, quantity_value, quantity_unit_code,
                        description, removed_at, fixed_at, received_at, label_code, deleted_at, deletion_reason,
                        concurrency_version
@@ -342,7 +345,8 @@ public class JdbcV2RegistrationRepository {
                 WHERE id = ? AND organization_reference = ?
                 """, rs -> rs.next() ? Optional.of(Specimen.persisted(rs.getObject("id", UUID.class),
                         rs.getObject("case_id", UUID.class), rs.getString("specimen_no"),
-                        rs.getString("specimen_code"), rs.getString("specimen_kind_code"),
+                        rs.getString("specimen_code"), rs.getString("specimen_name"),
+                        rs.getString("specimen_kind_code"), rs.getString("creation_source_code"),
                         rs.getString("source_kind_code"), rs.getString("source_reference"),
                         rs.getString("collection_site"), rs.getString("collection_method_code"),
                         rs.getString("laterality_code"), rs.getBigDecimal("quantity_value"),
@@ -376,14 +380,16 @@ public class JdbcV2RegistrationRepository {
             String actorRef, Instant now) {
         int changed = jdbcTemplate.update("""
                 UPDATE pis_v2.specimen
-                   SET specimen_code = ?, specimen_kind_code = ?, source_kind_code = ?, source_reference = ?,
+                   SET specimen_code = ?, specimen_name = ?, specimen_kind_code = ?,
+                       source_kind_code = ?, source_reference = ?,
                        collection_site = ?, collection_method_code = ?, laterality_code = ?, quantity_value = ?,
                        quantity_unit_code = ?, description = ?, removed_at = ?, fixed_at = ?, received_at = ?,
                        label_code = ?,
                        concurrency_version = concurrency_version + 1, updated_at = ?, updated_by_ref = ?
                  WHERE id = ? AND organization_reference = ? AND deleted_at IS NULL
                    AND concurrency_version = ?
-                """, specimen.specimenCode(), specimen.specimenKindCode(), specimen.sourceKindCode(),
+                """, specimen.specimenCode(), specimen.specimenName(), specimen.specimenKindCode(),
+                specimen.sourceKindCode(),
                 specimen.sourceReference(), specimen.collectionSite(), specimen.collectionMethodCode(),
                 specimen.lateralityCode(), specimen.quantityValue(), specimen.quantityUnitCode(),
                 specimen.description(), timestamp(specimen.removedAt()), timestamp(specimen.fixedAt()),
@@ -413,6 +419,37 @@ public class JdbcV2RegistrationRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID(), sourceSpecimenId, childSpecimenId, quantity, reason,
                 organizationReference, Timestamp.from(now), actorRef);
+    }
+
+    public Optional<SpecimenSplitSource> findSpecimenSplitSource(UUID childSpecimenId,
+            String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT split.source_specimen_id, source.specimen_code, source.specimen_name, split.reason
+                FROM pis_v2.specimen_split split
+                JOIN pis_v2.specimen source ON source.id = split.source_specimen_id
+                WHERE split.child_specimen_id = ? AND split.organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new SpecimenSplitSource(
+                        rs.getObject("source_specimen_id", UUID.class), rs.getString("specimen_code"),
+                        rs.getString("specimen_name"), rs.getString("reason"))) : Optional.empty(),
+                childSpecimenId, organizationReference);
+    }
+
+    public boolean specimenHasDownstreamReferences(UUID specimenId, String organizationReference) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pis_v2.grossing_specimen gs
+                    JOIN pis_v2.grossing g ON g.id = gs.grossing_id
+                    WHERE gs.specimen_id = ? AND gs.deleted_at IS NULL
+                      AND g.organization_reference = ? AND g.deleted_at IS NULL
+                    UNION ALL
+                    SELECT 1 FROM pis_v2.block b
+                    WHERE b.specimen_id = ? AND b.organization_reference = ? AND b.deleted_at IS NULL
+                    UNION ALL
+                    SELECT 1 FROM pis_v2.slide s
+                    WHERE s.specimen_id = ? AND s.organization_reference = ? AND s.deleted_at IS NULL
+                )
+                """, Boolean.class, specimenId, organizationReference, specimenId, organizationReference,
+                specimenId, organizationReference));
     }
 
     public void insertSpecimenReceipt(UUID specimenId, String verificationCode, String actualDescription,
@@ -461,6 +498,9 @@ public class JdbcV2RegistrationRepository {
             UUID resultSpecimenId) { }
 
     public record CaseCancellation(Instant cancelledAt, String cancelledByRef, String cancellationReason) { }
+
+    public record SpecimenSplitSource(UUID sourceSpecimenId, String sourceSpecimenCode, String sourceSpecimenName,
+            String reason) { }
 
     public record CaseSnapshotInput(String patientName, String patientSexCode, java.time.LocalDate patientBirthDate,
             Integer ageValue, String ageUnitCode, String visitTypeCode, String applicationDepartment,

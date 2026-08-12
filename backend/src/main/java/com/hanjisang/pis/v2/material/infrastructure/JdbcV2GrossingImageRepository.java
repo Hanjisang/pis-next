@@ -29,10 +29,15 @@ public class JdbcV2GrossingImageRepository {
                 grossingId, organizationReference);
     }
 
-    public boolean specimenBelongs(UUID specimenId, UUID caseId) {
+    public boolean specimenBelongs(UUID specimenId, UUID caseId, UUID grossingId) {
         return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM pis_v2.specimen WHERE id = ? AND case_id = ? AND deleted_at IS NULL)
-                """, Boolean.class, specimenId, caseId));
+                SELECT EXISTS (
+                    SELECT 1 FROM pis_v2.specimen s
+                    JOIN pis_v2.grossing_specimen gs ON gs.specimen_id = s.id
+                    WHERE s.id = ? AND s.case_id = ? AND s.deleted_at IS NULL
+                      AND gs.grossing_id = ? AND gs.deleted_at IS NULL
+                )
+                """, Boolean.class, specimenId, caseId, grossingId));
     }
 
     public UUID insertImage(UUID caseId, UUID grossingId, UUID specimenId, String imageName, String mediaType,
@@ -54,7 +59,7 @@ public class JdbcV2GrossingImageRepository {
                 SELECT id, case_id, grossing_id, specimen_id, image_name, media_type, storage_reference,
                        metadata_json, captured_at, captured_by_ref, deleted_at, deletion_reason
                 FROM pis_v2.grossing_image
-                WHERE grossing_id = ? AND organization_reference = ?
+                WHERE grossing_id = ? AND organization_reference = ? AND deleted_at IS NULL
                 ORDER BY captured_at, id
                 """, (rs, rowNum) -> new ImageRow(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class),
                 rs.getObject("grossing_id", UUID.class), rs.getObject("specimen_id", UUID.class),
@@ -111,7 +116,7 @@ public class JdbcV2GrossingImageRepository {
                 SELECT id, image_id, annotation_type_code, geometry_json, label, note, created_at, created_by_ref,
                        updated_at, updated_by_ref, deleted_at
                 FROM pis_v2.grossing_image_annotation
-                WHERE image_id = ? ORDER BY created_at, id
+                WHERE image_id = ? AND deleted_at IS NULL ORDER BY created_at, id
                 """, (rs, rowNum) -> new AnnotationRow(rs.getObject("id", UUID.class),
                 rs.getObject("image_id", UUID.class), rs.getString("annotation_type_code"),
                 rs.getString("geometry_json"), rs.getString("label"), rs.getString("note"),
@@ -120,12 +125,13 @@ public class JdbcV2GrossingImageRepository {
                 rs.getTimestamp("deleted_at") == null ? null : rs.getTimestamp("deleted_at").toInstant()), imageId);
     }
 
-    public boolean deleteAnnotation(UUID annotationId, String actorReference, Instant now) {
+    public boolean deleteAnnotation(UUID annotationId, UUID imageId, String actorReference, Instant now) {
         return jdbcTemplate.update("""
                 UPDATE pis_v2.grossing_image_annotation
                    SET deleted_at = ?, deleted_by_ref = ?, updated_at = ?, updated_by_ref = ?
-                 WHERE id = ? AND deleted_at IS NULL
-                """, Timestamp.from(now), actorReference, Timestamp.from(now), actorReference, annotationId) == 1;
+                 WHERE id = ? AND image_id = ? AND deleted_at IS NULL
+                """, Timestamp.from(now), actorReference, Timestamp.from(now), actorReference, annotationId,
+                imageId) == 1;
     }
 
     public UUID insertMeasurement(UUID imageId, String geometryJson, BigDecimal value, String unitCode,
@@ -140,6 +146,19 @@ public class JdbcV2GrossingImageRepository {
         return id;
     }
 
+    public List<MeasurementRow> measurements(UUID imageId) {
+        return jdbcTemplate.query("""
+                SELECT id, image_id, geometry_json, "value" AS measurement_value, unit_code, measurement_mode_code,
+                       created_at, created_by_ref
+                FROM pis_v2.grossing_image_measurement
+                WHERE image_id = ? ORDER BY created_at, id
+                """, (rs, rowNum) -> new MeasurementRow(rs.getObject("id", UUID.class),
+                rs.getObject("image_id", UUID.class), rs.getString("geometry_json"),
+                rs.getBigDecimal("measurement_value"), rs.getString("unit_code"),
+                rs.getString("measurement_mode_code"), rs.getTimestamp("created_at").toInstant(),
+                rs.getString("created_by_ref")), imageId);
+    }
+
     public record GrossingContext(UUID grossingId, UUID caseId, String organizationReference) { }
     public record ImageRow(UUID imageId, UUID caseId, UUID grossingId, UUID specimenId, String imageName,
             String mediaType, String storageReference, String metadataJson, Instant capturedAt, String capturedByRef,
@@ -147,4 +166,6 @@ public class JdbcV2GrossingImageRepository {
     public record AnnotationRow(UUID annotationId, UUID imageId, String typeCode, String geometryJson, String label,
             String note, Instant createdAt, String createdByRef, Instant updatedAt, String updatedByRef,
             Instant deletedAt) { }
+    public record MeasurementRow(UUID measurementId, UUID imageId, String geometryJson, BigDecimal value,
+            String unitCode, String measurementModeCode, Instant createdAt, String createdByRef) { }
 }

@@ -184,7 +184,8 @@ public class AuthIdentityRepository implements AuthenticatedUserDirectory {
                         "P15-REGISTRATION-RECEIVING", permissions("P14-PERM-002,P14-PERM-003,P14-PERM-004,"
                                 + "P14-PERM-006,P14-PERM-007,P14-PERM-008,P14-PERM-009,P14-PERM-010," + query)),
                 new AccountSpec("grossing", "Grossing Staff", "GROSSING", null, null, "PATHOLOGY",
-                        "P16-GROSSING-BLOCK-LABELING", permissions("P14-PERM-008,P14-PERM-013," + query)),
+                        "P16-GROSSING-BLOCK-LABELING",
+                        permissions("P14-PERM-008,P14-PERM-010,P14-PERM-013,P14-PERM-014," + query)),
                 new AccountSpec("technician", "Technician", "TECHNICIAN", null, null, "PATHOLOGY",
                         "P16-GROSSING-BLOCK-LABELING,P17-TECHNICAL-PROCESSING-EMBEDDING,P18-TECHNICAL-ORDER",
                         permissions("P14-PERM-008,P14-PERM-013,P14-PERM-014,P14-PERM-015,P14-PERM-016,P14-PERM-017,P14-PERM-049," + query)),

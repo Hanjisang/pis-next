@@ -3,15 +3,26 @@ package com.hanjisang.pis.v2.registration.domain;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 public final class Specimen {
+
+    public static final String REGISTRATION = "REGISTRATION";
+    public static final String GROSSING_ADD = "GROSSING_ADD";
+    public static final String GROSSING_SPLIT = "GROSSING_SPLIT";
+    public static final String EXTERNAL_INPUT = "EXTERNAL_INPUT";
+    public static final String FROZEN_REMAINDER = "FROZEN_REMAINDER";
+    private static final Set<String> CREATION_SOURCES = Set.of(REGISTRATION, GROSSING_ADD, GROSSING_SPLIT,
+            EXTERNAL_INPUT, FROZEN_REMAINDER);
 
     private final UUID id;
     private final UUID caseId;
     private final String specimenNo;
     private String specimenCode;
+    private String specimenName;
     private String specimenKindCode;
+    private final String creationSourceCode;
     private String sourceKindCode;
     private String sourceReference;
     private String collectionSite;
@@ -28,20 +39,25 @@ public final class Specimen {
     private String deletionReason;
     private long concurrencyVersion;
 
-    private Specimen(UUID id, UUID caseId, String specimenNo, String specimenCode, String specimenKindCode,
-            String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
-            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
-            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, Instant deletedAt,
-            String deletionReason, long concurrencyVersion) {
+    private Specimen(UUID id, UUID caseId, String specimenNo, String specimenCode, String specimenName,
+            String specimenKindCode, String creationSourceCode, String sourceKindCode, String sourceReference,
+            String collectionSite, String collectionMethodCode, String lateralityCode, BigDecimal quantityValue,
+            String quantityUnitCode, String description, Instant removedAt, Instant fixedAt, Instant receivedAt,
+            String labelCode, Instant deletedAt, String deletionReason, long concurrencyVersion) {
         this.id = Objects.requireNonNull(id, "Specimen id is required");
         this.caseId = Objects.requireNonNull(caseId, "Specimen case is required");
         this.specimenNo = required(specimenNo, "Specimen number is required");
         this.specimenCode = required(specimenCode, "Specimen code is required");
+        this.specimenName = required(specimenName, "Specimen name is required");
         this.specimenKindCode = required(specimenKindCode, "Specimen kind is required");
+        this.creationSourceCode = required(creationSourceCode, "Specimen creation source is required");
+        if (!CREATION_SOURCES.contains(this.creationSourceCode)) {
+            throw new IllegalArgumentException("Unsupported specimen creation source");
+        }
         this.sourceKindCode = required(sourceKindCode, "Specimen source kind is required");
         this.sourceReference = required(sourceReference, "Specimen source reference is required");
-        this.collectionSite = required(collectionSite, "Specimen site is required");
-        this.collectionMethodCode = required(collectionMethodCode, "Specimen collection method is required");
+        this.collectionSite = optional(collectionSite);
+        this.collectionMethodCode = optional(collectionMethodCode);
         this.lateralityCode = optional(lateralityCode);
         this.quantityValue = validQuantity(quantityValue);
         this.quantityUnitCode = quantityValue == null ? optional(quantityUnitCode)
@@ -56,9 +72,7 @@ public final class Specimen {
         if (deletedAt == null && this.deletionReason != null) {
             throw new IllegalArgumentException("An active specimen cannot have a deletion reason");
         }
-        if (concurrencyVersion < 0) {
-            throw new IllegalArgumentException("Specimen version cannot be negative");
-        }
+        if (concurrencyVersion < 0) throw new IllegalArgumentException("Specimen version cannot be negative");
         this.concurrencyVersion = concurrencyVersion;
     }
 
@@ -73,35 +87,39 @@ public final class Specimen {
             String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
             String collectionMethodCode, String lateralityCode, BigDecimal quantityValue, String quantityUnitCode,
             String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode) {
-        return new Specimen(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode, sourceReference,
-                collectionSite, collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description,
-                removedAt, fixedAt, receivedAt, labelCode, null, null, 0);
+        String defaultName = collectionSite == null || collectionSite.isBlank() ? specimenKindCode : collectionSite;
+        return registerWithSource(id, caseId, specimenNo, specimenCode, defaultName, specimenKindCode, REGISTRATION,
+                sourceKindCode, sourceReference, collectionSite, collectionMethodCode, lateralityCode, quantityValue,
+                quantityUnitCode, description, removedAt, fixedAt, receivedAt, labelCode);
+    }
+
+    public static Specimen registerWithSource(UUID id, UUID caseId, String specimenNo, String specimenCode,
+            String specimenName, String specimenKindCode, String creationSourceCode, String sourceKindCode,
+            String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
+            BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
+            Instant fixedAt, Instant receivedAt, String labelCode) {
+        return new Specimen(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode,
+                creationSourceCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode,
+                lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                labelCode, null, null, 0);
     }
 
     public static Specimen persisted(UUID id, UUID caseId, String specimenNo, String specimenCode,
-            String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
-            String collectionMethodCode, String labelCode, Instant deletedAt, String deletionReason,
+            String specimenName, String specimenKindCode, String creationSourceCode, String sourceKindCode,
+            String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
+            BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
+            Instant fixedAt, Instant receivedAt, String labelCode, Instant deletedAt, String deletionReason,
             long concurrencyVersion) {
-        return persisted(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode, sourceReference,
-                collectionSite, collectionMethodCode, null, null, null, null, null, null, null, labelCode,
-                deletedAt, deletionReason, concurrencyVersion);
-    }
-
-    public static Specimen persisted(UUID id, UUID caseId, String specimenNo, String specimenCode,
-            String specimenKindCode, String sourceKindCode, String sourceReference, String collectionSite,
-            String collectionMethodCode, String lateralityCode, BigDecimal quantityValue, String quantityUnitCode,
-            String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode,
-            Instant deletedAt, String deletionReason, long concurrencyVersion) {
-        return new Specimen(id, caseId, specimenNo, specimenCode, specimenKindCode, sourceKindCode,
-                sourceReference, collectionSite, collectionMethodCode, lateralityCode, quantityValue,
-                quantityUnitCode, description, removedAt, fixedAt, receivedAt, labelCode, deletedAt,
-                deletionReason, concurrencyVersion);
+        return new Specimen(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode,
+                creationSourceCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode,
+                lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                labelCode, deletedAt, deletionReason, concurrencyVersion);
     }
 
     public void updateDetails(String specimenCode, String specimenKindCode, String sourceKindCode,
             String sourceReference, String collectionSite, String collectionMethodCode, String labelCode,
             Instant updatedAt) {
-        updateDetails(specimenCode, specimenKindCode, sourceKindCode, sourceReference, collectionSite,
+        updateDetails(specimenCode, specimenName, specimenKindCode, sourceKindCode, sourceReference, collectionSite,
                 collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt,
                 fixedAt, receivedAt, labelCode, updatedAt);
     }
@@ -110,13 +128,23 @@ public final class Specimen {
             String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
             BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
             Instant fixedAt, Instant receivedAt, String labelCode, Instant updatedAt) {
+        updateDetails(specimenCode, specimenName, specimenKindCode, sourceKindCode, sourceReference, collectionSite,
+                collectionMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt,
+                fixedAt, receivedAt, labelCode, updatedAt);
+    }
+
+    public void updateDetails(String specimenCode, String specimenName, String specimenKindCode,
+            String sourceKindCode, String sourceReference, String collectionSite, String collectionMethodCode,
+            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, Instant updatedAt) {
         ensureNotDeleted();
         this.specimenCode = required(specimenCode, "Specimen code is required");
+        this.specimenName = required(specimenName, "Specimen name is required");
         this.specimenKindCode = required(specimenKindCode, "Specimen kind is required");
         this.sourceKindCode = required(sourceKindCode, "Specimen source kind is required");
         this.sourceReference = required(sourceReference, "Specimen source reference is required");
-        this.collectionSite = required(collectionSite, "Specimen site is required");
-        this.collectionMethodCode = required(collectionMethodCode, "Specimen collection method is required");
+        this.collectionSite = optional(collectionSite);
+        this.collectionMethodCode = optional(collectionMethodCode);
         this.lateralityCode = optional(lateralityCode);
         this.quantityValue = validQuantity(quantityValue);
         this.quantityUnitCode = quantityValue == null ? optional(quantityUnitCode)
@@ -142,7 +170,9 @@ public final class Specimen {
     public UUID caseId() { return caseId; }
     public String specimenNo() { return specimenNo; }
     public String specimenCode() { return specimenCode; }
+    public String specimenName() { return specimenName; }
     public String specimenKindCode() { return specimenKindCode; }
+    public String creationSourceCode() { return creationSourceCode; }
     public String sourceKindCode() { return sourceKindCode; }
     public String sourceReference() { return sourceReference; }
     public String collectionSite() { return collectionSite; }
@@ -160,21 +190,15 @@ public final class Specimen {
     public long concurrencyVersion() { return concurrencyVersion; }
 
     private void ensureNotDeleted() {
-        if (deleted()) {
-            throw new IllegalStateException("A deleted specimen cannot be changed");
-        }
+        if (deleted()) throw new IllegalStateException("A deleted specimen cannot be changed");
     }
 
     private static String required(String value, String message) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(message);
-        }
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(message);
         return value.trim();
     }
 
-    private static String optional(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
+    private static String optional(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 
     private static BigDecimal validQuantity(BigDecimal value) {
         if (value != null && value.signum() <= 0) {

@@ -17,6 +17,7 @@ import com.hanjisang.pis.v2.material.infrastructure.JdbcV2GrossingImageRepositor
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2GrossingImageRepository.AnnotationRow;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2GrossingImageRepository.GrossingContext;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2GrossingImageRepository.ImageRow;
+import com.hanjisang.pis.v2.material.infrastructure.JdbcV2GrossingImageRepository.MeasurementRow;
 
 @Service
 public class V2GrossingImageApplicationService {
@@ -48,8 +49,10 @@ public class V2GrossingImageApplicationService {
     public ImageResult upload(UploadImageCommand command) {
         ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         GrossingContext context = requireContext(command.grossingId(), actor);
-        if (command.specimenId() != null && !repository.specimenBelongs(command.specimenId(), context.caseId())) {
-            throw reject("V2-GROSSING-SPECIMEN-NOT-FOUND", "Specimen is not part of the Grossing Case");
+        if (command.specimenId() != null
+                && !repository.specimenBelongs(command.specimenId(), context.caseId(), context.grossingId())) {
+            throw new P15BusinessException("V2-GROSSING-SPECIMEN-NOT-FOUND",
+                    "标本未关联当前取材，不能绑定图像", 409);
         }
         require(command.imageName(), "imageName");
         require(command.mediaType(), "mediaType");
@@ -60,19 +63,25 @@ public class V2GrossingImageApplicationService {
                 command.capturedAt() == null ? now : command.capturedAt(), actor.actorId(), actor.hospitalScope());
         audit.append("PIS-V2-GROSSING-IMAGE-UPLOAD", MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", imageId,
                 "V2-GROSSING-IMAGE", UUID.randomUUID().toString(), "Grossing image uploaded");
-        return images(context.grossingId()).stream().filter(value -> value.imageId().equals(imageId)).findFirst()
-                .orElseThrow();
+        return repository.images(context.grossingId(), actor.hospitalScope()).stream()
+                .filter(value -> value.imageId().equals(imageId)).map(this::image).findFirst().orElseThrow();
     }
 
     @Transactional
     public ImageResult capture(CaptureCommand command) {
         ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         requireContext(command.grossingId(), actor);
-        GrossImagingDevicePort.CaptureResult result = imagingDevice.capture(
-                new GrossImagingDevicePort.CaptureRequest(command.grossingId(), command.specimenId(),
-                        command.deviceReference(), actor.actorId()));
-        return upload(new UploadImageCommand(command.grossingId(), command.specimenId(), result.imageName(),
-                result.mediaType(), result.storageReference(), result.metadataJson(), result.capturedAt()));
+        try {
+            GrossImagingDevicePort.CaptureResult result = imagingDevice.capture(
+                    new GrossImagingDevicePort.CaptureRequest(command.grossingId(), command.specimenId(),
+                            command.deviceReference(), actor.actorId()));
+            return upload(new UploadImageCommand(command.grossingId(), command.specimenId(), result.imageName(),
+                    result.mediaType(), result.storageReference(), result.metadataJson(), result.capturedAt()));
+        } catch (RuntimeException exception) {
+            audit.append("PIS-V2-GROSSING-IMAGE-CAPTURE", MATERIAL_PERMISSION, actor, "ALLOWED", "FAILED",
+                    command.grossingId(), "V2-GROSSING", UUID.randomUUID().toString(), "大体图像采集设备调用失败");
+            throw new P15BusinessException("V2-GROSSING-CAMERA-UNAVAILABLE", "拍摄设备暂不可用，请重试或稍后上传", 503);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -89,6 +98,12 @@ public class V2GrossingImageApplicationService {
         requireImage(command.imageId(), actor);
         require(command.annotationTypeCode(), "annotationTypeCode");
         require(command.geometryJson(), "geometryJson");
+        if (!List.of("POINT", "RECTANGLE", "POLYGON", "FREEHAND").contains(command.annotationTypeCode())) {
+            throw new P15BusinessException("V2-GROSSING-ANNOTATION-TYPE-INVALID", "不支持该标注类型", 400);
+        }
+        if (!List.of("POINT", "RECTANGLE", "POLYGON", "FREEHAND").contains(command.annotationTypeCode())) {
+            throw new P15BusinessException("V2-GROSSING-ANNOTATION-TYPE-INVALID", "不支持该标注类型", 400);
+        }
         Instant now = Instant.now();
         UUID id = repository.insertAnnotation(command.imageId(), command.annotationTypeCode(), command.geometryJson(),
                 command.label(), command.note(), actor.actorId(), now);
@@ -127,7 +142,7 @@ public class V2GrossingImageApplicationService {
     public void deleteAnnotation(UUID annotationId, UUID imageId) {
         ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         requireImage(imageId, actor);
-        if (!repository.deleteAnnotation(annotationId, actor.actorId(), Instant.now())) {
+        if (!repository.deleteAnnotation(annotationId, imageId, actor.actorId(), Instant.now())) {
             throw reject("V2-GROSSING-ANNOTATION-NOT-FOUND", "Annotation is already deleted or missing");
         }
         audit.append("PIS-V2-GROSSING-IMAGE-ANNOTATION-DELETE", MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED",
@@ -141,16 +156,27 @@ public class V2GrossingImageApplicationService {
         require(command.geometryJson(), "geometryJson");
         require(command.unitCode(), "unitCode");
         require(command.measurementModeCode(), "measurementModeCode");
+        String unitCode = command.unitCode().toUpperCase();
+        if (!List.of("MM", "CM").contains(unitCode)) {
+            throw new P15BusinessException("V2-GROSSING-MEASUREMENT-UNIT-INVALID", "测量单位仅支持 mm 或 cm", 400);
+        }
         if (command.value() == null || command.value().signum() < 0) {
             throw reject("V2-GROSSING-MEASUREMENT-INVALID", "Measurement value must be non-negative");
         }
         Instant now = Instant.now();
         UUID id = repository.insertMeasurement(command.imageId(), command.geometryJson(), command.value(),
-                command.unitCode(), command.measurementModeCode(), actor.actorId(), now);
+                unitCode, command.measurementModeCode(), actor.actorId(), now);
         audit.append("PIS-V2-GROSSING-IMAGE-MEASUREMENT", MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", id,
                 "V2-GROSSING-MEASUREMENT", UUID.randomUUID().toString(), "Grossing image measurement created");
-        return new MeasurementResult(id, command.imageId(), command.geometryJson(), command.value(), command.unitCode(),
+        return new MeasurementResult(id, command.imageId(), command.geometryJson(), command.value(), unitCode,
                 command.measurementModeCode(), now, actor.actorId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<MeasurementResult> measurements(UUID imageId) {
+        ActorContext actor = authorization.require(QUERY_PERMISSION);
+        requireImage(imageId, actor);
+        return repository.measurements(imageId).stream().map(this::measurement).toList();
     }
 
     @Transactional
@@ -185,6 +211,11 @@ public class V2GrossingImageApplicationService {
     private AnnotationResult annotation(AnnotationRow row) {
         return new AnnotationResult(row.annotationId(), row.imageId(), row.typeCode(), row.geometryJson(), row.label(),
                 row.note(), row.createdAt(), row.createdByRef(), row.deletedAt());
+    }
+
+    private MeasurementResult measurement(MeasurementRow row) {
+        return new MeasurementResult(row.measurementId(), row.imageId(), row.geometryJson(), row.value(),
+                row.unitCode(), row.measurementModeCode(), row.createdAt(), row.createdByRef());
     }
 
     private static void require(Object value, String field) {

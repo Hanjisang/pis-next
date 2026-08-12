@@ -114,15 +114,13 @@ public class V2WorkbenchApplicationService {
                     repository.findGrossedToday(actor.hospitalScope(), actor.actorId()).stream()
                             .map(row -> grossingItem(row, false, true)).toList()));
         }
-        if (hasAny(user, "P14-PERM-014", TECHNICAL_EXECUTION)) {
+        if (hasTechnicalProductionAccess(user)) {
             var queues = production.workbench().queues();
-            if (hasAny(user, "P14-PERM-014")) {
-                result.add(productionQueue(queues.routineProduction()));
-                result.add(productionQueue(queues.cytologyProduction()));
-                result.add(productionQueue(queues.incompleteSlides()));
-            }
+            result.add(productionQueue(queues.routineProduction()));
+            result.add(productionQueue(queues.cytologyProduction()));
+            result.add(productionQueue(queues.incompleteSlides()));
             if (hasAny(user, "P14-PERM-008")) result.add(productionQueue(queues.frozenProduction()));
-            if (hasAny(user, TECHNICAL_EXECUTION)) result.add(productionQueue(queues.technicalOrders()));
+            result.add(productionQueue(queues.technicalOrders()));
             result.add(productionQueue(queues.exceptions()));
         }
         if (hasAny(user, DIAGNOSIS_INITIAL)) {
@@ -274,7 +272,7 @@ public class V2WorkbenchApplicationService {
             if (user == null) return new QueueSummary(counts.histology(), counts.dehydration(), counts.embedding(),
                     counts.cutting(), counts.staining(), counts.coverslipping(), counts.technical(), counts.frozen(),
                     counts.withdrawn(), counts.cytologyPreparation(), cytologyCases);
-            return new QueueSummary(hasAny(user, "P14-PERM-014") ? counts.histology() : 0,
+            return new QueueSummary(hasTechnicalProductionAccess(user) ? counts.histology() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.dehydration() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.embedding() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.cutting() : 0,

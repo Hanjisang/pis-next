@@ -17,15 +17,21 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CompleteGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CompleteSlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CompleteSlidesCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlockCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlockItem;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateDirectSlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.ReopenGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.SlideCompletion;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.SoftDeleteCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateBlockCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateGrossingCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateGrossingSpecimenCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.VerifyBlockCommand;
 
 @RestController
 @RequestMapping("/api/v2")
@@ -61,20 +67,54 @@ public class V2MaterialProductionController {
                         request.idempotencyKey()));
     }
 
+    @PutMapping("/grossings/{grossingId}/specimens/{specimenId}")
+    public V2MaterialProductionApplicationService.GrossingResult updateGrossingSpecimen(
+            @PathVariable UUID grossingId, @PathVariable UUID specimenId,
+            @RequestBody UpdateGrossingSpecimenRequest request) {
+        return service.updateGrossingSpecimen(grossingId, new UpdateGrossingSpecimenCommand(specimenId,
+                request.materialDescription(), request.expectedVersion(), request.reason()));
+    }
+
+    @PostMapping("/grossings/{grossingId}/correct")
+    public V2MaterialProductionApplicationService.GrossingResult correctGrossing(@PathVariable UUID grossingId,
+            @RequestBody CorrectGrossingRequest request) {
+        return service.correctCompletedGrossing(grossingId, new CorrectGrossingCommand(request.grossDescription(),
+                request.grossingInstruction(), request.grossingDoctorId(), request.recorderId(), request.reason(),
+                request.expectedVersion()));
+    }
+
     @PostMapping("/grossings/{grossingId}/blocks")
     public V2MaterialProductionApplicationService.BlockResult createBlock(@PathVariable UUID grossingId,
             @RequestBody CreateBlockRequest request) {
         return service.createBlock(grossingId,
                 new CreateBlockCommand(request.specimenId(), request.blockCode(), request.blockType(),
-                        request.idempotencyKey(), Boolean.TRUE.equals(request.externalSource()),
+                        request.samplingDescription(), request.note(), request.idempotencyKey(),
+                        Boolean.TRUE.equals(request.externalSource()),
                         request.externalSourceReference()));
+    }
+
+    @PostMapping("/grossings/{grossingId}/blocks/batch")
+    public V2MaterialProductionApplicationService.BlockBatchResult createBlocks(@PathVariable UUID grossingId,
+            @RequestBody CreateBlocksRequest request) {
+        List<CreateBlockItem> blocks = request.blocks() == null ? List.of() : request.blocks().stream()
+                .map(item -> new CreateBlockItem(item.specimenId(), item.blockCode(), item.blockType(),
+                        item.samplingDescription(), item.note())).toList();
+        return service.createBlocks(grossingId, new CreateBlocksCommand(blocks, request.idempotencyKey()));
     }
 
     @PutMapping("/blocks/{blockId}")
     public V2MaterialProductionApplicationService.BlockResult updateBlock(@PathVariable UUID blockId,
             @RequestBody UpdateBlockRequest request) {
         return service.updateBlock(blockId, new UpdateBlockCommand(request.blockCode(), request.blockType(),
-                request.expectedVersion(), request.idempotencyKey()));
+                request.samplingDescription(), request.note(), request.reason(), request.expectedVersion(),
+                request.idempotencyKey()));
+    }
+
+    @PostMapping("/blocks/{blockId}/verify")
+    public V2MaterialProductionApplicationService.BlockVerificationResult verifyBlock(@PathVariable UUID blockId,
+            @RequestBody VerifyBlockRequest request) {
+        return service.verifyBlock(blockId, new VerifyBlockCommand(request.verifiedCode(),
+                request.verifiedSpecimenId(), request.verifiedQuantity(), request.reason()));
     }
 
     @PostMapping("/cases/{caseId}/specimens/{specimenId}/slides")
@@ -134,6 +174,13 @@ public class V2MaterialProductionController {
         return service.printBlock(blockId, new PrintCommand(request.reason(), request.idempotencyKey()));
     }
 
+    @PostMapping("/blocks/print-batch")
+    public V2MaterialProductionApplicationService.PrintBatchResult printBlocks(
+            @RequestBody PrintBlocksRequest request) {
+        return service.printBlocks(new PrintBlocksCommand(request.blockIds(), request.reason(),
+                request.idempotencyKey()));
+    }
+
     @PostMapping("/slides/{slideId}/print")
     public V2MaterialProductionApplicationService.PrintResult printSlide(@PathVariable UUID slideId,
             @RequestBody PrintRequest request) {
@@ -160,12 +207,26 @@ public class V2MaterialProductionController {
 
     public record AssociateSpecimenRequest(UUID specimenId, String materialDescription, String idempotencyKey) { }
 
-    public record CreateBlockRequest(UUID specimenId, String blockCode, String blockType, String idempotencyKey,
-            Boolean externalSource, String externalSourceReference) { }
+    public record UpdateGrossingSpecimenRequest(String materialDescription, long expectedVersion, String reason) { }
+
+    public record CorrectGrossingRequest(String grossDescription, String grossingInstruction,
+            String grossingDoctorId, String recorderId, String reason, long expectedVersion) { }
+
+    public record CreateBlockRequest(UUID specimenId, String blockCode, String blockType, String samplingDescription,
+            String note, String idempotencyKey, Boolean externalSource, String externalSourceReference) { }
+
+    public record CreateBlockItemRequest(UUID specimenId, String blockCode, String blockType,
+            String samplingDescription, String note) { }
+
+    public record CreateBlocksRequest(List<CreateBlockItemRequest> blocks, String idempotencyKey) { }
 
     public record CreateDirectSlideRequest(String slideCode, String slideType, String idempotencyKey) { }
 
-    public record UpdateBlockRequest(String blockCode, String blockType, long expectedVersion, String idempotencyKey) { }
+    public record UpdateBlockRequest(String blockCode, String blockType, String samplingDescription, String note,
+            String reason, long expectedVersion, String idempotencyKey) { }
+
+    public record VerifyBlockRequest(String verifiedCode, UUID verifiedSpecimenId, int verifiedQuantity,
+            String reason) { }
 
     public record SoftDeleteRequest(long expectedVersion, String reason, String idempotencyKey) { }
 
@@ -178,4 +239,6 @@ public class V2MaterialProductionController {
     public record CompleteSlidesRequest(List<SlideCompletionRequest> slides, String idempotencyKey) { }
 
     public record PrintRequest(String reason, String idempotencyKey) { }
+
+    public record PrintBlocksRequest(List<UUID> blockIds, String reason, String idempotencyKey) { }
 }

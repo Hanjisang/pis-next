@@ -172,20 +172,13 @@ public class V2TechnicalOrderApplicationService {
         for (ItemSnapshot itemSnapshot : snapshot.items()) {
             TechnicalProject project = itemSnapshot.item().project();
             if (itemSnapshot.status() == JdbcV2TechnicalOrderRepository.TechnicalItemStatus.COMPLETED) continue;
+            if ("SUPPLEMENTARY-GROSSING".equals(project.code())) {
+                prepareSupplementaryGrossing(itemSnapshot, actor);
+                continue;
+            }
             for (TargetSnapshot targetSnapshot : itemSnapshot.targets()) {
                 for (int occurrence = 1; occurrence <= itemSnapshot.item().quantity(); occurrence++) {
-                    if (project.producesBlock()) {
-                        MaterialOutput material = createSupplementaryMaterial(itemSnapshot, targetSnapshot, occurrence,
-                                actor);
-                        recordOutput(itemSnapshot.item().id(), targetSnapshot.target().id(), TechnicalOutputType.GROSSING,
-                                material.grossingId(), occurrence, actor);
-                        recordOutput(itemSnapshot.item().id(), targetSnapshot.target().id(), TechnicalOutputType.BLOCK,
-                                material.blockId(), occurrence, actor);
-                        if (project.producesSlide()) {
-                            createSlideOutput(itemSnapshot, targetSnapshot, material.blockId(), null, occurrence,
-                                    actor);
-                        }
-                    } else if (project.producesSlide()) {
+                    if (project.producesSlide()) {
                         createSlideOutput(itemSnapshot, targetSnapshot, null, null, occurrence, actor);
                     }
                 }
@@ -198,7 +191,7 @@ public class V2TechnicalOrderApplicationService {
             order.syncStatus(TechnicalOrderStatus.EXECUTING);
             if (!repository.updateOrder(order, actor.hospitalScope(), expectedOrderVersion, now,
                     actor.actorId())) {
-                throw conflict("鎶€鏈尰鍢辩増鏈啿绐侊紝寮€濮嬪鐞嗘湭鐢熸晥");
+                throw conflict("技术医嘱版本冲突，开始处理未生效");
             }
         }
         repository.insertIdempotency(operation, idempotencyKey, digest, "TECHNICAL_ORDER", orderId, actor.actorId(),
@@ -392,22 +385,26 @@ public class V2TechnicalOrderApplicationService {
         return new ResolvedTarget(command.targetType(), command.targetId(), displayCode);
     }
 
-    private MaterialOutput createSupplementaryMaterial(ItemSnapshot itemSnapshot, TargetSnapshot targetSnapshot,
-            int occurrence, ActorContext actor) {
+    private void prepareSupplementaryGrossing(ItemSnapshot itemSnapshot, ActorContext actor) {
         TechnicalOrderItem item = itemSnapshot.item();
+        if (itemSnapshot.outputs().stream().anyMatch(output -> output.kind() == TechnicalOutputType.GROSSING)) return;
         JsonNode parameters = objectNode(item.parameters());
-        UUID specimenId = parameterUuid(parameters, "specimenId");
-        if (targetSnapshot.target().targetType() == TechnicalTargetType.SPECIMEN) specimenId = targetSnapshot.target().targetId();
-        if (targetSnapshot.target().targetType() == TechnicalTargetType.BLOCK) {
-            Block source = materialRepository.findBlock(targetSnapshot.target().targetId(), actor.hospitalScope())
-                    .orElseThrow(() -> reject("V2-TECHNICAL-TARGET-NOT-FOUND", "蜡块目标不存在"));
-            specimenId = source.specimenId();
+        java.util.LinkedHashSet<UUID> specimenIds = new java.util.LinkedHashSet<>();
+        UUID parameterSpecimenId = parameterUuid(parameters, "specimenId");
+        for (TargetSnapshot targetSnapshot : itemSnapshot.targets()) {
+            UUID specimenId = parameterSpecimenId;
+            if (targetSnapshot.target().targetType() == TechnicalTargetType.SPECIMEN) {
+                specimenId = targetSnapshot.target().targetId();
+            } else if (targetSnapshot.target().targetType() == TechnicalTargetType.BLOCK) {
+                Block source = materialRepository.findBlock(targetSnapshot.target().targetId(), actor.hospitalScope())
+                        .orElseThrow(() -> reject("V2-TECHNICAL-TARGET-NOT-FOUND", "材块目标不存在"));
+                specimenId = source.specimenId();
+            }
+            if (specimenId != null) specimenIds.add(specimenId);
         }
-        if (specimenId == null) throw reject("V2-TECHNICAL-SPECIMEN-REQUIRED", "补充取材必须明确来源标本");
-        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-TECHNICAL-SPECIMEN-NOT-FOUND", "补充取材来源标本不存在"));
-        if (!specimen.caseId().equals(targetSnapshot.target().caseId())) throw crossCase();
-        UUID caseId = targetSnapshot.target().caseId();
+        if (specimenIds.isEmpty()) throw reject("V2-TECHNICAL-SPECIMEN-REQUIRED", "补充取材必须明确来源标本");
+        if (itemSnapshot.targets().isEmpty()) throw reject("V2-TECHNICAL-TARGET-NOT-FOUND", "补充取材缺少目标");
+        UUID caseId = itemSnapshot.targets().get(0).target().caseId();
         Instant now = Instant.now();
         UUID grossingId = UUID.randomUUID();
         Grossing grossing = Grossing.open(grossingId, caseId,
@@ -415,21 +412,15 @@ public class V2TechnicalOrderApplicationService {
                 item.id(), textParameter(parameters, "grossDescription", "技术补充取材-" + item.project().name()),
                 textParameter(parameters, "grossingInstruction", null), actor.actorId(), actor.actorId(), now);
         materialRepository.insertGrossing(grossing, actor.hospitalScope(), actor.actorId(), now);
-        materialRepository.insertGrossingSpecimen(grossingId, specimen.id(),
-                materialRepository.nextGrossingSpecimenSequence(grossingId), "技术医嘱补充取材");
-        String blockCode = textParameter(parameters, "blockCode", "B-" + item.project().code() + "-"
-                + item.id().toString().substring(0, 8) + (occurrence == 1 ? "" : "-" + occurrence));
-        if (materialRepository.findActiveBlockIdByCode(caseId, blockCode, actor.hospitalScope()).isPresent()) {
-            throw reject("V2-TECHNICAL-BLOCK-CODE-CONFLICT", "技术医嘱生成的蜡块编号已存在");
+        for (UUID specimenId : specimenIds) {
+            Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-TECHNICAL-SPECIMEN-NOT-FOUND", "补充取材来源标本不存在"));
+            if (!specimen.caseId().equals(caseId)) throw crossCase();
+            materialRepository.insertGrossingSpecimen(grossingId, specimen.id(),
+                    materialRepository.nextGrossingSpecimenSequence(grossingId), "待补充取材描述");
         }
-        Block block = Block.create(UUID.randomUUID(), caseId, grossingId, specimen.id(), blockCode,
-                "TECHNICAL_ORDER");
-        materialRepository.insertBlock(block, actor.hospitalScope(), actor.actorId(), now);
-        grossing.complete(now, actor.actorId());
-        if (!materialRepository.saveGrossing(grossing, actor.hospitalScope(), 0, actor.actorId(), now)) {
-            throw conflict("补充取材完成时版本冲突");
-        }
-        return new MaterialOutput(grossingId, block.id());
+        recordOutput(item.id(), itemSnapshot.targets().get(0).target().id(), TechnicalOutputType.GROSSING,
+                grossingId, 1, actor);
     }
 
     private void createSlideOutput(ItemSnapshot itemSnapshot, TargetSnapshot targetSnapshot, UUID forcedBlockId,
@@ -562,8 +553,6 @@ public class V2TechnicalOrderApplicationService {
 
     private record PreparedItem(CreateItemCommand command, TechnicalProject project, List<ResolvedTarget> targets) { }
     private record ResolvedTarget(TechnicalTargetType type, UUID id, String displayCode) { }
-    private record MaterialOutput(UUID grossingId, UUID blockId) { }
-
     public record CreateProjectCommand(UUID businessTypeId, String projectCode, String projectName, boolean enabled,
             String allowedTargetTypes, boolean producesSlide, boolean producesBlock, boolean producesStructuredResult,
             String defaultSlideType, String parametersSchema, String resultSchema, String feeMapping,

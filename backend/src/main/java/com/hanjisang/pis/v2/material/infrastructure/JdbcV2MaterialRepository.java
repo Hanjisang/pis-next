@@ -2,11 +2,16 @@ package com.hanjisang.pis.v2.material.infrastructure;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.stereotype.Repository;
 
 import com.hanjisang.pis.v2.material.domain.Block;
@@ -25,15 +30,23 @@ public class JdbcV2MaterialRepository {
     }
 
     public String allocateGrossingNo(String organizationReference, UUID caseId) {
-        jdbcTemplate.update("""
-                MERGE INTO pis_v2.grossing_sequence AS target
-                USING (VALUES (?, CAST(? AS UUID), ?)) AS incoming
-                    (organization_reference, case_id, next_serial)
-                ON target.organization_reference = incoming.organization_reference
-                   AND target.case_id = incoming.case_id
-                WHEN NOT MATCHED THEN INSERT (organization_reference, case_id, next_serial)
-                    VALUES (incoming.organization_reference, incoming.case_id, incoming.next_serial)
-                """, organizationReference, caseId, 1L);
+        if (isPostgreSql()) {
+            jdbcTemplate.update("""
+                    INSERT INTO pis_v2.grossing_sequence (organization_reference, case_id, next_serial)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (organization_reference, case_id) DO NOTHING
+                    """, organizationReference, caseId, 1L);
+        } else {
+            jdbcTemplate.update("""
+                    MERGE INTO pis_v2.grossing_sequence AS target
+                    USING (VALUES (?, CAST(? AS UUID), ?)) AS incoming
+                        (organization_reference, case_id, next_serial)
+                    ON target.organization_reference = incoming.organization_reference
+                       AND target.case_id = incoming.case_id
+                    WHEN NOT MATCHED THEN INSERT (organization_reference, case_id, next_serial)
+                        VALUES (incoming.organization_reference, incoming.case_id, incoming.next_serial)
+                    """, organizationReference, caseId, 1L);
+        }
         Long serial = jdbcTemplate.query("""
                 SELECT next_serial FROM pis_v2.grossing_sequence
                 WHERE organization_reference = ? AND case_id = ?
@@ -50,6 +63,11 @@ public class JdbcV2MaterialRepository {
             throw new IllegalStateException("取材业务编号并发更新失败");
         }
         return "G" + String.format("%03d", serial);
+    }
+
+    private boolean isPostgreSql() {
+        return Boolean.TRUE.equals(jdbcTemplate.execute((ConnectionCallback<Boolean>) connection ->
+                "PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())));
     }
 
     public Optional<UUID> findCaseBusinessTypeId(UUID caseId, String organizationReference) {
@@ -112,6 +130,82 @@ public class JdbcV2MaterialRepository {
                 organizationReference, sourceReferenceId, sourceReferenceId);
     }
 
+    public boolean isSupplementaryGrossingItem(UUID itemId, UUID caseId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pis_v2.technical_order_item i
+                JOIN pis_v2.technical_order o ON o.id = i.order_id
+                JOIN pis_v2.technical_order_target t ON t.item_id = i.id
+                WHERE i.id = ? AND t.case_id = ? AND o.organization_reference = ?
+                  AND i.project_code_snapshot = 'SUPPLEMENTARY-GROSSING'
+                  AND o.cancelled_at IS NULL
+                """, Integer.class, itemId, caseId, organizationReference);
+        return count != null && count > 0;
+    }
+
+    public SupplementaryTargetScope supplementaryTargetScope(UUID itemId, UUID caseId,
+            String organizationReference) {
+        List<TechnicalTargetRow> targets = technicalTargets(itemId, caseId, organizationReference);
+        boolean caseTarget = targets.stream().anyMatch(target -> "CASE".equals(target.targetType()));
+        List<UUID> specimenIds = targets.stream().map(TechnicalTargetRow::specimenId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        return new SupplementaryTargetScope(caseTarget, specimenIds);
+    }
+
+    public void linkSupplementaryGrossingOutputs(UUID itemId, UUID grossingId, List<Block> blocks,
+            String organizationReference, String actorRef, Instant now) {
+        if (itemId == null) return;
+        UUID caseId = blocks.isEmpty() ? findGrossing(grossingId, organizationReference)
+                .map(Grossing::caseId).orElse(null) : blocks.get(0).caseId();
+        if (caseId == null || !isSupplementaryGrossingItem(itemId, caseId, organizationReference)) return;
+        List<TechnicalTargetRow> targets = technicalTargets(itemId, caseId, organizationReference);
+        if (targets.isEmpty()) return;
+        TechnicalTargetRow grossingTarget = targets.get(0);
+        insertTechnicalOutput(itemId, grossingTarget.targetId(), "GROSSING", grossingId, 1, actorRef, now);
+
+        Map<UUID, Integer> occurrences = new HashMap<>();
+        List<Block> sortedBlocks = new ArrayList<>(blocks);
+        sortedBlocks.sort(Comparator.comparing(Block::blockCode).thenComparing(Block::id));
+        for (Block block : sortedBlocks) {
+            TechnicalTargetRow target = targets.stream()
+                    .filter(candidate -> block.specimenId() != null && block.specimenId().equals(candidate.specimenId()))
+                    .findFirst()
+                    .orElseGet(() -> targets.stream().filter(candidate -> "CASE".equals(candidate.targetType()))
+                            .findFirst().orElse(grossingTarget));
+            int occurrence = occurrences.merge(target.targetId(), 1, Integer::sum);
+            insertTechnicalOutput(itemId, target.targetId(), "BLOCK", block.id(), occurrence, actorRef, now);
+        }
+    }
+
+    private List<TechnicalTargetRow> technicalTargets(UUID itemId, UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT t.id, t.target_type,
+                       CASE WHEN t.target_type = 'SPECIMEN' THEN t.specimen_target_id
+                            WHEN t.target_type = 'BLOCK' THEN source_block.specimen_id
+                            ELSE NULL END AS specimen_id
+                FROM pis_v2.technical_order_target t
+                JOIN pis_v2.technical_order_item i ON i.id = t.item_id
+                JOIN pis_v2.technical_order o ON o.id = i.order_id
+                LEFT JOIN pis_v2.block source_block ON source_block.id = t.block_target_id
+                WHERE t.item_id = ? AND t.case_id = ? AND o.organization_reference = ?
+                ORDER BY CASE t.target_type WHEN 'SPECIMEN' THEN 0 WHEN 'BLOCK' THEN 1 ELSE 2 END, t.id
+                """, (rs, rowNum) -> new TechnicalTargetRow(rs.getObject("id", UUID.class),
+                rs.getString("target_type"), rs.getObject("specimen_id", UUID.class)), itemId, caseId,
+                organizationReference);
+    }
+
+    private void insertTechnicalOutput(UUID itemId, UUID targetId, String kind, UUID outputId, int occurrence,
+            String actorRef, Instant now) {
+        String outputColumn = "GROSSING".equals(kind) ? "grossing_output_id" : "block_output_id";
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.technical_order_output
+                    (id, item_id, target_id, output_kind, %s, occurrence_no, created_at, created_by_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """.formatted(outputColumn), UUID.randomUUID(), itemId, targetId, kind, outputId, occurrence,
+                Timestamp.from(now), actorRef);
+    }
+
     public void lockGrossing(UUID grossingId, String organizationReference) {
         jdbcTemplate.query("""
                 SELECT id FROM pis_v2.grossing
@@ -154,6 +248,51 @@ public class JdbcV2MaterialRepository {
                 """, Integer.class, grossingId, specimenId) > 0;
     }
 
+    public boolean updateGrossingSpecimenDescription(UUID grossingId, UUID specimenId, String materialDescription,
+            long expectedVersion) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.grossing_specimen
+                   SET material_description = ?, concurrency_version = concurrency_version + 1
+                 WHERE grossing_id = ? AND specimen_id = ? AND deleted_at IS NULL
+                   AND concurrency_version = ?
+                """, materialDescription, grossingId, specimenId, expectedVersion) == 1;
+    }
+
+    public void insertGrossingSpecimenCorrection(UUID grossingId, UUID specimenId, String priorDescription,
+            String correctedDescription, String reason, String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.grossing_specimen_correction_history
+                    (id, grossing_id, specimen_id, prior_description, corrected_description, reason,
+                     corrected_at, corrected_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), grossingId, specimenId, priorDescription, correctedDescription, reason,
+                Timestamp.from(now), actorRef, organizationReference);
+    }
+
+    public List<GrossingSpecimenFact> findGrossingSpecimens(UUID grossingId) {
+        return jdbcTemplate.query("""
+                SELECT specimen_id, material_description, sequence_no, concurrency_version
+                FROM pis_v2.grossing_specimen
+                WHERE grossing_id = ? AND deleted_at IS NULL
+                ORDER BY sequence_no, specimen_id
+                """, (rs, rowNum) -> new GrossingSpecimenFact(rs.getObject("specimen_id", UUID.class),
+                rs.getString("material_description"), rs.getInt("sequence_no"),
+                rs.getLong("concurrency_version")), grossingId);
+    }
+
+    public void insertGrossingCorrection(UUID grossingId, String reason, String priorDescription,
+            String correctedDescription, String priorInstruction, String correctedInstruction,
+            String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.grossing_correction_history
+                    (id, grossing_id, reason, prior_gross_description, corrected_gross_description,
+                     prior_instruction, corrected_instruction, corrected_at, corrected_by_ref,
+                     organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), grossingId, reason, priorDescription, correctedDescription,
+                priorInstruction, correctedInstruction, Timestamp.from(now), actorRef, organizationReference);
+    }
+
     public int nextGrossingSpecimenSequence(UUID grossingId) {
         Integer sequence = jdbcTemplate.queryForObject("""
                 SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM pis_v2.grossing_specimen
@@ -166,19 +305,22 @@ public class JdbcV2MaterialRepository {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.block
                     (id, case_id, grossing_id, specimen_id, block_code, block_type, external_source_flag,
-                     external_source_reference, concurrency_version, organization_reference, created_at,
+                     external_source_reference, sampling_description, quantity, note,
+                     concurrency_version, organization_reference, created_at,
                      created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, block.id(), block.caseId(), block.grossingId(), block.specimenId(), block.blockCode(),
                 block.blockType(), block.externalSource(), block.externalSourceReference(),
-                block.concurrencyVersion(), organizationReference, Timestamp.from(now), actorRef,
+                block.samplingDescription(), block.quantity(), block.note(), block.concurrencyVersion(),
+                organizationReference, Timestamp.from(now), actorRef,
                 Timestamp.from(now), actorRef);
     }
 
     public Optional<Block> findBlock(UUID blockId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id, case_id, grossing_id, specimen_id, block_code, block_type, external_source_flag,
-                       external_source_reference, deleted_at, deletion_reason, concurrency_version
+                       external_source_reference, sampling_description, quantity, note,
+                       deleted_at, deletion_reason, concurrency_version
                 FROM pis_v2.block
                 WHERE id = ? AND organization_reference = ?
                 """, rs -> rs.next() ? Optional.of(toBlock(rs)) : Optional.empty(), blockId, organizationReference);
@@ -187,7 +329,8 @@ public class JdbcV2MaterialRepository {
     public List<Block> findActiveBlocksByGrossing(UUID grossingId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id, case_id, grossing_id, specimen_id, block_code, block_type, external_source_flag,
-                       external_source_reference, deleted_at, deletion_reason, concurrency_version
+                       external_source_reference, sampling_description, quantity, note,
+                       deleted_at, deletion_reason, concurrency_version
                 FROM pis_v2.block
                 WHERE grossing_id = ? AND organization_reference = ? AND deleted_at IS NULL
                 ORDER BY block_code, id
@@ -206,10 +349,72 @@ public class JdbcV2MaterialRepository {
             String actorRef, Instant now) {
         return jdbcTemplate.update("""
                 UPDATE pis_v2.block
-                   SET block_code = ?, block_type = ?, concurrency_version = ?, updated_at = ?, updated_by_ref = ?
+                   SET block_code = ?, block_type = ?, sampling_description = ?, note = ?,
+                       concurrency_version = ?, updated_at = ?, updated_by_ref = ?
                  WHERE id = ? AND organization_reference = ? AND concurrency_version = ? AND deleted_at IS NULL
-                """, block.blockCode(), block.blockType(), block.concurrencyVersion(), Timestamp.from(now), actorRef,
+                """, block.blockCode(), block.blockType(), block.samplingDescription(), block.note(),
+                block.concurrencyVersion(), Timestamp.from(now), actorRef,
                 block.id(), organizationReference, expectedVersion) == 1;
+    }
+
+    public void insertBlockCodeHistory(UUID blockId, String oldCode, String newCode, String reason,
+            String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.block_code_history
+                    (id, block_id, old_block_code, new_block_code, reason, changed_at,
+                     changed_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), blockId, oldCode, newCode, reason, Timestamp.from(now), actorRef,
+                organizationReference);
+    }
+
+    public int activeSlideCountForBlock(UUID blockId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.slide
+                WHERE block_id = ? AND organization_reference = ? AND deleted_at IS NULL
+                """, Integer.class, blockId, organizationReference);
+        return count == null ? 0 : count;
+    }
+
+    public BlockVerificationPolicy findBlockVerificationPolicy(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT COALESCE(p.verification_required, FALSE) AS verification_required,
+                       COALESCE(p.dual_check_required, FALSE) AS dual_check_required,
+                       COALESCE(p.same_user_allowed, TRUE) AS same_user_allowed
+                FROM pis_v2.pathology_case c
+                LEFT JOIN pis_v2.block_verification_policy p
+                  ON p.business_type_id = c.business_type_id AND p.organization_reference = ?
+                WHERE c.id = ? AND c.organization_reference = ?
+                """, rs -> rs.next() ? new BlockVerificationPolicy(rs.getBoolean("verification_required"),
+                        rs.getBoolean("dual_check_required"), rs.getBoolean("same_user_allowed"))
+                        : new BlockVerificationPolicy(false, false, true),
+                organizationReference, caseId, organizationReference);
+    }
+
+    public void insertBlockVerification(UUID blockId, String resultCode, String verifiedCode,
+            UUID verifiedSpecimenId, int verifiedQuantity, String reason, String organizationReference,
+            String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.block_verification
+                    (id, block_id, verification_result_code, verified_code, verified_specimen_id,
+                     verified_quantity, reason, verified_at, verified_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), blockId, resultCode, verifiedCode, verifiedSpecimenId,
+                verifiedQuantity, reason, Timestamp.from(now), actorRef, organizationReference);
+    }
+
+    public Optional<BlockVerificationFact> latestBlockVerification(UUID blockId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT verification_result_code, verified_code, verified_specimen_id, verified_quantity,
+                       reason, verified_at, verified_by_ref
+                FROM pis_v2.block_verification
+                WHERE block_id = ? AND organization_reference = ?
+                ORDER BY verified_at DESC, id DESC LIMIT 1
+                """, rs -> rs.next() ? Optional.of(new BlockVerificationFact(
+                        rs.getString("verification_result_code"), rs.getString("verified_code"),
+                        rs.getObject("verified_specimen_id", UUID.class), rs.getInt("verified_quantity"),
+                        rs.getString("reason"), rs.getTimestamp("verified_at").toInstant(),
+                        rs.getString("verified_by_ref"))) : Optional.empty(), blockId, organizationReference);
     }
 
     public boolean softDeleteBlock(UUID blockId, String organizationReference, long expectedVersion,
@@ -385,39 +590,62 @@ public class JdbcV2MaterialRepository {
     public List<MaterialTreeRow> findMaterialTree(UUID caseId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT material.specimen_id, material.specimen_no, material.specimen_code,
-                       material.specimen_kind_code, material.block_id, material.block_code,
-                       material.block_type, material.block_concurrency_version, material.block_print_count, material.slide_id,
+                       material.specimen_name, material.specimen_kind_code, material.creation_source_code,
+                       material.collection_site, material.description, material.source_specimen_code,
+                       material.gross_material_description, material.gross_specimen_version,
+                       material.block_id, material.block_code, material.block_type,
+                       material.sampling_description, material.block_note,
+                       material.block_concurrency_version, material.block_print_count, material.slide_id,
                        material.slide_code, material.slide_type,
                        material.source_context_type, material.completed_at, material.completed_by_ref,
                        material.required, material.concurrency_version
                 FROM (
-                    SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_kind_code,
+                    SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_name,
+                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.description,
+                           source.specimen_code AS source_specimen_code,
+                           CAST(NULL AS VARCHAR) AS gross_material_description,
+                           CAST(NULL AS BIGINT) AS gross_specimen_version,
                            b.id AS block_id, b.block_code, b.block_type,
+                           b.sampling_description, b.note AS block_note,
                            b.concurrency_version AS block_concurrency_version,
                            (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
                              WHERE pl.entity_kind_code = 'BLOCK' AND pl.entity_id = b.id) AS block_print_count,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
                     FROM pis_v2.specimen s
+                    LEFT JOIN pis_v2.specimen_split split ON split.child_specimen_id = s.id
+                    LEFT JOIN pis_v2.specimen source ON source.id = split.source_specimen_id
                     JOIN pis_v2.block b ON b.specimen_id = s.id AND b.deleted_at IS NULL
                     LEFT JOIN pis_v2.slide sl ON sl.block_id = b.id AND sl.deleted_at IS NULL
                     WHERE s.case_id = ? AND s.organization_reference = ? AND s.deleted_at IS NULL
                     UNION ALL
-                    SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_kind_code,
+                    SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_name,
+                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.description,
+                           source.specimen_code AS source_specimen_code,
+                           CAST(NULL AS VARCHAR) AS gross_material_description,
+                           CAST(NULL AS BIGINT) AS gross_specimen_version,
                            NULL AS block_id, NULL AS block_code, NULL AS block_type,
+                           NULL AS sampling_description, NULL AS block_note,
                            NULL AS block_concurrency_version,
                            0 AS block_print_count,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
                     FROM pis_v2.specimen s
+                    LEFT JOIN pis_v2.specimen_split split ON split.child_specimen_id = s.id
+                    LEFT JOIN pis_v2.specimen source ON source.id = split.source_specimen_id
                     LEFT JOIN pis_v2.slide sl
                         ON sl.specimen_id = s.id AND sl.block_id IS NULL AND sl.deleted_at IS NULL
                     WHERE s.case_id = ? AND s.organization_reference = ? AND s.deleted_at IS NULL
                 ) material
                 ORDER BY material.specimen_code, material.block_code, material.slide_code
                 """, (rs, rowNum) -> new MaterialTreeRow(rs.getObject("specimen_id", UUID.class),
-                rs.getString("specimen_no"), rs.getString("specimen_code"), rs.getString("specimen_kind_code"),
+                rs.getString("specimen_no"), rs.getString("specimen_code"), rs.getString("specimen_name"),
+                rs.getString("specimen_kind_code"), rs.getString("creation_source_code"),
+                rs.getString("collection_site"), rs.getString("description"),
+                rs.getString("source_specimen_code"), rs.getString("gross_material_description"),
+                rs.getObject("gross_specimen_version", Long.class),
                 rs.getObject("block_id", UUID.class), rs.getString("block_code"), rs.getString("block_type"),
+                rs.getString("sampling_description"), rs.getString("block_note"),
                 rs.getObject("block_concurrency_version", Long.class), rs.getObject("block_print_count", Integer.class),
                 rs.getObject("slide_id", UUID.class),
                 rs.getString("slide_code"), rs.getString("slide_type"),
@@ -477,13 +705,29 @@ public class JdbcV2MaterialRepository {
     public record MaterialIdempotencyResult(String payloadDigest, String resultKindCode, UUID resultEntityId,
             Integer resultCount) { }
 
-    public record MaterialTreeRow(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
-            UUID blockId, String blockCode, String blockType, Long blockConcurrencyVersion, Integer blockPrintCount, UUID slideId,
+    public record MaterialTreeRow(UUID specimenId, String specimenNo, String specimenCode, String specimenName,
+            String specimenKindCode, String creationSourceCode, String collectionSite, String specimenDescription,
+            String sourceSpecimenCode, String grossMaterialDescription, Long grossSpecimenVersion,
+            UUID blockId, String blockCode, String blockType, String samplingDescription, String blockNote,
+            Long blockConcurrencyVersion, Integer blockPrintCount, UUID slideId,
             String slideCode, String slideType,
             String sourceContextType, Instant completedAt, String completedByRef, Boolean required,
             long concurrencyVersion) { }
 
     public record PrintServiceResult(String resultCode, String failureReason) { }
+
+    public record GrossingSpecimenFact(UUID specimenId, String materialDescription, int sequenceNo,
+            long concurrencyVersion) { }
+
+    public record BlockVerificationPolicy(boolean verificationRequired, boolean dualCheckRequired,
+            boolean sameUserAllowed) { }
+
+    public record BlockVerificationFact(String resultCode, String verifiedCode, UUID verifiedSpecimenId,
+            int verifiedQuantity, String reason, Instant verifiedAt, String verifiedByRef) { }
+
+    public record SupplementaryTargetScope(boolean caseTarget, List<UUID> specimenIds) { }
+
+    private record TechnicalTargetRow(UUID targetId, String targetType, UUID specimenId) { }
 
     private Grossing toGrossing(java.sql.ResultSet rs) throws java.sql.SQLException {
         return Grossing.persisted(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class),
@@ -498,7 +742,8 @@ public class JdbcV2MaterialRepository {
     private Block toBlock(java.sql.ResultSet rs) throws java.sql.SQLException {
         return Block.persisted(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class),
                 rs.getObject("grossing_id", UUID.class), rs.getObject("specimen_id", UUID.class),
-                rs.getString("block_code"), rs.getString("block_type"), rs.getBoolean("external_source_flag"),
+                rs.getString("block_code"), rs.getString("block_type"), rs.getString("sampling_description"),
+                rs.getInt("quantity"), rs.getString("note"), rs.getBoolean("external_source_flag"),
                 rs.getString("external_source_reference"), instant(rs, "deleted_at"),
                 rs.getString("deletion_reason"), rs.getLong("concurrency_version"));
     }
