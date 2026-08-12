@@ -75,6 +75,36 @@ class V2GateCWebTest {
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v2/digital-slides/%s/unbind".formatted(digitalId)))
                 .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/digital-slides/%s/annotations".formatted(digitalId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"annotationTypeCode\":\"POINT\",\"geometryJson\":\"{\\\"x\\\":0.5,\\\"y\\\":0.5}\",\"label\":\"可疑区域\",\"note\":\"合成阅片记录\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/digital-slides/%s/measurements".formatted(digitalId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"geometryJson\":\"{\\\"x1\\\":0.1,\\\"y1\\\":0.2,\\\"x2\\\":0.8,\\\"y2\\\":0.2}\",\"value\":1.2,\"unitCode\":\"IMAGE_UNIT\",\"measurementModeCode\":\"VIEWPORT_COORDINATE\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/digital-slides/%s/screenshots".formatted(digitalId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"viewportJson\":\"{\\\"mode\\\":\\\"CURRENT_VIEW\\\"}\",\"storageReference\":\"browser://gatec-screenshot\"}"))
+                .andExpect(status().isOk());
+        assertThat(json(mockMvc.perform(get("/api/v2/digital-slides/%s/annotations".formatted(digitalId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);
+
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
+                .andExpect(status().isOk());
+        assertThat(json(mockMvc.perform(get("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("favorite").asBoolean())
+                .isTrue();
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"followUpDate\":\"2026-09-01\",\"plan\":\"合成随访计划\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/consultations".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"initiatorRef\":\"SYNTH-DOCTOR-A\",\"participantRefs\":\"SYNTH-DOCTOR-B\",\"reason\":\"合成会诊\"}"))
+                .andExpect(status().isOk());
+        assertThat(json(mockMvc.perform(get("/api/v2/case-support/cases/%s/consultations".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);
 
         String locationId = json(mockMvc.perform(post("/api/v2/custody/locations").contentType(MediaType.APPLICATION_JSON)
                 .content("""

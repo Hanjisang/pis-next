@@ -20,13 +20,17 @@ import { getV2Specimen, updateV2Specimen, type V2SpecimenResult } from '../v2Api
 import {
   associateV2Specimen,
   completeV2Grossing,
+  captureV2GrossingImage,
+  createV2GrossingAnnotation,
   createV2Block,
   createV2Grossing,
+  getV2GrossingImages,
   getV2GrossingWorkspace,
   printV2Block,
   softDeleteV2Block,
   updateV2Block,
   updateV2Grossing,
+  type V2GrossingImage,
   type V2GrossingWorkspace,
 } from '../v2MaterialApi';
 import V2CaseHeader from './V2CaseHeader.vue';
@@ -70,6 +74,10 @@ const notice = ref('');
 const doctors = ref<Array<{ id: string; displayName: string; title?: string | null }>>([]);
 const selectedDoctorId = ref(props.authUser?.doctor?.id ?? '');
 const historyDrawerOpen = ref(false);
+const grossingImages = ref<V2GrossingImage[]>([]);
+const selectedImageId = ref('');
+const imageBusy = ref(false);
+const imageAnnotationNote = ref('');
 const backLabel = computed(() => workspaceBackLabel(props.origin));
 const backTarget = computed(() => workspaceBackTarget(props, caseId.value));
 const caseOverviewTarget = computed(() => {
@@ -176,6 +184,11 @@ async function loadWorkspace() {
       selectedDoctorId.value = workspace.value.grossing.grossingDoctorId;
       grossDescription.value = workspace.value.grossing.grossDescription;
       grossingInstruction.value = workspace.value.grossing.grossingInstruction ?? '';
+      grossingImages.value = await getV2GrossingImages(workspace.value.grossing.grossingId);
+      selectedImageId.value ||= grossingImages.value[0]?.imageId ?? '';
+    } else {
+      grossingImages.value = [];
+      selectedImageId.value = '';
     }
     setSuggestedBlockCode();
   } catch (requestError) {
@@ -183,6 +196,48 @@ async function loadWorkspace() {
     error.value = friendlyError(requestError, '未找到该病例，请检查病理号或病例标识。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function captureGrossingImage() {
+  const grossing = workspace.value?.grossing;
+  if (!grossing) return;
+  imageBusy.value = true;
+  error.value = '';
+  try {
+    const image = await captureV2GrossingImage({
+      grossingId: grossing.grossingId,
+      specimenId: selectedSpecimenId.value || undefined,
+      deviceReference: 'SIMULATOR-GROSS-IMAGING',
+    });
+    grossingImages.value = [image, ...grossingImages.value];
+    selectedImageId.value = image.imageId;
+    notice.value = '大体图像已保存，可继续添加标注和测量。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '大体图像采集失败，请稍后重试。');
+  } finally {
+    imageBusy.value = false;
+  }
+}
+
+async function annotateSelectedImage() {
+  if (!selectedImageId.value || !imageAnnotationNote.value.trim()) return;
+  imageBusy.value = true;
+  error.value = '';
+  try {
+    await createV2GrossingAnnotation({
+      imageId: selectedImageId.value,
+      annotationTypeCode: 'NOTE',
+      geometryJson: JSON.stringify({ x: 0.5, y: 0.5 }),
+      label: '取材标注',
+      note: imageAnnotationNote.value.trim(),
+    });
+    imageAnnotationNote.value = '';
+    notice.value = '大体图像标注已保存。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '大体图像标注失败，请稍后重试。');
+  } finally {
+    imageBusy.value = false;
   }
 }
 
@@ -659,6 +714,56 @@ onMounted(() => void loadDoctors());
         </div>
       </div>
 
+      <section class="grossing-image-panel" aria-label="大体图像">
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">大体图像</p>
+            <h3>{{ grossingImages.length }} 张图像</h3>
+          </div>
+          <button
+            v-if="workspace.grossing"
+            class="secondary-button"
+            type="button"
+            :disabled="imageBusy"
+            @click="captureGrossingImage"
+          >
+            {{ imageBusy ? '处理中…' : '拍摄台采集' }}
+          </button>
+        </header>
+        <div v-if="!workspace.grossing" class="empty-state compact">
+          <span>开始取材后可采集并保存大体图像。</span>
+        </div>
+        <div v-else-if="!grossingImages.length" class="empty-state compact">
+          <strong>尚未采集大体图像</strong>
+          <span>可以使用拍摄台模拟器保存第一张图像。</span>
+        </div>
+        <template v-else>
+          <div class="grossing-image-list">
+            <button
+              v-for="image in grossingImages"
+              :key="image.imageId"
+              type="button"
+              class="grossing-image-row"
+              :class="{ active: selectedImageId === image.imageId }"
+              @click="selectedImageId = image.imageId"
+            >
+              <span class="image-placeholder" aria-hidden="true">图</span>
+              <span><strong>{{ image.imageName }}</strong><small>{{ formatDateTime(image.capturedAt) }}</small></span>
+            </button>
+          </div>
+          <div class="input-action-row">
+            <input v-model="imageAnnotationNote" placeholder="为当前图像添加标注说明" />
+            <button
+              class="text-button"
+              type="button"
+              :disabled="imageBusy || !imageAnnotationNote.trim()"
+              @click="annotateSelectedImage"
+            >
+              保存标注
+            </button>
+          </div>
+        </template>
+      </section>
       <div class="sticky-form-actions" aria-label="取材操作">
         <span class="muted">
           <template v-if="workspace.grossing">

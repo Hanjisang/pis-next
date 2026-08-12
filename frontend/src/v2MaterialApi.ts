@@ -104,6 +104,33 @@ export type V2GrossingWorkspace = {
   };
 };
 
+export type V2GrossingImage = {
+  imageId: string;
+  caseId: string;
+  grossingId: string;
+  specimenId: string | null;
+  imageName: string;
+  mediaType: string;
+  storageReference: string;
+  metadataJson: string | null;
+  capturedAt: string;
+  capturedByRef: string;
+  deletedAt: string | null;
+  deletionReason: string | null;
+};
+
+export type V2GrossingAnnotation = {
+  annotationId: string;
+  imageId: string;
+  annotationTypeCode: string;
+  geometryJson: string;
+  label: string | null;
+  note: string | null;
+  createdAt: string;
+  createdByRef: string;
+  deletedAt: string | null;
+};
+
 async function materialRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/v2${path}`, {
     ...init,
@@ -308,4 +335,63 @@ export function getV2GrossingWorkspace(
   const query = new URLSearchParams({ sourceType });
   if (sourceReferenceId) query.set('sourceReferenceId', sourceReferenceId);
   return materialRequest(`/cases/${caseId}/grossing-workspace?${query.toString()}`);
+}
+
+export function getV2GrossingImages(grossingId: string): Promise<V2GrossingImage[]> {
+  return materialRequest(`/material/grossings/${grossingId}/images`);
+}
+
+export function captureV2GrossingImage(input: {
+  grossingId: string;
+  specimenId?: string;
+  deviceReference?: string;
+}): Promise<V2GrossingImage> {
+  const { grossingId, ...body } = input;
+  return materialRequest(`/material/grossings/${grossingId}/images/capture`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function uploadV2GrossingImage(input: {
+  grossingId: string;
+  specimenId?: string;
+  imageName: string;
+  mediaType: string;
+  storageReference: string;
+  metadataJson?: string;
+}): Promise<V2GrossingImage> {
+  const { grossingId, ...body } = input;
+  return materialRequest(`/material/grossings/${grossingId}/images`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2GrossingAnnotation(input: {
+  imageId: string;
+  annotationTypeCode: string;
+  geometryJson: string;
+  label?: string;
+  note?: string;
+}): Promise<V2GrossingAnnotation> {
+  const { imageId, ...body } = input;
+  return materialRequest(`/material/grossings/images/${imageId}/annotations`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function measureV2GrossingImage(input: {
+  imageId: string;
+  geometryJson: string;
+  value: number;
+  unitCode: string;
+  measurementModeCode: string;
+}): Promise<unknown> {
+  const { imageId, ...body } = input;
+  return materialRequest(`/material/grossings/images/${imageId}/measurements`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }

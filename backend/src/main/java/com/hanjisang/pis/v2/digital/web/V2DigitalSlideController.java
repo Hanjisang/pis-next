@@ -2,6 +2,7 @@ package com.hanjisang.pis.v2.digital.web;
 
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,7 +50,42 @@ public class V2DigitalSlideController {
         return service.byCase(caseId);
     }
 
+    @GetMapping("/{digitalSlideId}/annotations")
+    public List<V2DigitalSlideApplicationService.AnnotationResult> annotations(@PathVariable UUID digitalSlideId) {
+        return service.annotations(digitalSlideId);
+    }
+
+    @PostMapping("/{digitalSlideId}/annotations")
+    public V2DigitalSlideApplicationService.AnnotationResult annotate(@PathVariable UUID digitalSlideId,
+            @RequestBody AnnotationRequest request) {
+        return service.annotate(digitalSlideId, new V2DigitalSlideApplicationService.AnnotationCommand(
+                request.annotationTypeCode(), request.geometryJson(), request.label(), request.note()));
+    }
+
+    @GetMapping("/{digitalSlideId}/measurements")
+    public List<V2DigitalSlideApplicationService.MeasurementResult> measurements(@PathVariable UUID digitalSlideId) {
+        return service.measurements(digitalSlideId);
+    }
+
+    @PostMapping("/{digitalSlideId}/measurements")
+    public V2DigitalSlideApplicationService.MeasurementResult measure(@PathVariable UUID digitalSlideId,
+            @RequestBody MeasurementRequest request) {
+        return service.measure(digitalSlideId, new V2DigitalSlideApplicationService.MeasurementCommand(
+                request.geometryJson(), request.value(), request.unitCode(), request.measurementModeCode()));
+    }
+
+    @PostMapping("/{digitalSlideId}/screenshots")
+    public V2DigitalSlideApplicationService.ScreenshotResult screenshot(@PathVariable UUID digitalSlideId,
+            @RequestBody ScreenshotRequest request) {
+        return service.screenshot(digitalSlideId, new V2DigitalSlideApplicationService.ScreenshotCommand(
+                request.viewportJson(), request.storageReference()));
+    }
+
     public record CreateRequest(UUID caseId, UUID blockId, UUID slideId, String bindingModeCode,
             String viewerReference, String sourcePlatform) { }
     public record RebindRequest(UUID blockId, UUID slideId) { }
+    public record AnnotationRequest(String annotationTypeCode, String geometryJson, String label, String note) { }
+    public record MeasurementRequest(String geometryJson, BigDecimal value, String unitCode,
+            String measurementModeCode) { }
+    public record ScreenshotRequest(String viewportJson, String storageReference) { }
 }

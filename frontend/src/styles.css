@@ -2357,6 +2357,55 @@ textarea:focus {
   padding: var(--space-4);
 }
 
+.grossing-image-panel {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-4);
+}
+
+.grossing-image-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-2);
+}
+
+.grossing-image-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.grossing-image-row.active {
+  border-color: var(--accent);
+  background: var(--surface-selected);
+}
+
+.grossing-image-row > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.grossing-image-row small {
+  color: var(--text-muted);
+}
+
+.image-placeholder {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--brand-100);
+  color: var(--brand-800);
+  font-weight: 700;
+}
+
 .block-quick-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -5436,6 +5485,40 @@ button.dense-report-row:hover {
 .diagnosis-viewer-host .image-viewer-viewport {
   min-height: 0;
   height: 100%;
+}
+
+.viewer-review-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid rgb(255 255 255 / 12%);
+  background: #1d2d28;
+}
+
+.viewer-review-tools input {
+  min-width: 180px;
+  flex: 1 1 220px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: #14201c;
+  color: #eef8f3;
+}
+
+.viewer-review-tools button {
+  border: 1px solid #6bb59a;
+  border-radius: 4px;
+  padding: 6px 9px;
+  background: transparent;
+  color: #c8e8d9;
+  cursor: pointer;
+}
+
+.viewer-review-tools button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .diagnosis-no-viewer {

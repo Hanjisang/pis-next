@@ -625,3 +625,51 @@ CREATE TABLE IF NOT EXISTS pis_v2.specimen_split (
     quantity_value NUMERIC(12,3), reason VARCHAR(2000) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pis_v2.material_rework (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, original_slide_id UUID NOT NULL,
+    rework_type_code VARCHAR(64) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    requested_by_ref VARCHAR(128) NOT NULL, replacement_slide_id UUID,
+    completed_at TIMESTAMP WITH TIME ZONE, completed_by_ref VARCHAR(128),
+    organization_reference VARCHAR(128) NOT NULL, concurrency_version BIGINT NOT NULL,
+    idempotency_key VARCHAR(256) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_annotation (
+    id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, annotation_type_code VARCHAR(32) NOT NULL,
+    geometry_json VARCHAR(20000) NOT NULL, label VARCHAR(256), note VARCHAR(4000),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_measurement (
+    id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, geometry_json VARCHAR(20000) NOT NULL,
+    measurement_value NUMERIC(18,6) NOT NULL, unit_code VARCHAR(32) NOT NULL, measurement_mode_code VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_screenshot (
+    id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, viewport_json VARCHAR(20000) NOT NULL,
+    storage_reference VARCHAR(1024) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pis_v2.case_favorite (
+    case_id UUID NOT NULL, user_reference VARCHAR(256) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (case_id, user_reference, organization_reference)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.case_follow_up (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, follow_up_date DATE NOT NULL,
+    plan VARCHAR(4000) NOT NULL, content VARCHAR(10000), result VARCHAR(10000),
+    operator_ref VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.case_consultation (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, consultation_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    initiator_ref VARCHAR(128) NOT NULL, participant_refs VARCHAR(4000) NOT NULL, reason VARCHAR(4000) NOT NULL,
+    discussion VARCHAR(10000), conclusion VARCHAR(10000), note VARCHAR(4000), attachment_reference VARCHAR(1024),
+    recorded_by_ref VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);

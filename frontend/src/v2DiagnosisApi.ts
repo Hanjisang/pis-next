@@ -211,6 +211,46 @@ export function getV2DiagnosisWorkspace(caseId: string): Promise<V2DiagnosisWork
   return diagnosisRequest(`/diagnosis-workspaces/${caseId}`);
 }
 
+export function createV2DigitalAnnotation(input: {
+  digitalSlideId: string;
+  annotationTypeCode: string;
+  geometryJson: string;
+  label?: string;
+  note?: string;
+}) {
+  const { digitalSlideId, ...body } = input;
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/annotations`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2DigitalMeasurement(input: {
+  digitalSlideId: string;
+  geometryJson: string;
+  value: number;
+  unitCode: string;
+  measurementModeCode: string;
+}) {
+  const { digitalSlideId, ...body } = input;
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/measurements`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function saveV2DigitalScreenshot(input: {
+  digitalSlideId: string;
+  viewportJson: string;
+  storageReference: string;
+}) {
+  const { digitalSlideId, ...body } = input;
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/screenshots`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export function getV2FrozenRoundDiagnosisWorkspace(roundId: string): Promise<V2DiagnosisWorkspace> {
   return diagnosisRequest(`/diagnosis-workspaces/frozen-rounds/${roundId}`);
 }

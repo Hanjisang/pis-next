@@ -15,6 +15,8 @@ import {
   assignV2Diagnosis,
   claimV2Diagnosis,
   completeV2Responsibility,
+  createV2DigitalAnnotation,
+  createV2DigitalMeasurement,
   createV2TechnicalOrder,
   getV2DiagnosisWorkspace,
   getV2FrozenRoundDiagnosisWorkspace,
@@ -22,6 +24,7 @@ import {
   getV2ReportPreview,
   getV2TechnicalProjects,
   saveV2Diagnosis,
+  saveV2DigitalScreenshot,
   signOutV2Report,
   supplementV2Report,
   withdrawV2Report,
@@ -174,6 +177,8 @@ const selectedViewer = ref<{
     digitalSlideId: string;
   };
 } | null>(null);
+const viewerAnnotationNote = ref('');
+const viewerReviewBusy = ref(false);
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
 const currentRole = computed<V2ResponsibilityRole | undefined>(
@@ -823,6 +828,68 @@ function selectViewerOffset(offset: number) {
       : (current + offset + viewerDigitalSlides.value.length) % viewerDigitalSlides.value.length;
   const next = viewerDigitalSlides.value[nextIndex];
   if (next) openViewer(next);
+}
+
+async function saveViewerAnnotation() {
+  const digital = selectedViewer.value;
+  if (!digital || !viewerAnnotationNote.value.trim()) return;
+  viewerReviewBusy.value = true;
+  error.value = '';
+  try {
+    await createV2DigitalAnnotation({
+      digitalSlideId: digital.digitalSlideId,
+      annotationTypeCode: 'POINT',
+      geometryJson: JSON.stringify({ x: 0.5, y: 0.5 }),
+      label: '阅片标注',
+      note: viewerAnnotationNote.value.trim(),
+    });
+    viewerAnnotationNote.value = '';
+    notice.value = '阅片标注已保存。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '阅片标注保存失败，请稍后重试。');
+  } finally {
+    viewerReviewBusy.value = false;
+  }
+}
+
+async function saveViewerMeasurement() {
+  const digital = selectedViewer.value;
+  if (!digital) return;
+  viewerReviewBusy.value = true;
+  error.value = '';
+  try {
+    await createV2DigitalMeasurement({
+      digitalSlideId: digital.digitalSlideId,
+      geometryJson: JSON.stringify({ x1: 0.25, y1: 0.5, x2: 0.75, y2: 0.5 }),
+      value: 1,
+      unitCode: 'IMAGE_UNIT',
+      measurementModeCode: 'VIEWPORT_COORDINATE',
+    });
+    notice.value = '阅片测量已保存（当前视野坐标）。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '阅片测量保存失败，请稍后重试。');
+  } finally {
+    viewerReviewBusy.value = false;
+  }
+}
+
+async function saveViewerScreenshot() {
+  const digital = selectedViewer.value;
+  if (!digital) return;
+  viewerReviewBusy.value = true;
+  error.value = '';
+  try {
+    await saveV2DigitalScreenshot({
+      digitalSlideId: digital.digitalSlideId,
+      viewportJson: JSON.stringify({ capturedAt: new Date().toISOString(), mode: 'CURRENT_VIEW' }),
+      storageReference: `browser://diagnosis-screenshot/${digital.digitalSlideId}/${Date.now()}`,
+    });
+    notice.value = '当前阅片视野截图记录已保存。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '截图保存失败，请稍后重试。');
+  } finally {
+    viewerReviewBusy.value = false;
+  }
 }
 
 function applyFocus() {
@@ -2053,6 +2120,24 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   :source-platform="selectedViewer.sourcePlatform"
                   :context="selectedViewer.context"
                 />
+              </div>
+              <div v-if="selectedViewer" class="viewer-review-tools" aria-label="阅片记录">
+                <input
+                  v-model="viewerAnnotationNote"
+                  type="text"
+                  placeholder="标注说明"
+                  aria-label="标注说明"
+                  @keyup.enter="saveViewerAnnotation"
+                />
+                <button type="button" :disabled="viewerReviewBusy" @click="saveViewerAnnotation">
+                  保存标注
+                </button>
+                <button type="button" :disabled="viewerReviewBusy" @click="saveViewerMeasurement">
+                  保存测量
+                </button>
+                <button type="button" :disabled="viewerReviewBusy" @click="saveViewerScreenshot">
+                  保存截图记录
+                </button>
               </div>
               <div v-else class="diagnosis-no-viewer" aria-live="polite">
                 <strong>{{

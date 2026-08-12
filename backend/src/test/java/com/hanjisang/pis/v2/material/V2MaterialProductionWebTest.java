@@ -286,6 +286,42 @@ class V2MaterialProductionWebTest {
                 Integer.class)).isEqualTo(1);
     }
 
+    @Test
+    void materialReworkKeepsOriginalSlideAndLinksReplacementWithAudit() throws Exception {
+        String caseId = createCase("APP-REWORK-001");
+        String specimenId = createSpecimen(caseId, "A", "specimen-rework-001");
+        String grossingId = createGrossing(caseId, "grossing-rework-001");
+        associateSpecimen(grossingId, specimenId, "associate-rework-001");
+        String firstBlock = createBlock(grossingId, specimenId, "A1", "block-rework-001");
+        completeGrossing(grossingId, 0, "complete-rework-001");
+        String originalSlide = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?",
+                String.class, UUID.fromString(firstBlock));
+
+        mockMvc.perform(post("/api/v2/slides/%s/rework".formatted(originalSlide))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reworkTypeCode\":\"RE_STAIN\",\"reason\":\"synthetic quality issue\",\"idempotencyKey\":\"rework-001\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/grossings/%s/reopen".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":1,\"reason\":\"synthetic rework output\",\"idempotencyKey\":\"reopen-rework-001\"}"))
+                .andExpect(status().isOk());
+        String secondBlock = createBlock(grossingId, specimenId, "A2", "block-rework-002");
+        completeGrossing(grossingId, 2, "complete-rework-002");
+        String replacementSlide = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?",
+                String.class, UUID.fromString(secondBlock));
+        String reworkId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.material_rework WHERE idempotency_key = ?",
+                String.class, "rework-001");
+
+        mockMvc.perform(post("/api/v2/material-reworks/%s/complete".formatted(reworkId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"replacementSlideId\":\"%s\"}".formatted(replacementSlide)))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT status_code FROM pis_v2.material_rework WHERE id = ?",
+                String.class, UUID.fromString(reworkId))).isEqualTo("COMPLETED");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis.audit_event WHERE target_object_kind_code = 'V2-MATERIAL-REWORK'",
+                Integer.class)).isGreaterThanOrEqualTo(2);
+    }
+
     private String createCase(String suffix) throws Exception {
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/cases")
                 .contentType(MediaType.APPLICATION_JSON)
