@@ -1,6 +1,6 @@
 # SRS V1.4 → PIS V2 Atomic Coverage Baseline
 
-原子基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。FC02A 闭环基线：`bcdf9b83c6d6feeb5e6cdb87602fd9948662aa57`。
+原子基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。FC02A 闭环基线：`bcdf9b83c6d6feeb5e6cdb87602fd9948662aa57`。FC02B 实际起始基线：`5efd315935c16a86044673dfa3b4fc7bcbbd0f79`。
 
 ## 1. 口径
 
@@ -8,14 +8,16 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 343 |
-| PARTIAL | 144 |
-| MISSING | 223 |
-| EXTERNAL_DEPENDENCY | 78 |
+| COMPLETE | 348 |
+| PARTIAL | 143 |
+| MISSING | 218 |
+| EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **788** |
 
 FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连续链：33 条由 PARTIAL 转为 COMPLETE，TOTAL 不变。产品内 Patient/Print Port 与 Simulator 已形成可替换、可测试闭环；真实医院 HIS 与真实打印硬件仍由独立 EXTERNAL_DEPENDENCY 原子项承担，本文不宣称生产联调完成。
+
+FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTIAL 转为 COMPLETE；`GROSS-006`、`GROSS-008`、`GROSS-009`、`GROSS-010` 由 MISSING 转为 COMPLETE；`GROSS-007` 在产品内 Port、Simulator、失败语义与审计闭环后转为 EXTERNAL_DEPENDENCY，明确保留真实拍摄台硬件联调缺口。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -1242,14 +1244,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 D11 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md D11 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md D11 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md D11 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md D11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 SPEC-011 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 的标本拆分操作
+- Backend Evidence: `V2RegistrationApplicationService.splitSpecimen`、`Specimen`、`JdbcV2RegistrationRepository.insertSpecimenSplit`
+- DB Evidence: `V30__business_specimen_lifecycle_facts.sql` 的 `specimen_split` 与 `V36__specimen_grossing_block_closure.sql` 的创建来源约束
+- Frontend Evidence: `V2GrossingWorkbench.vue`、`v2Api.ts` 提供子标本名称、部位、数量与原因输入，并展示来源血缘
+- Test Evidence: `SpecimenSplitTest`、`V2MaterialDomainTest`、`fc02b-grossing.spec.ts` 验证新 SpecimenId、原标本保留及拆分血缘
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口。
+- V2 Decision: 拆分创建新的 Specimen 并保存来源关系；不修改原 SpecimenId，不把拆分仅实现为数量字段变化。
 
 ### SPEC-012 — 标本异常
 
@@ -1440,14 +1442,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 E06 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E06 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E06 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E06 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E06 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 GROSS-006 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 的大体图像区
+- Backend Evidence: `V2GrossingImageApplicationService`、`V2GrossingImageController`、`JdbcV2GrossingImageRepository`
+- DB Evidence: `V29__business_grossing_images.sql` 的 `grossing_image` 及 Case/Grossing/Specimen 关联
+- Frontend Evidence: `V2GrossingWorkbench.vue`、`v2MaterialApi.ts` 提供拍摄、预览、刷新和作废
+- Test Evidence: `GrossImageTest`、`GrossImageAnnotationTest`、`fc02b-grossing.spec.ts` 验证捕获、持久化、刷新与软删除
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实拍摄硬件验证由 GROSS-007 单独统计。
+- V2 Decision: 图像是可审计业务事实并绑定取材上下文，不以内存预览或临时文件冒充持久化。
 
 ### GROSS-007 — 拍摄台接口
 
@@ -1462,14 +1464,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 E07 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E07 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E07 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E07 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E07 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 GROSS-007 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 的拍摄操作
+- Backend Evidence: `GrossImagingDevicePort`、`SimulatorGrossImagingDeviceAdapter`、`V2GrossingImageApplicationService`
+- DB Evidence: `V29__business_grossing_images.sql` 保存成功/失败拍摄事实、设备引用与审计时间
+- Frontend Evidence: `V2GrossingWorkbench.vue`、`v2MaterialApi.ts` 展示设备结果并提供明确失败反馈和重试入口
+- Test Evidence: `GrossImageTest` 覆盖 Simulator 成功及设备失败不生成成功图像；`fc02b-grossing.spec.ts` 验证产品交互
+- Status: EXTERNAL_DEPENDENCY
+- Gap: 产品内 Port、Simulator、映射、错误语义与审计已闭环；真实医院拍摄台协议、驱动和现场联调未验证。
+- V2 Decision: 不把 Simulator 冒充真实硬件验证；生产拍摄台联调作为独立外部依赖保留。
 
 ### GROSS-008 — 图像与 Case 绑定
 
@@ -1484,14 +1486,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 E08 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E08 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E08 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E08 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E08 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 GROSS-008 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 当前病例的取材图像区
+- Backend Evidence: `V2GrossingImageApplicationService.capture` 校验 Grossing、Case、Specimen 同范围绑定；`JdbcV2GrossingImageRepository`
+- DB Evidence: `V29__business_grossing_images.sql` 对 `case_id`、`grossing_id`、`specimen_id` 建立外键和上下文索引
+- Frontend Evidence: `V2GrossingWorkbench.vue` 仅在当前 Focused Workspace 展示对应图像及标本摘要
+- Test Evidence: `GrossImageTest`、`GrossingDataScopeTest`、`fc02b-grossing.spec.ts` 覆盖绑定、刷新和跨院隔离
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口。
+- V2 Decision: 图像必须同时具备 Case 与 Grossing 归属；选择标本时再保存 Specimen 归属，禁止跨病例绑定。
 
 ### GROSS-009 — 图像标注
 
@@ -1506,14 +1508,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 E09 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E09 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E09 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E09 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E09 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 GROSS-009 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 图像的标注区
+- Backend Evidence: `V2GrossingImageApplicationService` 的新增、修改、删除标注能力及几何数据校验
+- DB Evidence: `V29__business_grossing_images.sql` 的 `grossing_image_annotation`、图像外键和软删除字段
+- Frontend Evidence: `V2GrossingWorkbench.vue`、`v2MaterialApi.ts` 提供标注文本、几何信息、保存与删除
+- Test Evidence: `GrossImageAnnotationTest`、`fc02b-grossing.spec.ts` 验证保存后刷新仍存在以及删除语义
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口。
+- V2 Decision: 标注作为图像子事实独立保存，不覆盖原图，不解析自由文本生成测量事实。
 
 ### GROSS-010 — 尺寸测量
 
@@ -1528,14 +1530,14 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 E10 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E10 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E10 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E10 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md E10 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 GROSS-010 独立立项、实现和验收。
+- UI Entry: `V2GrossingWorkbench.vue` 图像的测量区
+- Backend Evidence: `V2GrossingImageApplicationService.addMeasurement` 校验数值、单位和几何信息；`JdbcV2GrossingImageRepository`
+- DB Evidence: `V29__business_grossing_images.sql` 的 `grossing_image_measurement`、图像外键、数值与单位字段
+- Frontend Evidence: `V2GrossingWorkbench.vue`、`v2MaterialApi.ts` 提供测量值、单位、几何信息及结果列表
+- Test Evidence: `GrossImageAnnotationTest`、`fc02b-grossing.spec.ts` 验证数值/单位/几何持久化与刷新
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实拍摄设备标定由 GROSS-007 外部依赖承担。
+- V2 Decision: 测量保存明确值、单位和几何来源；不把没有单位的自由文本当作结构化测量。
 
 ### GROSS-011 — 多 Specimen 一次 Grossing
 
