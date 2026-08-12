@@ -12,7 +12,7 @@ async function logout(page: Page) {
 async function registerCase(page: Page, testInfo: TestInfo, businessType: '常规组织病理' | '冰冻') {
   const suffix = `${Date.now()}-${testInfo.project.name}`;
   await login(page, 'registrar');
-  await page.getByRole('button', { name: '登记', exact: true }).click();
+  await page.goto('/v2/registration');
   await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByLabel('患者编号').fill(`李四-${suffix.slice(-8)}`);
   await page.getByLabel('就诊号').fill(`VISIT-${suffix}`);
@@ -100,7 +100,7 @@ async function prepareFrozenTask(page: Page, testInfo: TestInfo) {
 }
 
 async function openProductionQueue(page: Page, queueLabel: string) {
-  const queueTab = page.getByRole('tab', { name: new RegExp(queueLabel) });
+  const queueTab = page.getByRole('button', { name: new RegExp(`^${queueLabel} \\d+$`) });
   await expect(queueTab).toBeVisible();
   await queueTab.click();
 
@@ -173,7 +173,7 @@ test('PX03C：FrozenRound 进入时间与快速送诊工作区', async ({ page }
 
 test('PX03C：无数字切片时 Viewer 区域保持稳定', async ({ page }) => {
   await login(page, 'doctor-a');
-  await page.getByRole('tab', { name: /待接诊/ }).click();
+  await page.getByRole('button', { name: /^待接诊 \d+$/ }).click();
   await page.locator('.workbench-dense-row').first().click();
 
   await expect(page).toHaveURL(/\/v2\/diagnosis\/[^?]+\?origin=workbench/);

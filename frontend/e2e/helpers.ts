@@ -14,6 +14,8 @@ export async function login(page: Page, username: string) {
     'doctor-b': 'Doctor B',
     'doctor-c': 'Doctor C',
     registrar: 'Registrar',
+    grossing: 'Grossing Staff',
+    'registrar-tech': 'Registrar Technician',
     technician: 'Technician',
   };
   await expect(page.getByLabel('当前登录身份')).toContainText(

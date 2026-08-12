@@ -85,6 +85,37 @@ class V2ApplicationWebTest {
     }
 
     @Test
+    void partialMultiItemRegistrationLeavesOnlyRemainingItemPending() throws Exception {
+        JsonNode created = json(mockMvc.perform(post("/api/v2/applications")
+                .contentType(MediaType.APPLICATION_JSON).content(applicationRequest("SYNTH-APP-PARTIAL")))
+                .andExpect(status().isOk()).andReturn());
+        String applicationId = created.get("applicationId").asText();
+        String firstItemId = created.get("items").get(0).get("itemId").asText();
+        String secondItemId = created.get("items").get(1).get("itemId").asText();
+
+        JsonNode first = json(mockMvc.perform(post("/api/v2/applications/{applicationId}/items/{itemId}/register",
+                applicationId, firstItemId).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk()).andReturn());
+
+        assertThat(first.get("createdCaseCount").asInt()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status_code FROM pis_v2.pathology_application WHERE id = ?",
+                String.class, java.util.UUID.fromString(applicationId))).isEqualTo("PARTIALLY_REGISTERED");
+        JsonNode queue = json(mockMvc.perform(get("/api/v2/applications/queue"))
+                .andExpect(status().isOk()).andReturn());
+        java.util.List<String> pendingIds = new java.util.ArrayList<>();
+        for (JsonNode row : queue) {
+            if ("PENDING".equals(row.path("itemStatusCode").asText())) {
+                pendingIds.add(row.path("applicationItemId").asText());
+            }
+        }
+        assertThat(pendingIds).contains(secondItemId).doesNotContain(firstItemId);
+
+        mockMvc.perform(post("/api/v2/applications/{applicationId}/items/{itemId}/register",
+                applicationId, firstItemId).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
     void applicationCanBeCorrectedOrCancelledBeforeRegistration() throws Exception {
         JsonNode created = json(mockMvc.perform(post("/api/v2/applications")
                 .contentType(MediaType.APPLICATION_JSON).content(applicationRequest("SYNTH-APP-CANCEL")))

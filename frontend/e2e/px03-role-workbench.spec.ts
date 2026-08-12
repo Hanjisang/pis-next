@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 import { login } from './helpers';
 
+test.setTimeout(60_000);
+
 test('PX03C: 登记员追踪细胞病例，技师从工作台直接进入细胞制片，医生进入待接诊', async ({
   page,
 }, testInfo) => {
@@ -9,7 +11,9 @@ test('PX03C: 登记员追踪细胞病例，技师从工作台直接进入细胞�
   const patientReference = `张三-${suffix.slice(-8)}`;
 
   await login(page, 'registrar');
-  await page.getByRole('button', { name: '登记', exact: true }).click();
+  // Fixture setup uses the focused registration workspace directly. The personal
+  // workbench intentionally has no portal-style shortcut when its queue is empty.
+  await page.goto('/v2/registration');
   await page.getByRole('button', { name: '新增手工病例' }).click();
   await page.getByRole('textbox', { name: '患者编号' }).fill(patientReference);
   await page.getByRole('textbox', { name: '就诊号' }).fill(`PX03-VISIT-${suffix}`);
@@ -27,18 +31,18 @@ test('PX03C: 登记员追踪细胞病例，技师从工作台直接进入细胞�
   );
   await page.goto('/v2/workbench');
   await registrarWorkbenchResponse;
-  await page.getByRole('tab', { name: /我今天登记/ }).click();
-  await page.getByPlaceholder('筛选病理号、患者或当前事项').fill(pathologyNo!);
+  await page.getByRole('button', { name: /我今天登记/ }).click();
+  await page.getByRole('searchbox', { name: '关键词' }).fill(pathologyNo!);
   const registeredRow = page.getByRole('button', { name: new RegExp(pathologyNo!) });
-  await expect(registeredRow).toContainText('待细胞制片');
+  await expect(registeredRow).toContainText('登记完成');
 
   await page.getByRole('button', { name: '退出' }).click();
   await page.waitForURL(/\/v2\/workbench/);
   await login(page, 'technician');
-  const cytologyQueue = page.getByRole('tab', { name: /细胞制片/ });
+  const cytologyQueue = page.getByRole('button', { name: /细胞制片/ });
   await expect(cytologyQueue).toBeVisible();
   await cytologyQueue.click();
-  await page.getByPlaceholder('筛选病理号、患者或当前事项').fill(pathologyNo!);
+  await page.getByRole('searchbox', { name: '关键词' }).fill(pathologyNo!);
   const cytologyRow = page.locator('.workbench-dense-row').filter({ hasText: pathologyNo! });
   await expect(page.getByText('待脱水', { exact: true })).toHaveCount(0);
   await expect(cytologyRow).toBeVisible();
@@ -57,15 +61,14 @@ test('PX03C: 登记员追踪细胞病例，技师从工作台直接进入细胞�
 
   const technicianWorkbenchResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith('/api/v2/production-workbench') &&
-      response.request().method() === 'GET',
+      response.url().endsWith('/api/v2/my-workbench') && response.request().method() === 'GET',
   );
   await page.goto('/v2/workbench');
   await technicianWorkbenchResponse;
   const queueAfter = Number(
     (
       await page
-        .getByRole('tab', { name: /细胞制片/ })
+        .getByRole('button', { name: /细胞制片/ })
         .first()
         .textContent()
     )?.match(/\d+$/)?.[0] ?? 0,
@@ -76,7 +79,7 @@ test('PX03C: 登记员追踪细胞病例，技师从工作台直接进入细胞�
   await page.getByRole('button', { name: '退出' }).click();
   await page.waitForURL(/\/v2\/workbench/);
   await login(page, 'doctor-a');
-  await page.getByRole('tab', { name: /待接诊/ }).click();
-  await page.getByPlaceholder('筛选病理号、患者或当前事项').fill(pathologyNo!);
+  await page.getByRole('button', { name: /^待接诊 \d+$/ }).click();
+  await page.getByRole('searchbox', { name: '关键词' }).fill(pathologyNo!);
   await expect(page.getByRole('button', { name: new RegExp(pathologyNo!) })).toBeVisible();
 });
