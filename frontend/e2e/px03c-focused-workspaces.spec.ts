@@ -70,10 +70,16 @@ async function completeRoutineSlides(page: Page, caseId: string) {
   }
 }
 
-async function prepareTechnicalOrder(page: Page) {
+async function prepareTechnicalOrder(page: Page, testInfo: TestInfo) {
+  const caseId = await prepareRoutineTask(page, testInfo);
+  await completeRoutineSlides(page, caseId);
+  await logout(page);
   await login(page, 'doctor-a');
-  await page.getByRole('tab', { name: /待初诊/ }).click();
-  await page.locator('.workbench-dense-row').first().click();
+  await page.goto(`/v2/diagnosis/${caseId}`);
+  const claim = page.getByRole('button', { name: '接诊', exact: true });
+  await expect(claim).toBeVisible();
+  await claim.click();
+  await expect(page.getByRole('status').filter({ hasText: '接诊成功' })).toBeVisible();
   await page.getByRole('button', { name: '技术医嘱', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '开立技术医嘱' });
   await dialog.getByLabel('项目').selectOption({ label: '结构化检测结果' });
@@ -140,8 +146,8 @@ test('PX03C-R1：完成后从原常规制片队列进入下一项', async ({ pag
   expect(new URL(page.url()).pathname).not.toBe(`/v2/production/${caseId}`);
 });
 
-test('PX03C：TechnicalOrder 进入单一医嘱执行工作区', async ({ page }) => {
-  await prepareTechnicalOrder(page);
+test('PX03C：TechnicalOrder 进入单一医嘱执行工作区', async ({ page }, testInfo) => {
+  await prepareTechnicalOrder(page, testInfo);
   await openProductionQueue(page, '技术医嘱');
 
   await expect(page).toHaveURL(/\/v2\/technical-orders\/[^?]+\?.*origin=workbench/);

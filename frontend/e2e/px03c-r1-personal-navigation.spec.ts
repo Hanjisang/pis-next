@@ -1,6 +1,43 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
 import { expectNoPageOverflow, login } from './helpers';
+
+async function logout(page: Page) {
+  await page.getByRole('button', { name: '退出', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'PIS V2 登录' })).toBeVisible();
+}
+
+async function prepareDiagnosisCase(page: Page, testInfo: TestInfo) {
+  const suffix = `${Date.now()}-${testInfo.project.name}-${testInfo.title.length}`;
+  await login(page, 'registrar');
+  await page.getByRole('button', { name: '登记', exact: true }).click();
+  await page.getByRole('button', { name: '新增手工病例' }).click();
+  await page.getByLabel('患者编号').fill(`导航测试-${suffix.slice(-10)}`);
+  await page.getByLabel('就诊号').fill(`NAV-VISIT-${suffix}`);
+  await page.getByLabel('申请号').fill(`NAV-APPLICATION-${suffix}`);
+  await page.getByLabel('取材部位').first().fill('合成胃窦活检');
+  await page.getByRole('button', { name: '确认登记' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: '登记完成，病理号已生成' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '病例概览' }).click();
+  const caseId = new URL(page.url()).pathname.split('/').filter(Boolean).at(-1)!;
+
+  await logout(page);
+  await login(page, 'technician');
+  await page.goto(`/v2/grossing/${caseId}`);
+  await page.getByRole('button', { name: '开始取材' }).click();
+  await page.getByLabel('新蜡块编号').fill('A1');
+  await page.getByRole('button', { name: '+ 蜡块' }).click();
+  await page.getByRole('button', { name: '完成取材' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '取材已完成' })).toBeVisible();
+  await page.goto(`/v2/production/${caseId}`);
+  const scan = page.getByPlaceholder('扫描或输入玻片号');
+  await scan.fill('A1-HE');
+  await scan.press('Enter');
+  await expect(page.getByRole('status').filter({ hasText: '玻片 A1-HE 已完成' })).toBeVisible();
+  await logout(page);
+}
 
 test('PX03C-R1：登记员只看到登记相关队列', async ({ page }) => {
   await login(page, 'registrar');
@@ -44,9 +81,10 @@ test('PX03C-R1：多能力用户在一个工作台看到授权队列并集', asy
   await expect(page.getByRole('tab', { name: /待审核/ })).toBeVisible();
 });
 
-test('PX03C-R1：工作台来源返回原队列并恢复筛选排序', async ({ page }) => {
+test('PX03C-R1：工作台来源返回原队列并恢复筛选排序', async ({ page }, testInfo) => {
+  await prepareDiagnosisCase(page, testInfo);
   await login(page, 'doctor-a');
-  const initialQueue = page.getByRole('tab', { name: /待初诊/ });
+  const initialQueue = page.getByRole('tab', { name: /待接诊/ });
   await initialQueue.click();
   const firstItem = page.locator('.workbench-dense-row').first();
   await expect(firstItem).toBeVisible();
@@ -62,9 +100,10 @@ test('PX03C-R1：工作台来源返回原队列并恢复筛选排序', async ({ 
   await expect(page.getByRole('combobox', { name: '工作列表排序' })).toHaveValue('newest');
 });
 
-test('PX03C-R1：病例中心来源的诊断返回当前病例', async ({ page }) => {
+test('PX03C-R1：病例中心来源的诊断返回当前病例', async ({ page }, testInfo) => {
+  await prepareDiagnosisCase(page, testInfo);
   await login(page, 'doctor-a');
-  await page.getByRole('tab', { name: /待初诊/ }).click();
+  await page.getByRole('tab', { name: /待接诊/ }).click();
   await page.locator('.workbench-dense-row').first().click();
   await page.getByRole('button', { name: '病例概览' }).click();
   await expect(page.getByRole('region', { name: '病例中心', exact: true })).toBeVisible();
