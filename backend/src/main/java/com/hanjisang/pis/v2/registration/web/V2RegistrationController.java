@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.CreateCaseCommand;
+import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.CorrectPathologyNumberCommand;
+import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.RegistrationPrintCommand;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.RegisterSpecimenCommand;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.ReceiveSpecimenCommand;
 import com.hanjisang.pis.v2.registration.application.V2RegistrationApplicationService.SplitSpecimenCommand;
@@ -64,6 +66,35 @@ public class V2RegistrationController {
             @RequestBody CancelCaseRequest request) {
         return service.cancelCase(caseId,
                 new V2RegistrationApplicationService.CancelCaseCommand(request.expectedVersion(), request.reason()));
+    }
+
+    @PostMapping("/cases/{caseId}/pathology-number")
+    public V2RegistrationApplicationService.CaseResult correctPathologyNumber(@PathVariable UUID caseId,
+            @RequestBody CorrectPathologyNumberRequest request) {
+        return service.correctPathologyNumber(caseId,
+                new CorrectPathologyNumberCommand(request.newPathologyNo(), request.reason(), request.expectedVersion()));
+    }
+
+    @GetMapping("/cases/{caseId}/pathology-number-history")
+    public java.util.List<V2RegistrationApplicationService.PathologyNumberHistoryView> pathologyNumberHistory(
+            @PathVariable UUID caseId) {
+        return service.pathologyNumberHistory(caseId);
+    }
+
+    @PostMapping("/cases/{caseId}/specimen-labels/print")
+    public V2RegistrationApplicationService.RegistrationPrintResult printSpecimenLabels(@PathVariable UUID caseId,
+            @RequestBody RegistrationPrintRequest request) {
+        return service.printSpecimenLabels(caseId,
+                new RegistrationPrintCommand(request.specimenIds(), request.copies() == null ? 1 : request.copies(),
+                        request.printerProfileCode()));
+    }
+
+    @PostMapping("/cases/{caseId}/receipt/print")
+    public V2RegistrationApplicationService.RegistrationPrintResult printReceipt(@PathVariable UUID caseId,
+            @RequestBody RegistrationPrintRequest request) {
+        return service.printReceipt(caseId,
+                new RegistrationPrintCommand(request.specimenIds(), request.copies() == null ? 1 : request.copies(),
+                        request.printerProfileCode()));
     }
 
     @PostMapping("/specimens")
@@ -130,6 +161,9 @@ public class V2RegistrationController {
     public record SoftDeleteSpecimenRequest(long expectedVersion, String reason) { }
 
     public record CancelCaseRequest(long expectedVersion, String reason) { }
+    public record CorrectPathologyNumberRequest(String newPathologyNo, String reason, long expectedVersion) { }
+    public record RegistrationPrintRequest(java.util.List<UUID> specimenIds, Integer copies,
+            String printerProfileCode) { }
     public record ReceiveSpecimenRequest(String verificationCode, String actualDescription, String reason,
             Instant receivedAt, long expectedVersion) { }
     public record SplitSpecimenRequest(String childSpecimenCode, String specimenKindCode, String sourceKindCode,

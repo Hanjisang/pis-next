@@ -185,6 +185,18 @@ public class JdbcV2RegistrationRepository {
                 pathologyCase.visitReference(), Timestamp.from(now), actorRef);
     }
 
+    public void enrichCaseSnapshot(UUID caseId, CaseSnapshotInput input) {
+        jdbcTemplate.update("""
+                UPDATE pis_v2.case_context_snapshot
+                   SET patient_name = ?, patient_sex_code = ?, patient_birth_date = ?, age_value = ?,
+                       age_unit_code = ?, visit_type_code = ?, application_department = ?, applicant_reference = ?,
+                       clinical_diagnosis = ?, medical_history = ?, surgery_name = ?, operation_finding = ?
+                 WHERE case_id = ? AND snapshot_version_no = 1
+                """, input.patientName(), input.patientSexCode(), input.patientBirthDate(), input.ageValue(),
+                input.ageUnitCode(), input.visitTypeCode(), input.applicationDepartment(), input.applicantReference(),
+                input.clinicalDiagnosis(), input.medicalHistory(), input.surgeryName(), input.operationFinding(), caseId);
+    }
+
     public Optional<Case> findCase(UUID caseId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT c.id, c.case_no, c.source_system_code, c.external_application_id, c.application_item_code,
@@ -214,6 +226,82 @@ public class JdbcV2RegistrationRepository {
                  WHERE id = ? AND organization_reference = ? AND lifecycle_state_code = 'ACTIVE'
                    AND concurrency_version = ?
                 """, Timestamp.from(now), actorReference, reason, caseId, organizationReference, expectedVersion) == 1;
+    }
+
+    public boolean correctPathologyNumber(UUID caseId, String newPathologyNo, String organizationReference,
+            long expectedVersion) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.pathology_case
+                   SET case_no = ?, concurrency_version = concurrency_version + 1
+                 WHERE id = ? AND organization_reference = ? AND lifecycle_state_code = 'ACTIVE'
+                   AND number_binding_active = TRUE AND concurrency_version = ?
+                """, newPathologyNo, caseId, organizationReference, expectedVersion) == 1;
+    }
+
+    public boolean activePathologyNumberExists(String pathologyNo, String organizationReference, UUID exceptCaseId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM pis_v2.pathology_case
+                 WHERE organization_reference = ? AND case_no = ? AND number_binding_active = TRUE AND id <> ?)
+                """, Boolean.class, organizationReference, pathologyNo, exceptCaseId));
+    }
+
+    public void insertPathologyNumberHistory(UUID caseId, String oldPathologyNo, String newPathologyNo,
+            String operationCode, String reason, String organizationReference, String actorReference, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.pathology_number_history
+                    (id, case_id, old_pathology_no, new_pathology_no, operation_code, reason,
+                     changed_at, changed_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), caseId, oldPathologyNo, newPathologyNo, operationCode, reason,
+                Timestamp.from(now), actorReference, organizationReference);
+    }
+
+    public List<PathologyNumberHistoryRow> findPathologyNumberHistory(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT old_pathology_no, new_pathology_no, operation_code, reason, changed_at, changed_by_ref
+                FROM pis_v2.pathology_number_history
+                WHERE case_id = ? AND organization_reference = ? ORDER BY changed_at, id
+                """, (rs, rowNum) -> new PathologyNumberHistoryRow(rs.getString("old_pathology_no"),
+                        rs.getString("new_pathology_no"), rs.getString("operation_code"), rs.getString("reason"),
+                        rs.getTimestamp("changed_at").toInstant(), rs.getString("changed_by_ref")),
+                caseId, organizationReference);
+    }
+
+    public List<SpecimenPrintRow> findCaseSpecimens(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT s.id, s.specimen_code, s.specimen_no, s.specimen_kind_code, s.collection_site,
+                       s.label_code, c.case_no, ctx.patient_reference, ctx.patient_name
+                FROM pis_v2.specimen s JOIN pis_v2.pathology_case c ON c.id = s.case_id
+                JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id AND ctx.snapshot_version_no = 1
+                WHERE s.case_id = ? AND s.organization_reference = ? AND s.deleted_at IS NULL
+                ORDER BY s.specimen_code, s.created_at
+                """, (rs, rowNum) -> new SpecimenPrintRow(rs.getObject("id", UUID.class),
+                        rs.getString("specimen_code"), rs.getString("specimen_no"),
+                        rs.getString("specimen_kind_code"), rs.getString("collection_site"),
+                        rs.getString("label_code"), rs.getString("case_no"),
+                        rs.getString("patient_reference"), rs.getString("patient_name")),
+                caseId, organizationReference);
+    }
+
+    public void insertRegistrationLabelPrint(UUID caseId, UUID specimenId, String pathologyNo,
+            String specimenCode, String operationCode, int copies, String printerProfileCode, String renderedLabel,
+            String resultCode, String failureReason, String organizationReference, String actorReference, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.pathology_registration_label_print
+                    (id, case_id, specimen_id, pathology_no, specimen_code, operation_code, copies,
+                     printer_profile_code, rendered_label, result_code, failure_reason, requested_at,
+                     requested_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), caseId, specimenId, pathologyNo, specimenCode, operationCode, copies,
+                printerProfileCode, renderedLabel, resultCode, failureReason, Timestamp.from(now),
+                actorReference, organizationReference);
+    }
+
+    public int labelPrintCount(UUID specimenId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.pathology_registration_label_print WHERE specimen_id = ?
+                """, Integer.class, specimenId);
+        return count == null ? 0 : count;
     }
 
     public Optional<CaseCancellation> findCaseCancellation(UUID caseId, String organizationReference) {
@@ -373,6 +461,18 @@ public class JdbcV2RegistrationRepository {
             UUID resultSpecimenId) { }
 
     public record CaseCancellation(Instant cancelledAt, String cancelledByRef, String cancellationReason) { }
+
+    public record CaseSnapshotInput(String patientName, String patientSexCode, java.time.LocalDate patientBirthDate,
+            Integer ageValue, String ageUnitCode, String visitTypeCode, String applicationDepartment,
+            String applicantReference, String clinicalDiagnosis, String medicalHistory, String surgeryName,
+            String operationFinding) { }
+
+    public record PathologyNumberHistoryRow(String oldPathologyNo, String newPathologyNo, String operationCode,
+            String reason, Instant changedAt, String changedByRef) { }
+
+    public record SpecimenPrintRow(UUID specimenId, String specimenCode, String specimenNo,
+            String specimenKindCode, String collectionSite, String labelCode, String pathologyNo,
+            String patientReference, String patientName) { }
 
     private record NumberRuleRow(UUID businessTypeId, String prefix, String scopeCode, int paddingWidth,
             boolean active, long nextSerial) { }

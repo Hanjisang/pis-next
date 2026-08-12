@@ -22,9 +22,13 @@ public class JdbcV2SearchRepository {
                        CONCAT(s.patient_reference, ' ', COALESCE(s.visit_reference, '')) AS summary
                 FROM pis_v2.pathology_case c JOIN pis_v2.case_context_snapshot s ON s.case_id = c.id
                 WHERE c.organization_reference = ? AND (c.case_no ILIKE ? OR c.external_application_id ILIKE ?
-                   OR s.patient_reference ILIKE ? OR COALESCE(s.visit_reference, '') ILIKE ?)
+                   OR s.patient_reference ILIKE ? OR COALESCE(s.visit_reference, '') ILIKE ?
+                   OR EXISTS (SELECT 1 FROM pis_v2.pathology_number_history h
+                              WHERE h.case_id = c.id AND h.organization_reference = c.organization_reference
+                                AND (h.old_pathology_no ILIKE ? OR COALESCE(h.new_pathology_no, '') ILIKE ?)))
                 ORDER BY c.created_at DESC LIMIT 20
-                """, (rs, rowNum) -> row(rs), organizationReference, pattern, pattern, pattern, pattern));
+                """, (rs, rowNum) -> row(rs), organizationReference, pattern, pattern, pattern, pattern,
+                pattern, pattern));
         rows.addAll(jdbcTemplate.query("""
                 SELECT c.id, c.id AS case_id, 'PATIENT' AS result_kind, ctx.patient_reference AS display_code,
                        CONCAT(COUNT(*) OVER (PARTITION BY ctx.patient_reference), ' 个相关病例') AS summary

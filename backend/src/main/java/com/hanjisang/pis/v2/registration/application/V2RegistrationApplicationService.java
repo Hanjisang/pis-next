@@ -11,10 +11,12 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
 
 import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.integration.InboundApplicationInbox;
 import com.hanjisang.pis.integration.InboundApplicationSource.InboundApplication;
+import com.hanjisang.pis.integration.device.LabelPrintService;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
 import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
@@ -23,6 +25,7 @@ import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.domain.Specimen;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
+import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2ApplicationRepository;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.IdempotencyResult;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.Routing;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.ApplicationMappingOption;
@@ -38,15 +41,20 @@ public class V2RegistrationApplicationService {
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
     private final InboundApplicationInbox inboundInbox;
+    private final LabelPrintService labelPrintService;
+    private final JdbcV2ApplicationRepository applicationRepository;
 
     public V2RegistrationApplicationService(JdbcV2RegistrationRepository repository,
             P15AuthorizationService authorization, JdbcAuditEventRepository audit, OutboxPort outbox,
-            InboundApplicationInbox inboundInbox) {
+            InboundApplicationInbox inboundInbox, LabelPrintService labelPrintService,
+            JdbcV2ApplicationRepository applicationRepository) {
         this.repository = repository;
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
         this.inboundInbox = inboundInbox;
+        this.labelPrintService = labelPrintService;
+        this.applicationRepository = applicationRepository;
     }
 
     @Transactional
@@ -305,34 +313,174 @@ public class V2RegistrationApplicationService {
     @Transactional(readOnly = true)
     public CaseResult getCase(UUID caseId) {
         ActorContext actor = authorization.require("P14-PERM-048");
-        return CaseResult.read(repository.findCase(caseId, actor.hospitalScope())
-                .orElseThrow(() -> reject("P12-ERR-010", "V2病例不存在或不在当前数据范围")));
+        Case pathologyCase = repository.findCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404));
+        return caseResult(pathologyCase, false, "PIS-V2-CASE-READ", actor);
     }
 
     @Transactional
     public CaseResult cancelCase(UUID caseId, CancelCaseCommand command) {
-        ActorContext actor = authorization.require("P14-PERM-010");
+        ActorContext actor = authorization.require("P14-PERM-006");
         validate(caseId, "caseId");
         validate(command.reason(), "reason");
         Case pathologyCase = repository.findCase(caseId, actor.hospitalScope())
-                .orElseThrow(() -> reject("P12-ERR-010", "Case not found"));
+                .orElseThrow(() -> new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404));
         if (!Case.ACTIVE.equals(pathologyCase.lifecycleStateCode())) {
-            throw reject("P12-ERR-010", "Only an ACTIVE case can be cancelled");
+            throw new P15BusinessException("V2-CASE-NOT-ACTIVE", "只有进行中病例可以取消", 409);
         }
         Instant now = Instant.now();
         if (!repository.cancelCase(caseId, actor.hospitalScope(), command.expectedVersion(), command.reason(),
                 actor.actorId(), now)) {
-            throw reject("P12-ERR-010", "Case version conflict; cancellation was not applied");
+            throw new P15BusinessException("V2-CASE-VERSION-CONFLICT", "病例已被其他用户修改，请刷新后重试", 409);
         }
-        audit.append("PIS-V2-CASE-CANCEL", "P14-PERM-010", actor, "ALLOWED", "COMPLETED", caseId,
+        repository.insertPathologyNumberHistory(caseId, pathologyCase.caseNo(), null, "CANCELLATION_RELEASE",
+                command.reason(), actor.hospitalScope(), actor.actorId(), now);
+        audit.append("PIS-V2-CASE-CANCEL", "P14-PERM-006", actor, "ALLOWED", "COMPLETED", caseId,
                 "V2-CASE", UUID.randomUUID().toString(), command.reason());
-        return CaseResult.read(repository.findCase(caseId, actor.hospitalScope()).orElseThrow());
+        return caseResult(repository.findCase(caseId, actor.hospitalScope()).orElseThrow(), false,
+                "PIS-V2-CASE-CANCELLED", actor);
+    }
+
+    @Transactional
+    public CaseResult correctPathologyNumber(UUID caseId, CorrectPathologyNumberCommand command) {
+        ActorContext actor = authorization.require("P14-PERM-007");
+        validate(caseId, "caseId");
+        validate(command.newPathologyNo(), "新病理号不能为空");
+        validate(command.reason(), "病理号纠正原因不能为空");
+        Case pathologyCase = repository.findCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404));
+        if (!Case.ACTIVE.equals(pathologyCase.lifecycleStateCode()) || !pathologyCase.numberBindingActive()) {
+            throw new P15BusinessException("V2-PATHOLOGY-NUMBER-INACTIVE", "只有有效病例可以纠正病理号", 409);
+        }
+        String newNumber = command.newPathologyNo().trim();
+        if (newNumber.equals(pathologyCase.caseNo())) {
+            throw new P15BusinessException("V2-PATHOLOGY-NUMBER-UNCHANGED", "新病理号不能与当前病理号相同", 400);
+        }
+        if (repository.activePathologyNumberExists(newNumber, actor.hospitalScope(), caseId)) {
+            throw new P15BusinessException("V2-PATHOLOGY-NUMBER-CONFLICT",
+                    "病理号 " + newNumber + " 已被其他有效病例使用", 409);
+        }
+        Instant now = Instant.now();
+        try {
+            if (!repository.correctPathologyNumber(caseId, newNumber, actor.hospitalScope(),
+                    command.expectedVersion())) {
+                throw new P15BusinessException("V2-CASE-VERSION-CONFLICT", "病例已被其他用户修改，请刷新后重试", 409);
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new P15BusinessException("V2-PATHOLOGY-NUMBER-CONFLICT",
+                    "病理号 " + newNumber + " 已被其他有效病例使用", 409);
+        }
+        repository.insertPathologyNumberHistory(caseId, pathologyCase.caseNo(), newNumber, "CORRECTION",
+                command.reason(), actor.hospitalScope(), actor.actorId(), now);
+        audit.appendWithChanges("PIS-V2-PATHOLOGY-NUMBER-CORRECT", "P14-PERM-007", actor, "COMPLETED",
+                caseId, "V2-CASE", UUID.randomUUID().toString(), command.reason(),
+                List.of(new AuditChange("pathologyNo", "病理号", pathologyCase.caseNo(), newNumber)));
+        return caseResult(repository.findCase(caseId, actor.hospitalScope()).orElseThrow(), false,
+                "PIS-V2-PATHOLOGY-NUMBER-CORRECTED", actor);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PathologyNumberHistoryView> pathologyNumberHistory(UUID caseId) {
+        ActorContext actor = authorization.require("P14-PERM-048");
+        if (repository.findCase(caseId, actor.hospitalScope()).isEmpty()) {
+            throw new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404);
+        }
+        return repository.findPathologyNumberHistory(caseId, actor.hospitalScope()).stream()
+                .map(row -> new PathologyNumberHistoryView(row.oldPathologyNo(), row.newPathologyNo(),
+                        row.operationCode(), row.reason(), row.changedAt(), row.changedByRef())).toList();
+    }
+
+    @Transactional
+    public RegistrationPrintResult printSpecimenLabels(UUID caseId, RegistrationPrintCommand command) {
+        ActorContext actor = authorization.require("P14-PERM-008");
+        Case pathologyCase = repository.findCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404));
+        int copies = command.copies() <= 0 ? 1 : command.copies();
+        if (copies > 100) throw new P15BusinessException("V2-PRINT-COPIES-INVALID", "打印份数不能超过 100", 400);
+        var selected = command.specimenIds() == null ? java.util.Set.<UUID>of()
+                : new java.util.HashSet<>(command.specimenIds());
+        var specimens = repository.findCaseSpecimens(caseId, actor.hospitalScope()).stream()
+                .filter(item -> selected.isEmpty() || selected.contains(item.specimenId())).toList();
+        if (specimens.isEmpty()) throw new P15BusinessException("V2-SPECIMEN-NOT-FOUND", "病例没有可打印标本", 404);
+        if (!selected.isEmpty() && selected.size() != specimens.size()) {
+            throw new P15BusinessException("V2-SPECIMEN-NOT-FOUND", "所选标本不存在或不属于当前病例", 404);
+        }
+        int success = 0;
+        for (var specimen : specimens) {
+            String operation = repository.labelPrintCount(specimen.specimenId()) == 0 ? "PRINT" : "REPRINT";
+            String rendered = "病理号：" + pathologyCase.caseNo() + "\n患者："
+                    + (specimen.patientName() == null || specimen.patientName().isBlank()
+                            ? specimen.patientReference() : specimen.patientName())
+                    + "\n标本：" + specimen.specimenCode() + " " + specimen.collectionSite()
+                    + "\n条码：" + (specimen.labelCode() == null ? specimen.specimenNo() : specimen.labelCode());
+            LabelPrintService.PrintResult result = print(new LabelPrintService.PrintRequest("SPECIMEN",
+                    specimen.specimenId(), specimen.labelCode() == null ? specimen.specimenNo() : specimen.labelCode(),
+                    printer(command.printerProfileCode()), rendered, actor.actorId()));
+            repository.insertRegistrationLabelPrint(caseId, specimen.specimenId(), pathologyCase.caseNo(),
+                    specimen.specimenCode(), operation, copies, printer(command.printerProfileCode()), rendered,
+                    result.resultCode(), result.failureReason(), actor.hospitalScope(), actor.actorId(), Instant.now());
+            if (result.succeeded()) success++;
+        }
+        audit.append("PIS-V2-REGISTRATION-LABEL-PRINT", "P14-PERM-008", actor, "ALLOWED",
+                success == specimens.size() ? "COMPLETED" : "PARTIAL", caseId, "V2-CASE",
+                UUID.randomUUID().toString(), "标本标签打印：" + success + "/" + specimens.size());
+        return new RegistrationPrintResult(caseId, success, specimens.size(), success == specimens.size());
+    }
+
+    @Transactional
+    public RegistrationPrintResult printReceipt(UUID caseId, RegistrationPrintCommand command) {
+        ActorContext actor = authorization.require("P14-PERM-008");
+        Case pathologyCase = repository.findCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围", 404));
+        UUID applicationId = applicationRepository.findApplicationIdByCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-APPLICATION-NOT-FOUND", "该病例没有可打印回执的申请", 404));
+        var application = applicationRepository.findApplication(applicationId, actor.hospitalScope()).orElseThrow();
+        Instant registeredAt = applicationRepository.findRegistrationTime(caseId, actor.hospitalScope())
+                .orElseGet(Instant::now);
+        int copies = command.copies() <= 0 ? 1 : command.copies();
+        String operation = applicationRepository.findReceiptPrints(caseId, actor.hospitalScope()).isEmpty()
+                ? "PRINT" : "REPRINT";
+        String rendered = "病理登记回执\n患者：" + (application.patientName() == null
+                ? application.patientReference() : application.patientName()) + "\n病理号：" + pathologyCase.caseNo()
+                + "\n就诊号：" + (application.visitReference() == null ? "—" : application.visitReference())
+                + "\n登记时间：" + registeredAt + "\n病理科：请按医院通知查询或领取报告";
+        LabelPrintService.PrintResult result = print(new LabelPrintService.PrintRequest("REGISTRATION_RECEIPT",
+                caseId, pathologyCase.caseNo(), printer(command.printerProfileCode()), rendered, actor.actorId()));
+        applicationRepository.insertReceiptPrint(applicationId, caseId, "PATIENT", operation, copies,
+                printer(command.printerProfileCode()), rendered, result.resultCode(), result.failureReason(),
+                actor.actorId(), Instant.now());
+        audit.append("PIS-V2-REGISTRATION-RECEIPT-PRINT", "P14-PERM-008", actor, "ALLOWED",
+                result.succeeded() ? "COMPLETED" : "FAILED", caseId, "V2-CASE",
+                UUID.randomUUID().toString(), "患者登记回执打印");
+        return new RegistrationPrintResult(caseId, result.succeeded() ? 1 : 0, 1, result.succeeded());
     }
 
     @Transactional(readOnly = true)
     public SpecimenResult getSpecimen(UUID specimenId) {
         ActorContext actor = authorization.require("P14-PERM-049");
         return SpecimenResult.read(findSpecimen(specimenId, actor));
+    }
+
+    private CaseResult caseResult(Case pathologyCase, boolean duplicate, String eventTypeCode, ActorContext actor) {
+        var cancellation = repository.findCaseCancellation(pathologyCase.id(), actor.hospitalScope()).orElse(null);
+        return new CaseResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
+                pathologyCase.patientReference(), pathologyCase.visitReference(), pathologyCase.externalApplicationId(),
+                pathologyCase.lifecycleStateCode(), pathologyCase.numberBindingActive(),
+                pathologyCase.concurrencyVersion(), cancellation == null ? null : cancellation.cancelledAt(),
+                cancellation == null ? null : cancellation.cancelledByRef(),
+                cancellation == null ? null : cancellation.cancellationReason(), duplicate, eventTypeCode);
+    }
+
+    private LabelPrintService.PrintResult print(LabelPrintService.PrintRequest request) {
+        try {
+            return labelPrintService.print(request);
+        } catch (IllegalArgumentException exception) {
+            return new LabelPrintService.PrintResult("FAILED", "INVALID_PRINTER_PROFILE", exception.getMessage());
+        }
+    }
+
+    private static String printer(String value) {
+        return value == null || value.isBlank() ? "MOCK://SYNTH-PRINTER" : value.trim();
     }
 
     private CaseResult replayCase(IdempotencyResult existing, String digest, ActorContext actor) {
@@ -423,6 +571,11 @@ public class V2RegistrationApplicationService {
     public record SoftDeleteSpecimenCommand(long expectedVersion, String reason) { }
 
     public record CancelCaseCommand(long expectedVersion, String reason) { }
+    public record CorrectPathologyNumberCommand(String newPathologyNo, String reason, long expectedVersion) { }
+    public record RegistrationPrintCommand(List<UUID> specimenIds, int copies, String printerProfileCode) { }
+    public record RegistrationPrintResult(UUID caseId, int successCount, int requestedCount, boolean allSucceeded) { }
+    public record PathologyNumberHistoryView(String oldPathologyNo, String newPathologyNo, String operationCode,
+            String reason, Instant changedAt, String changedBy) { }
     public record ReceiveSpecimenCommand(String verificationCode, String actualDescription, String reason,
             Instant receivedAt, long expectedVersion) { }
     public record SplitSpecimenCommand(String childSpecimenCode, String specimenKindCode, String sourceKindCode,

@@ -8,8 +8,20 @@ export type V2CaseResult = {
   lifecycleStateCode: string;
   numberBindingActive: boolean;
   concurrencyVersion: number;
+  cancelledAt: string | null;
+  cancelledByRef: string | null;
+  cancellationReason: string | null;
   duplicate: boolean;
   eventTypeCode: string;
+};
+
+export type V2PathologyNumberHistory = {
+  oldPathologyNo: string;
+  newPathologyNo: string | null;
+  operationCode: 'CORRECTION' | 'CANCELLATION_RELEASE';
+  reason: string;
+  changedAt: string;
+  changedBy: string;
 };
 
 export type V2SpecimenResult = {
@@ -56,6 +68,39 @@ export function createV2Case(input: {
 
 export function getV2Case(caseId: string): Promise<V2CaseResult> {
   return v2RegistrationRequest(`/cases/${caseId}`, { method: 'GET' });
+}
+
+export function correctV2PathologyNumber(input: {
+  caseId: string;
+  newPathologyNo: string;
+  reason: string;
+  expectedVersion: number;
+}): Promise<V2CaseResult> {
+  return v2RegistrationRequest(`/cases/${encodeURIComponent(input.caseId)}/pathology-number`, {
+    method: 'POST',
+    body: JSON.stringify({
+      newPathologyNo: input.newPathologyNo,
+      reason: input.reason,
+      expectedVersion: input.expectedVersion,
+    }),
+  });
+}
+
+export function cancelV2Case(input: {
+  caseId: string;
+  reason: string;
+  expectedVersion: number;
+}): Promise<V2CaseResult> {
+  return v2RegistrationRequest(`/cases/${encodeURIComponent(input.caseId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: input.reason, expectedVersion: input.expectedVersion }),
+  });
+}
+
+export function getV2PathologyNumberHistory(caseId: string): Promise<V2PathologyNumberHistory[]> {
+  return v2RegistrationRequest(`/cases/${encodeURIComponent(caseId)}/pathology-number-history`, {
+    method: 'GET',
+  });
 }
 
 export function registerV2Specimen(input: {

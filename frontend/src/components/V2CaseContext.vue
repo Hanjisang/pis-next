@@ -5,6 +5,14 @@ import type { V2AuthUser } from '../auth';
 import { appendNavigationContext, safeLocalPath, type V2Route } from '../navigation';
 import { businessTypeName, formatDateTime, friendlyError, statusName } from '../uiText';
 import {
+  cancelV2Case,
+  correctV2PathologyNumber,
+  getV2Case,
+  getV2PathologyNumberHistory,
+  type V2CaseResult,
+  type V2PathologyNumberHistory,
+} from '../v2Api';
+import {
   getV2CaseProgress,
   getV2CaseWorkspace,
   type V2CaseProgress,
@@ -30,8 +38,16 @@ const emit = defineEmits<{ navigate: [path: string] }>();
 
 const workspace = ref<V2CaseWorkspace | null>(null);
 const progress = ref<V2CaseProgress | null>(null);
+const caseRecord = ref<V2CaseResult | null>(null);
+const numberHistory = ref<V2PathologyNumberHistory[]>([]);
 const loading = ref(false);
 const error = ref('');
+const actionNotice = ref('');
+const actionPanel = ref<'NONE' | 'CORRECT_NUMBER' | 'CANCEL_CASE'>('NONE');
+const actionReason = ref('');
+const correctedPathologyNo = ref('');
+const actionSubmitting = ref(false);
+const moreActions = ref<HTMLDetailsElement | null>(null);
 
 const focusedKinds = new Set([
   'diagnosis',
@@ -128,12 +144,75 @@ function returnToOrigin() {
   emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
 }
 
+function openAction(panel: 'CORRECT_NUMBER' | 'CANCEL_CASE') {
+  if (moreActions.value) moreActions.value.open = false;
+  actionPanel.value = panel;
+  actionReason.value = '';
+  correctedPathologyNo.value = '';
+  actionNotice.value = '';
+  error.value = '';
+}
+
+async function submitPathologyNumberCorrection() {
+  if (!caseRecord.value || !correctedPathologyNo.value.trim() || !actionReason.value.trim()) {
+    error.value = '请填写新病理号和纠正原因';
+    return;
+  }
+  actionSubmitting.value = true;
+  error.value = '';
+  try {
+    await correctV2PathologyNumber({
+      caseId: props.caseId,
+      newPathologyNo: correctedPathologyNo.value.trim(),
+      reason: actionReason.value.trim(),
+      expectedVersion: caseRecord.value.concurrencyVersion,
+    });
+    actionPanel.value = 'NONE';
+    actionNotice.value = '病理号已更正，病例身份与历史材料保持不变';
+    await loadOverview();
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '病理号更正失败，请刷新后重试');
+  } finally {
+    actionSubmitting.value = false;
+  }
+}
+
+async function submitCaseCancellation() {
+  if (!caseRecord.value || !actionReason.value.trim()) {
+    error.value = '请填写病例取消原因';
+    return;
+  }
+  actionSubmitting.value = true;
+  error.value = '';
+  try {
+    await cancelV2Case({
+      caseId: props.caseId,
+      reason: actionReason.value.trim(),
+      expectedVersion: caseRecord.value.concurrencyVersion,
+    });
+    actionPanel.value = 'NONE';
+    actionNotice.value = '病例已取消；历史记录仍可查询，病理号不再占用有效绑定';
+    await loadOverview();
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '病例取消失败，请刷新后重试');
+  } finally {
+    actionSubmitting.value = false;
+  }
+}
+
 async function loadOverview() {
   if (!props.caseId || isFocused.value) return;
   loading.value = true;
   error.value = '';
   try {
-    workspace.value = await getV2CaseWorkspace(props.caseId);
+    const [loadedWorkspace, loadedCase, loadedHistory] = await Promise.all([
+      getV2CaseWorkspace(props.caseId),
+      getV2Case(props.caseId),
+      getV2PathologyNumberHistory(props.caseId),
+    ]);
+    workspace.value = loadedWorkspace;
+    caseRecord.value = loadedCase;
+    numberHistory.value = loadedHistory;
     try {
       progress.value = await getV2CaseProgress(props.caseId);
     } catch {
@@ -142,6 +221,8 @@ async function loadOverview() {
   } catch (requestError) {
     workspace.value = null;
     progress.value = null;
+    caseRecord.value = null;
+    numberHistory.value = [];
     error.value = friendlyError(requestError, '病例信息暂时无法加载，请刷新后重试。');
   } finally {
     loading.value = false;
@@ -232,9 +313,10 @@ watch(
       </div>
     </template>
 
-    <p v-else-if="error" class="feedback error" role="alert">{{ error }}</p>
+    <p v-else-if="error && !workspace" class="feedback error" role="alert">{{ error }}</p>
 
     <template v-else-if="workspace && header">
+      <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
       <header class="case-overview-header" aria-label="病例固定上下文">
         <button class="case-back-link" type="button" @click="returnToOrigin">
           ← {{ backLabel }}
@@ -270,8 +352,93 @@ watch(
           >
             {{ header.businessTypeCode === 'CYTOLOGY' ? '进入细胞制片' : '进入取材' }}
           </button>
+          <details
+            v-if="caseRecord && (can('P14-PERM-006') || can('P14-PERM-007'))"
+            ref="moreActions"
+            class="case-more-actions"
+          >
+            <summary class="secondary-button">更多</summary>
+            <div class="case-more-menu">
+              <button
+                v-if="can('P14-PERM-007') && caseRecord.lifecycleStateCode === 'ACTIVE'"
+                type="button"
+                @click="openAction('CORRECT_NUMBER')"
+              >
+                更正病理号
+              </button>
+              <button
+                v-if="can('P14-PERM-006') && caseRecord.lifecycleStateCode === 'ACTIVE'"
+                class="danger-text"
+                type="button"
+                @click="openAction('CANCEL_CASE')"
+              >
+                取消病例
+              </button>
+            </div>
+          </details>
         </div>
       </header>
+
+      <p v-if="actionNotice" class="feedback success" role="status">{{ actionNotice }}</p>
+
+      <section
+        v-if="actionPanel !== 'NONE' && caseRecord"
+        class="workspace-panel case-lifecycle-action"
+        :aria-label="actionPanel === 'CORRECT_NUMBER' ? '更正病理号' : '取消病例'"
+      >
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">授权业务纠正</p>
+            <h2>{{ actionPanel === 'CORRECT_NUMBER' ? '更正病理号' : '取消病例' }}</h2>
+          </div>
+          <button class="text-button" type="button" @click="actionPanel = 'NONE'">关闭</button>
+        </header>
+        <div class="case-lifecycle-summary">
+          <span
+            >当前病理号 <strong>{{ caseRecord.caseNo }}</strong></span
+          >
+          <span
+            >患者 <strong>{{ header.patientReference }}</strong></span
+          >
+          <span
+            >业务类型 <strong>{{ businessTypeName(header.businessTypeCode) }}</strong></span
+          >
+        </div>
+        <label v-if="actionPanel === 'CORRECT_NUMBER'">
+          新病理号
+          <input v-model="correctedPathologyNo" autocomplete="off" />
+        </label>
+        <label>
+          {{ actionPanel === 'CORRECT_NUMBER' ? '纠正原因' : '取消原因' }}
+          <textarea v-model="actionReason" rows="2"></textarea>
+        </label>
+        <div class="inline-actions action-confirm-row">
+          <button class="secondary-button" type="button" @click="actionPanel = 'NONE'">返回</button>
+          <button
+            :class="actionPanel === 'CORRECT_NUMBER' ? 'primary-button' : 'danger-button'"
+            type="button"
+            :disabled="actionSubmitting"
+            @click="
+              actionPanel === 'CORRECT_NUMBER'
+                ? submitPathologyNumberCorrection()
+                : submitCaseCancellation()
+            "
+          >
+            {{ actionPanel === 'CORRECT_NUMBER' ? '确认更正' : '确认取消病例' }}
+          </button>
+        </div>
+        <div v-if="numberHistory.length" class="number-history-list">
+          <strong>病理号历史</strong>
+          <span v-for="item in numberHistory" :key="`${item.changedAt}-${item.oldPathologyNo}`">
+            {{
+              item.operationCode === 'CORRECTION'
+                ? `${item.oldPathologyNo} → ${item.newPathologyNo}`
+                : `${item.oldPathologyNo} 已释放有效绑定`
+            }}
+            · {{ formatDateTime(item.changedAt) }} · {{ item.reason }}
+          </span>
+        </div>
+      </section>
 
       <div class="case-overview-facts" aria-label="病例基本信息">
         <div>
@@ -412,8 +579,8 @@ watch(
           </header>
           <p class="overview-emphasis">{{ progress?.currentResponsible || '尚未分配当前医生' }}</p>
           <p class="muted">
-            材料进度：{{ progress?.material.completed ?? materialCounts.completedSlides }}/{{
-              progress?.material.required ?? materialCounts.slides
+            材料进度：{{ progress?.material?.completed ?? materialCounts.completedSlides }}/{{
+              progress?.material?.required ?? materialCounts.slides
             }}
             张完成
           </p>
@@ -471,7 +638,11 @@ watch(
               <time>{{ formatDateTime(entry.occurredAt) }}</time
               ><span
                 ><strong>{{ entry.title }}</strong
-                ><small>{{ entry.actorName || '系统记录' }} · {{ entry.detail }}</small></span
+                ><small>{{ entry.actorName || '系统记录' }} · {{ entry.detail }}</small>
+                <small v-for="change in entry.changes ?? []" :key="change.fieldCode">
+                  {{ change.fieldLabel }}：{{ change.beforeValue || '未设置' }} →
+                  {{ change.afterValue || '未设置' }}
+                </small></span
               >
             </li>
           </ol>
