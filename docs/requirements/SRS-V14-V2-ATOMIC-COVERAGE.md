@@ -1,6 +1,6 @@
 # SRS V1.4 → PIS V2 Atomic Coverage Baseline
 
-基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。
+原子基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。FC02A 闭环基线：`bcdf9b83c6d6feeb5e6cdb87602fd9948662aa57`。
 
 ## 1. 口径
 
@@ -8,12 +8,14 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 310 |
-| PARTIAL | 177 |
+| COMPLETE | 343 |
+| PARTIAL | 144 |
 | MISSING | 223 |
 | EXTERNAL_DEPENDENCY | 78 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **788** |
+
+FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连续链：33 条由 PARTIAL 转为 COMPLETE，TOTAL 不变。产品内 Patient/Print Port 与 Simulator 已形成可替换、可测试闭环；真实医院 HIS 与真实打印硬件仍由独立 EXTERNAL_DEPENDENCY 原子项承担，本文不宣称生产联调完成。
 
 ## 2. Atomic requirements
 
@@ -31,13 +33,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A01 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A01 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A01 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A01 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A01 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-001 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-002 — 住院病理电子申请
 
@@ -53,13 +55,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A02 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A02 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A02 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A02 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A02 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-002 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-003 — HIS患者基本信息自动获取
 
@@ -75,13 +77,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A03 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A03 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A03 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A03 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A03 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-003 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 产品内 Port、Simulator、映射、未找到/故障处理已闭环；真实医院 HIS 联调仍归 `INT-HIS-*` 的 EXTERNAL_DEPENDENCY，不冒充生产验证。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-004 — 人工患者信息补录
 
@@ -97,13 +99,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A04 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A04 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A04 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A04 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A04 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-004 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-005 — 多种病理申请类型
 
@@ -119,13 +121,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A05 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A05 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A05 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A05 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A05 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-005 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-006 — 申请新增
 
@@ -141,13 +143,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A06 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A06 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A06 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A06 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A06 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-006 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-007 — 申请修改
 
@@ -163,13 +165,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A07 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A07 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A07 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A07 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A07 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-007 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-008 — 申请取消
 
@@ -185,13 +187,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A08 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A08 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A08 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A08 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A08 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-008 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-009 — 申请项目到 BusinessType 映射
 
@@ -207,13 +209,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A09 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A09 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A09 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A09 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A09 行及对应测试；缺口状态不得视为通过
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
 - Status: COMPLETE
-- Gap: 当前证据表明该原子能力已闭环；相邻能力变更时保持回归验证。
-- V2 Decision: 保留现有实现与证据链；仅在相关功能变化时补充回归。
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-010 — 申请单完整性校验
 
@@ -229,13 +231,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A10 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A10 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A10 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A10 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A10 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-010 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实外部系统或硬件验证按独立 INT/DEVICE 原子项统计。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-011 — 标本条码打印
 
@@ -251,13 +253,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A11 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A11 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A11 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A11 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-011 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 打印业务、稳定顺序、重打与成功/失败日志已闭环；真实打印机硬件接入仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-012 — 批量条码打印
 
@@ -273,13 +275,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A12 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A12 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A12 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A12 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A12 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-012 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 打印业务、稳定顺序、重打与成功/失败日志已闭环；真实打印机硬件接入仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### APP-013 — 打印日志
 
@@ -295,13 +297,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A13 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A13 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A13 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A13 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A13 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-013 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`V2ApplicationController`；APP-003 另由 `PatientInfoProviderPort` 与 `SimulatorPatientInfoProvider` 提供可替换集成边界。
+- DB Evidence: `V28__application_case_mapping.sql` 与 `V35__application_registration_closure.sql` 保存申请、项目、患者/就诊快照、取消、送检及打印事实。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供门诊/住院申请、HIS 查询与人工补录、多项目编辑/取消、校验和打印入口。
+- Test Evidence: `V2ApplicationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖创建、更新、取消、映射、校验、打印及失败语义。
+- Status: COMPLETE
+- Gap: 打印业务、稳定顺序、重打与成功/失败日志已闭环；真实打印机硬件接入仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: FC02A 沿用 Application 与 ApplicationItem 既有模型完成闭环；Application 仍不等同于 Case，已登记 Item 的 Case 不被申请侧修改或取消逆向覆盖。
 
 ### REG-001 — HIS申请登记
 
@@ -471,13 +473,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B08 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B08 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B08 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B08 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B08 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-008 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-009 — 标本接收
 
@@ -515,13 +517,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B10 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B10 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B10 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B10 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B10 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-010 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-011 — 不合格标本拒收
 
@@ -537,13 +539,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B11 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B11 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B11 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B11 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-011 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-012 — 拒收原因
 
@@ -559,13 +561,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B12 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B12 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B12 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B12 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B12 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-012 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-013 — 标本补充信息
 
@@ -603,13 +605,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B14 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B14 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B14 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B14 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B14 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-014 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 产品内打印与日志已闭环；真实标签机/回执打印机仍按 DEVICE-PRINT-* 作为 EXTERNAL_DEPENDENCY。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-015 — 门诊回执打印
 
@@ -625,13 +627,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 B15 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B15 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B15 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B15 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md B15 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 REG-015 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`/`V2ApplicationController` 完成核对与拒收；`V2RegistrationApplicationService`/`V2RegistrationController` 完成病理号纠正、正式标签和门诊回执。
+- DB Evidence: `V35__application_registration_closure.sql` 保存逐 Item 核对/拒收、正式标签打印日志、病理号变更历史与 Case 快照。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 在同一 Focused Workspace 展示申请、核对、拒收、登记、标签与回执；`V2CaseContext.vue` 提供授权病理号更正。
+- Test Evidence: `V2ApplicationWebTest`、`V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 覆盖原因必填、拒收不建 Case、历史、打印及 403。
+- Status: COMPLETE
+- Gap: 产品内打印与日志已闭环；真实标签机/回执打印机仍按 DEVICE-PRINT-* 作为 EXTERNAL_DEPENDENCY。
+- V2 Decision: 拒收是 ApplicationItem/来样事实且不创建 Case；病理号纠正保持 CaseId 与下游材料不变并保留完整历史。
 
 ### REG-016 — 电子登记本
 
@@ -801,13 +803,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 C05 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C05 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C05 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C05 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C05 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CASE-005 独立立项、实现和验收。
+- Backend Evidence: `V2RegistrationApplicationService`、`JdbcV2RegistrationRepository` 与 `V2RegistrationController` 实现授权软取消、活跃编号绑定释放和历史查询；`JdbcV2SearchRepository` 支持新旧号检索。
+- DB Evidence: `V35__application_registration_closure.sql` 保存取消原因/人/时间、病理号历史，并以 active-only 唯一索引约束有效号码绑定。
+- Frontend Evidence: `V2CaseContext.vue` 的“更多”菜单提供取消病例并清晰展示已取消状态、原因和时间线；全局搜索仍可进入病例中心。
+- Test Evidence: `V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 验证不硬删除、材料保留、正常队列排除、新旧号可搜索和无权限 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口；编号生成器不会主动复用已取消号码。
+- V2 Decision: Case 取消独立于 Application 取消；只释放 active number binding，保留 Case、材料、诊断、报告、审计及号码历史。
 
 ### CASE-006 — pathology number release
 
@@ -823,13 +825,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 C06 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C06 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C06 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C06 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md C06 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CASE-006 独立立项、实现和验收。
+- Backend Evidence: `V2RegistrationApplicationService`、`JdbcV2RegistrationRepository` 与 `V2RegistrationController` 实现授权软取消、活跃编号绑定释放和历史查询；`JdbcV2SearchRepository` 支持新旧号检索。
+- DB Evidence: `V35__application_registration_closure.sql` 保存取消原因/人/时间、病理号历史，并以 active-only 唯一索引约束有效号码绑定。
+- Frontend Evidence: `V2CaseContext.vue` 的“更多”菜单提供取消病例并清晰展示已取消状态、原因和时间线；全局搜索仍可进入病例中心。
+- Test Evidence: `V2RegistrationWebTest`、`RegistrationPermissionAndDataScopeTest` 与 `fc02a-registration.spec.ts` 验证不硬删除、材料保留、正常队列排除、新旧号可搜索和无权限 403。
+- Status: COMPLETE
+- Gap: 无当前已知闭环缺口；编号生成器不会主动复用已取消号码。
+- V2 Decision: Case 取消独立于 Application 取消；只释放 active number binding，保留 Case、材料、诊断、报告、审计及号码历史。
 
 ### CASE-007 — Case progress projection
 
@@ -16069,13 +16071,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-001 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-002 — 通过条码找到申请
 
@@ -16091,13 +16093,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-002 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-003 — 条码不存在时拒绝
 
@@ -16113,13 +16115,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-003 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-004 — 条码与申请不匹配时拒绝
 
@@ -16135,13 +16137,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-004 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-005 — 确认送检
 
@@ -16157,13 +16159,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-005 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-006 — 保存送检时间
 
@@ -16179,13 +16181,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-006 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-007 — 保存送检人
 
@@ -16201,13 +16203,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-007 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-008 — 查询送检记录
 
@@ -16223,13 +16225,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-008 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-009 — 按门诊/住院号查询
 
@@ -16245,13 +16247,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-009 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-010 — 按时间查询
 
@@ -16267,13 +16269,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-010 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-011 — 按申请项目查询
 
@@ -16289,13 +16291,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-011 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-012 — Excel 导出
 
@@ -16311,13 +16313,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-012 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ### APP-SEND-013 — 导出内容与查询结果一致
 
@@ -16333,13 +16335,13 @@
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 A14–A18 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md A14–A18 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 APP-SEND-013 独立立项、实现和验收。
+- Backend Evidence: `V2ApplicationApplicationService`、`JdbcV2ApplicationRepository` 与 `V2ApplicationController` 共享同一来样事实，支持扫码匹配、重复识别、确认、组合查询与 Excel 导出。
+- DB Evidence: `V35__application_registration_closure.sql` 在 ApplicationItem 上保存稳定条码、送检时间、操作人和来样引用，并保留打印/重打日志。
+- Frontend Evidence: `V2RegistrationWorkbench.vue` 与 `v2RegistrationApi.ts` 提供送检条码扫描、患者/申请摘要核对、确认、记录查询和 Excel 导出。
+- Test Evidence: `V2ApplicationWebTest` 与 `fc02a-registration.spec.ts` 覆盖未找到、不匹配、重复扫描、事实保存、各筛选条件、稳定打印顺序及导出结果一致性。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；真实扫码枪与打印硬件验证仍为独立 EXTERNAL_DEPENDENCY。
+- V2 Decision: 送检事实绑定申请侧来样身份；登记前不提前创建核心 Specimen，不存在条码时也不会自动创建 Application。
 
 ## 3. Workbench atomic acceptance
 
