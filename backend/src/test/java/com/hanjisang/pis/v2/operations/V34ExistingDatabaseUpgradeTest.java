@@ -66,6 +66,7 @@ class V34ExistingDatabaseUpgradeTest {
                 .schemas("pis")
                 .defaultSchema("pis")
                 .locations("classpath:db/migration")
+                .target("34")
                 .load()
                 .migrate();
 

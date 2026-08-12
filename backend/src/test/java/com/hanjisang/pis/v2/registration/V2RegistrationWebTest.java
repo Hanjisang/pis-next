@@ -1,6 +1,7 @@
 package com.hanjisang.pis.v2.registration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -123,6 +124,15 @@ class V2RegistrationWebTest {
     @Test
     void caseCancellationKeepsIdentityReleasesNumberBindingAndIsAudited() throws Exception {
         String caseId = createCase("APP-I01-CANCEL", "SYNTH-PATIENT-CANCEL", "case-i01-cancel");
+        JsonNode specimen = objectMapper.readTree(mockMvc.perform(post("/api/v2/registration/specimens")
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"caseId":"%s","specimenCode":"CANCEL-A","specimenKindCode":"TISSUE",
+                         "sourceKindCode":"LOCAL","sourceReference":"SYNTH-CANCEL-SOURCE",
+                         "collectionSite":"synthetic site","collectionMethodCode":"SURGERY",
+                         "labelCode":"SYNTH-CANCEL-LABEL","idempotencyKey":"specimen-cancel-history"}
+                        """.formatted(caseId))).andExpect(status().isOk()).andReturn()
+                .getResponse().getContentAsString());
+        String specimenId = specimen.get("specimenId").asText();
         JsonNode cancelled = objectMapper.readTree(mockMvc.perform(post(
                 "/api/v2/registration/cases/%s/cancel".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -133,8 +143,60 @@ class V2RegistrationWebTest {
         assertThat(cancelled.get("numberBindingActive").asBoolean()).isFalse();
         assertThat(jdbcTemplate.queryForObject("SELECT cancellation_reason FROM pis_v2.pathology_case WHERE id = ?",
                 String.class, java.util.UUID.fromString(caseId))).isEqualTo("synthetic receiving rejection");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.specimen WHERE id = ?",
+                Integer.class, java.util.UUID.fromString(specimenId))).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.pathology_number_history WHERE case_id = ? AND operation_code = 'CANCELLATION_RELEASE'",
+                Integer.class, java.util.UUID.fromString(caseId))).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis.audit_event WHERE operation_code = 'PIS-V2-CASE-CANCEL'",
                 Integer.class)).isEqualTo(1);
+        assertThat(mockMvc.perform(get("/api/v2/search?q=APP-I01-CANCEL"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(caseId);
+    }
+
+    @Test
+    void pathologyNumberCorrectionKeepsCaseIdentityAndPreservesSearchableHistory() throws Exception {
+        String firstCaseId = createCase("APP-I01-CORRECT-A", "SYNTH-PATIENT-CORRECT", "case-i01-correct-a");
+        String secondCaseId = createCase("APP-I01-CORRECT-B", "SYNTH-PATIENT-OTHER", "case-i01-correct-b");
+        JsonNode firstBefore = objectMapper.readTree(mockMvc.perform(
+                get("/api/v2/registration/cases/{caseId}", firstCaseId)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        JsonNode second = objectMapper.readTree(mockMvc.perform(
+                get("/api/v2/registration/cases/{caseId}", secondCaseId)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+
+        mockMvc.perform(post("/api/v2/registration/cases/{caseId}/pathology-number", firstCaseId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"newPathologyNo":"P-CORRECTED-001","reason":""}
+                        """))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v2/registration/cases/{caseId}/pathology-number", firstCaseId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"newPathologyNo":"%s","reason":"synthetic duplicate attempt","expectedVersion":0}
+                        """.formatted(second.get("caseNo").asText())))
+                .andExpect(status().isConflict());
+
+        JsonNode corrected = objectMapper.readTree(mockMvc.perform(post(
+                "/api/v2/registration/cases/{caseId}/pathology-number", firstCaseId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"newPathologyNo":"P-CORRECTED-001","reason":"synthetic transcription correction",
+                         "expectedVersion":0}
+                        """)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(corrected.get("caseId").asText()).isEqualTo(firstCaseId);
+        assertThat(corrected.get("caseNo").asText()).isEqualTo("P-CORRECTED-001");
+        assertThat(corrected.get("businessTypeCode").asText()).isEqualTo(firstBefore.get("businessTypeCode").asText());
+
+        JsonNode history = objectMapper.readTree(mockMvc.perform(get(
+                "/api/v2/registration/cases/{caseId}/pathology-number-history", firstCaseId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0).get("oldPathologyNo").asText()).isEqualTo(firstBefore.get("caseNo").asText());
+        assertThat(history.get(0).get("newPathologyNo").asText()).isEqualTo("P-CORRECTED-001");
+        assertThat(mockMvc.perform(get("/api/v2/search").param("q", firstBefore.get("caseNo").asText()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(firstCaseId);
     }
 
     @Test

@@ -1,37 +1,74 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import V2RegistrationWorkbench from './V2RegistrationWorkbench.vue';
 
 describe('V2RegistrationWorkbench', () => {
-  it('keeps registration and multi-specimen maintenance in one workspace', async () => {
-    const wrapper = mount(V2RegistrationWorkbench);
+  afterEach(() => vi.unstubAllGlobals());
 
-    expect(wrapper.text()).toContain('核对申请并登记');
+  it('offers application intake and item-level registration in one focused workspace', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/application-item-mappings')) {
+          return new Response(
+            JSON.stringify([
+              {
+                applicationItemCode: 'SYNTH-HISTOLOGY',
+                defaultSpecimenKindCode: 'TISSUE',
+                businessTypeCode: 'HISTOLOGY',
+                businessTypeName: '常规组织病理',
+              },
+              {
+                applicationItemCode: 'SYNTH-CYTOLOGY',
+                defaultSpecimenKindCode: 'CYTOLOGY',
+                businessTypeCode: 'CYTOLOGY',
+                businessTypeName: '细胞病理',
+              },
+            ]),
+          );
+        }
+        if (url.includes('/api/v2/applications/queue')) return new Response('[]');
+        throw new Error(`unexpected request ${url}`);
+      }),
+    );
+
+    const wrapper = mount(V2RegistrationWorkbench, {
+      props: {
+        authUser: {
+          userId: 'U-REG',
+          username: 'registrar-a',
+          displayName: '登记员甲',
+          roleCode: 'REGISTRAR',
+          permissions: [
+            'P14-PERM-002',
+            'P14-PERM-003',
+            'P14-PERM-004',
+            'P14-PERM-008',
+            'P14-PERM-009',
+            'P14-PERM-010',
+            'P14-PERM-048',
+          ],
+        },
+      },
+    });
+    await flushPromises();
+
     expect(wrapper.text()).toContain('待登记申请');
-    const manualButton = wrapper
+    expect(wrapper.text()).toContain('送检扫码与记录');
+    await wrapper.get('button.primary-button').trigger('click');
+
+    expect(wrapper.text()).toContain('获取或人工补录患者信息');
+    expect(wrapper.text()).toContain('申请与临床资料');
+    expect(wrapper.text()).toContain('项目与送检标本');
+    expect(wrapper.text()).not.toContain('Application UUID');
+    expect(wrapper.text()).not.toContain('Case UUID');
+
+    const addItem = wrapper
       .findAll('button')
-      .find((button) => button.text().includes('新增手工病例'));
-    await manualButton?.trigger('click');
-    expect(wrapper.text()).toContain('患者 / 就诊');
-    expect(wrapper.text()).toContain('业务类型与编号');
-    expect(wrapper.text()).toContain('标本信息');
-    expect(wrapper.text()).not.toContain('BusinessType');
-    expect(wrapper.text()).not.toContain('Specimen');
-
-    const addButton = wrapper
-      .findAll('button')
-      .find((button) => button.text().includes('新增标本'));
-    await addButton?.trigger('click');
-    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(2);
-
-    const copyButton = wrapper.findAll('button').find((button) => button.text() === '复制');
-    await copyButton?.trigger('click');
-    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(3);
-    expect(wrapper.text()).toContain('3 个标本');
-
-    await wrapper.get('[aria-label="业务类型"]').setValue('CONSULTATION');
-    expect(wrapper.findAll('.specimen-row-editor')).toHaveLength(0);
-    expect(wrapper.text()).toContain('会诊病例可在后续登记外院玻片或蜡块');
+      .find((button) => button.text().includes('新增申请项目'));
+    await addItem?.trigger('click');
+    expect(wrapper.findAll('.application-item-row')).toHaveLength(2);
   });
 });

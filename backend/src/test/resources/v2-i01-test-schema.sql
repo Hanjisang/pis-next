@@ -360,8 +360,15 @@ DELETE FROM pis.outbox_event;
 
 INSERT INTO pis_v2.business_type
     (id, business_type_code, display_name, modality_code, active, configuration_version, created_at, created_by_ref)
-VALUES ('00000000-0000-0000-0000-00000000b001', 'HISTOLOGY', '组织病理', 'TISSUE', TRUE, 1,
-        CURRENT_TIMESTAMP, 'TEST');
+VALUES
+    ('00000000-0000-0000-0000-00000000b001', 'HISTOLOGY', '组织病理', 'TISSUE', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b101', 'FROZEN', '冰冻病理', 'FROZEN', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b102', 'CYTOLOGY_NON_GYN', '非妇科细胞学', 'CYTOLOGY', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b103', 'MOLECULAR', '分子病理', 'MOLECULAR', TRUE, 1,
+     CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.diagnosis_template
     (id, organization_reference, template_code, template_name, business_type_id, scope_code, enabled,
      concurrency_version, created_at, created_by_ref, updated_at, updated_by_ref)
@@ -399,8 +406,15 @@ VALUES
 INSERT INTO pis_v2.application_item_mapping
     (id, application_item_code, business_type_id, default_specimen_kind_code, required, sequence_no,
      active, configuration_version, created_at, created_by_ref)
-VALUES ('00000000-0000-0000-0000-00000000b002', 'SYNTH-HISTOLOGY',
-        '00000000-0000-0000-0000-00000000b001', 'TISSUE', TRUE, 1, TRUE, 1, CURRENT_TIMESTAMP, 'TEST');
+VALUES
+    ('00000000-0000-0000-0000-00000000b002', 'SYNTH-HISTOLOGY',
+     '00000000-0000-0000-0000-00000000b001', 'TISSUE', TRUE, 1, TRUE, 1, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b112', 'SYNTH-FROZEN',
+     '00000000-0000-0000-0000-00000000b101', 'TISSUE', TRUE, 2, TRUE, 1, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b113', 'SYNTH-CYTOLOGY',
+     '00000000-0000-0000-0000-00000000b102', 'FLUID', TRUE, 3, TRUE, 1, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b114', 'SYNTH-MOLECULAR',
+     '00000000-0000-0000-0000-00000000b103', 'TISSUE', TRUE, 4, TRUE, 1, CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.pathology_number_rule
     (id, business_type_id, organization_reference, number_kind_code, prefix, scope_code, padding_width,
      next_serial, active, configuration_version, created_at, updated_at, created_by_ref)
@@ -408,7 +422,19 @@ VALUES
     ('00000000-0000-0000-0000-00000000b003', '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL',
      'CASE', 'H-', 'ORGANIZATION', 6, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
     ('00000000-0000-0000-0000-00000000b004', '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL',
-     'SPECIMEN', 'HS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
+     'SPECIMEN', 'HS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b121', '00000000-0000-0000-0000-00000000b101', 'LOCAL_HOSPITAL',
+     'CASE', 'F-', 'ORGANIZATION', 6, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b122', '00000000-0000-0000-0000-00000000b101', 'LOCAL_HOSPITAL',
+     'SPECIMEN', 'FS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b123', '00000000-0000-0000-0000-00000000b102', 'LOCAL_HOSPITAL',
+     'CASE', 'C-', 'ORGANIZATION', 6, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b124', '00000000-0000-0000-0000-00000000b102', 'LOCAL_HOSPITAL',
+     'SPECIMEN', 'CS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b125', '00000000-0000-0000-0000-00000000b103', 'LOCAL_HOSPITAL',
+     'CASE', 'M-', 'ORGANIZATION', 6, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b126', '00000000-0000-0000-0000-00000000b103', 'LOCAL_HOSPITAL',
+     'SPECIMEN', 'MS-', 'ORGANIZATION', 7, 1, TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.slide_rule
     (id, organization_reference, business_type_id, rule_code, source_context_type, trigger_code,
      slide_type, stain_code, copies, active, configuration_version, created_at, updated_at, created_by_ref)
@@ -919,4 +945,68 @@ CREATE TABLE IF NOT EXISTS pis_v2.migration_error (
     id UUID PRIMARY KEY, job_id UUID NOT NULL, record_id UUID, error_code VARCHAR(128) NOT NULL,
     error_message VARCHAR(4000) NOT NULL, retry_count INTEGER NOT NULL, resolved_at TIMESTAMP WITH TIME ZONE,
     resolved_by_ref VARCHAR(128), organization_reference VARCHAR(128) NOT NULL
+);
+
+-- FC02A lightweight H2 compatibility only. PostgreSQL migrations and Testcontainers
+-- remain the source of truth for partial indexes and constraint semantics.
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS patient_info_source_code VARCHAR(32) DEFAULT 'MANUAL' NOT NULL;
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS patient_identity_no VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS visit_card_no VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS contact_phone VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS age_value INTEGER;
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS age_unit_code VARCHAR(16);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS ward_reference VARCHAR(256);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS bed_reference VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application ADD IF NOT EXISTS surgery_name VARCHAR(1000);
+
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS cancelled_by_ref VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS cancellation_reason VARCHAR(2000);
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS rejected_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS rejected_by_ref VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS rejection_reason_code VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application_item ADD IF NOT EXISTS rejection_reason_text VARCHAR(2000);
+
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS incoming_specimen_reference VARCHAR(256);
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS reason_code VARCHAR(128);
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS patient_match BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS application_match BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS quantity_match BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS specimen_match BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS container_match BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE pis_v2.pathology_application_delivery ADD IF NOT EXISTS fixation_match BOOLEAN DEFAULT FALSE NOT NULL;
+
+ALTER TABLE pis_v2.pathology_application_barcode_print ADD IF NOT EXISTS operation_code VARCHAR(16) DEFAULT 'PRINT' NOT NULL;
+ALTER TABLE pis_v2.pathology_application_barcode_print ADD IF NOT EXISTS copies INTEGER DEFAULT 1 NOT NULL;
+ALTER TABLE pis_v2.pathology_application_barcode_print ADD IF NOT EXISTS rendered_label VARCHAR(4000);
+ALTER TABLE pis_v2.pathology_registration_receipt_print ADD IF NOT EXISTS operation_code VARCHAR(16) DEFAULT 'PRINT' NOT NULL;
+ALTER TABLE pis_v2.pathology_registration_receipt_print ADD IF NOT EXISTS copies INTEGER DEFAULT 1 NOT NULL;
+ALTER TABLE pis_v2.pathology_registration_receipt_print ADD IF NOT EXISTS rendered_receipt VARCHAR(10000);
+
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS patient_name VARCHAR(256);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS patient_sex_code VARCHAR(32);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS patient_birth_date DATE;
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS age_value INTEGER;
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS age_unit_code VARCHAR(16);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS visit_type_code VARCHAR(32);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS application_department VARCHAR(256);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS applicant_reference VARCHAR(256);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS clinical_diagnosis VARCHAR(4000);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS medical_history VARCHAR(10000);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS surgery_name VARCHAR(1000);
+ALTER TABLE pis_v2.case_context_snapshot ADD IF NOT EXISTS operation_finding VARCHAR(10000);
+
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_number_history (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, old_pathology_no VARCHAR(128) NOT NULL,
+    new_pathology_no VARCHAR(128), operation_code VARCHAR(32) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL, changed_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.pathology_registration_label_print (
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, specimen_id UUID NOT NULL,
+    pathology_no VARCHAR(128) NOT NULL, specimen_code VARCHAR(128) NOT NULL,
+    operation_code VARCHAR(16) NOT NULL, copies INTEGER NOT NULL, printer_profile_code VARCHAR(128) NOT NULL,
+    rendered_label VARCHAR(4000) NOT NULL, result_code VARCHAR(32) NOT NULL, failure_reason VARCHAR(2000),
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL, requested_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
 );

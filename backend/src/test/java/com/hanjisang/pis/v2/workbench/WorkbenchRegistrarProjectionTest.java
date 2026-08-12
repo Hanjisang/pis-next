@@ -47,6 +47,15 @@ class WorkbenchRegistrarProjectionTest {
         String completedItem = first.path("items").get(0).path("itemId").asText();
         String remainingItem = first.path("items").get(1).path("itemId").asText();
 
+        mockMvc.perform(post("/api/v2/applications/{applicationId}/delivery", applicationId)
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"applicationItemId":"%s","incomingSpecimenReference":"WB-REG-R1-1",
+                         "specimenLabelCode":"WB-REG-R1-1","patientReference":"SYNTH-PATIENT",
+                         "actualSpecimenDescription":"合成标本","outcomeCode":"ACCEPTED",
+                         "patientMatch":true,"applicationMatch":true,"quantityMatch":true,
+                         "specimenMatch":true,"containerMatch":true,"fixationMatch":true}
+                        """.formatted(completedItem))).andExpect(status().isOk());
+
         mockMvc.perform(post("/api/v2/applications/{applicationId}/items/{itemId}/register",
                 applicationId, completedItem).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isOk());

@@ -43,9 +43,18 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("BUSINESS-OPERATIONS-FACTS");
+                String.class)).isEqualTo("APPLICATION-REGISTRATION-CLOSURE");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("34");
+                String.class)).isEqualTo("35");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'pis_v2' AND table_name IN
+                    ('pathology_number_history', 'pathology_registration_label_print')
+                """, Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pg_indexes
+                WHERE schemaname = 'pis_v2' AND indexname = 'uq_v2_case_no_active'
+                """, Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.business_type", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.application_item_mapping", Integer.class))
                 .isEqualTo(5);
