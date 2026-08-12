@@ -51,7 +51,7 @@ class V2GateCWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).get("grossingId").asText();
         mockMvc.perform(post("/api/v2/grossings/%s/specimens".formatted(grossingId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"specimenId\":\"%s\",\"idempotencyKey\":\"gatec-associate\"}".formatted(specimenId)))
+                .content("{\"specimenId\":\"%s\",\"materialDescription\":\"synthetic specimen gross finding\",\"idempotencyKey\":\"gatec-associate\"}".formatted(specimenId)))
                 .andExpect(status().isOk());
         String blockId = json(mockMvc.perform(post("/api/v2/grossings/%s/blocks".formatted(grossingId))
                 .contentType(MediaType.APPLICATION_JSON)

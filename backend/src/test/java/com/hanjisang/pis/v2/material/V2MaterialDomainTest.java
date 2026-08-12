@@ -28,9 +28,10 @@ class V2MaterialDomainTest {
         assertThat(grossing.concurrencyVersion()).isEqualTo(1);
 
         grossing.reopen(Instant.now());
-        assertThat(grossing.isCompleted()).isFalse();
+        assertThat(grossing.isCompleted()).isTrue();
         assertThat(grossing.concurrencyVersion()).isEqualTo(2);
-        assertThatThrownBy(() -> grossing.reopen(Instant.now())).isInstanceOf(IllegalStateException.class);
+        grossing.reopen(Instant.now());
+        assertThat(grossing.concurrencyVersion()).isEqualTo(3);
     }
 
     @Test

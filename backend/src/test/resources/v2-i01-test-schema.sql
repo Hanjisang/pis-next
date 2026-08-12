@@ -94,9 +94,10 @@ CREATE TABLE IF NOT EXISTS pis_v2.case_context_snapshot (
 );
 CREATE TABLE IF NOT EXISTS pis_v2.specimen (
     id UUID PRIMARY KEY, case_id UUID NOT NULL, specimen_no VARCHAR(128) NOT NULL,
-    specimen_code VARCHAR(128) NOT NULL, specimen_kind_code VARCHAR(64) NOT NULL,
+    specimen_code VARCHAR(128) NOT NULL, specimen_name VARCHAR(500) NOT NULL,
+    specimen_kind_code VARCHAR(64) NOT NULL, creation_source_code VARCHAR(32) NOT NULL,
     source_kind_code VARCHAR(64) NOT NULL, source_reference VARCHAR(256) NOT NULL,
-    collection_site VARCHAR(500) NOT NULL, collection_method_code VARCHAR(64) NOT NULL,
+    collection_site VARCHAR(500), collection_method_code VARCHAR(64),
     label_code VARCHAR(256), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
     deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
@@ -137,9 +138,10 @@ CREATE TABLE IF NOT EXISTS pis_v2.grossing_specimen (
     PRIMARY KEY (grossing_id, specimen_id), UNIQUE (grossing_id, sequence_no)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.block (
-    id UUID PRIMARY KEY, case_id UUID NOT NULL, grossing_id UUID NOT NULL, specimen_id UUID NOT NULL,
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, grossing_id UUID, specimen_id UUID,
     block_code VARCHAR(64) NOT NULL, block_type VARCHAR(64) NOT NULL, external_source_flag BOOLEAN NOT NULL,
-    external_source_reference VARCHAR(256), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
+    external_source_reference VARCHAR(256), sampling_description VARCHAR(2000), quantity INTEGER NOT NULL,
+    note VARCHAR(2000), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
     deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
@@ -325,6 +327,39 @@ CREATE TABLE IF NOT EXISTS pis_v2.technical_order_idempotency (
     UNIQUE (operation_code, idempotency_key)
 );
 
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_correction_history (
+    id UUID PRIMARY KEY, grossing_id UUID NOT NULL, reason VARCHAR(2000) NOT NULL,
+    prior_gross_description VARCHAR(4000) NOT NULL, corrected_gross_description VARCHAR(4000) NOT NULL,
+    prior_instruction VARCHAR(4000), corrected_instruction VARCHAR(4000),
+    corrected_at TIMESTAMP WITH TIME ZONE NOT NULL, corrected_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.grossing_specimen_correction_history (
+    id UUID PRIMARY KEY, grossing_id UUID NOT NULL, specimen_id UUID NOT NULL,
+    prior_description VARCHAR(4000), corrected_description VARCHAR(4000) NOT NULL,
+    reason VARCHAR(2000) NOT NULL, corrected_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    corrected_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.block_code_history (
+    id UUID PRIMARY KEY, block_id UUID NOT NULL, old_block_code VARCHAR(64) NOT NULL,
+    new_block_code VARCHAR(64) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL, changed_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.block_verification_policy (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
+    verification_required BOOLEAN NOT NULL, dual_check_required BOOLEAN NOT NULL,
+    same_user_allowed BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, business_type_id)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.block_verification (
+    id UUID PRIMARY KEY, block_id UUID NOT NULL, verification_result_code VARCHAR(32) NOT NULL,
+    verified_code VARCHAR(64) NOT NULL, verified_specimen_id UUID, verified_quantity INTEGER NOT NULL,
+    reason VARCHAR(2000), verified_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    verified_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+
 DELETE FROM pis_v2.idempotency_record;
 DELETE FROM pis_v2.technical_order_idempotency;
 DELETE FROM pis_v2.technical_order_output;
@@ -343,7 +378,11 @@ DELETE FROM pis_v2.diagnosis_template;
 DELETE FROM pis_v2.material_command_idempotency;
 DELETE FROM pis_v2.print_log;
 DELETE FROM pis_v2.slide;
+DELETE FROM pis_v2.block_verification;
+DELETE FROM pis_v2.block_code_history;
 DELETE FROM pis_v2.block;
+DELETE FROM pis_v2.grossing_specimen_correction_history;
+DELETE FROM pis_v2.grossing_correction_history;
 DELETE FROM pis_v2.grossing_specimen;
 DELETE FROM pis_v2.grossing_sequence;
 DELETE FROM pis_v2.grossing;
@@ -354,6 +393,7 @@ DELETE FROM pis_v2.case_context_snapshot;
 DELETE FROM pis_v2.pathology_case;
 DELETE FROM pis_v2.pathology_number_rule;
 DELETE FROM pis_v2.application_item_mapping;
+DELETE FROM pis_v2.block_verification_policy;
 DELETE FROM pis_v2.business_type;
 DELETE FROM pis.audit_event;
 DELETE FROM pis.outbox_event;
@@ -668,6 +708,10 @@ CREATE TABLE IF NOT EXISTS pis_v2.grossing_image_measurement (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
 );
 
+DELETE FROM pis_v2.grossing_image_annotation;
+DELETE FROM pis_v2.grossing_image_measurement;
+DELETE FROM pis_v2.grossing_image;
+
 ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS laterality_code VARCHAR(32);
 ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS quantity_value NUMERIC(12,3);
 ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS quantity_unit_code VARCHAR(32);
@@ -685,6 +729,16 @@ CREATE TABLE IF NOT EXISTS pis_v2.specimen_split (
     quantity_value NUMERIC(12,3), reason VARCHAR(2000) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
 );
+
+DELETE FROM pis_v2.specimen_receiving_fact;
+DELETE FROM pis_v2.specimen_split;
+
+MERGE INTO pis_v2.block_verification_policy
+    (id, organization_reference, business_type_id, verification_required, dual_check_required,
+     same_user_allowed, configuration_version, updated_at, updated_by_ref)
+KEY (organization_reference, business_type_id)
+SELECT RANDOM_UUID(), 'LOCAL_HOSPITAL', id, FALSE, FALSE, TRUE, 1, CURRENT_TIMESTAMP, 'TEST-SCHEMA'
+FROM pis_v2.business_type;
 
 CREATE TABLE IF NOT EXISTS pis_v2.material_rework (
     id UUID PRIMARY KEY, case_id UUID NOT NULL, original_slide_id UUID NOT NULL,

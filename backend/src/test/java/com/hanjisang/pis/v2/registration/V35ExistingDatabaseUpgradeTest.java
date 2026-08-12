@@ -38,7 +38,7 @@ class V35ExistingDatabaseUpgradeTest {
         Seed seed = seedRepresentativeV34Data(jdbc);
         Map<String, Integer> before = counts(jdbc);
 
-        migrateTo(null);
+        migrateTo("35");
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",

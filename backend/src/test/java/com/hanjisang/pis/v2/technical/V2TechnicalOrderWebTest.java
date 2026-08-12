@@ -103,16 +103,33 @@ class V2TechnicalOrderWebTest {
     }
 
     @Test
-    void supplementaryGrossingCreatesFormalGrossingBlockAndSlideFacts() throws Exception {
+    void supplementaryGrossingCreatesOpenGrossingThenLinksBlocksWithoutEnteringSlideProduction() throws Exception {
         CaseSetup setup = createReadyCase("I04-SUPPLEMENTARY");
         String diagnosisId = claim(setup.caseId(), "claim-i04-supplementary").get("diagnosisId").asText();
         JsonNode created = createOrder("order-i04-supplementary", diagnosisId, true,
                 item(projectId("SUPPLEMENTARY-GROSSING"), "SPECIMEN", setup.specimenId()));
         JsonNode executed = execute(created.get("orderId").asText(), "execute-i04-supplementary");
         JsonNode outputs = executed.get("items").get(0).get("outputs");
-        assertThat(outputs).hasSize(3);
-        assertThat(outputs.toString()).contains("GROSSING", "BLOCK", "SLIDE");
+        assertThat(outputs).hasSize(1);
+        assertThat(outputs.toString()).contains("GROSSING").doesNotContain("BLOCK", "SLIDE");
         String itemId = executed.get("items").get(0).get("itemId").asText();
+        String grossingId = outputs.get(0).get("outputId").asText();
+        JsonNode block = json(mockMvc.perform(post("/api/v2/grossings/%s/blocks".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenId":"%s","blockCode":"SUP-A1","blockType":"ROUTINE",
+                         "samplingDescription":"supplementary sample","idempotencyKey":"block-i04-supplementary"}
+                        """.formatted(setup.specimenId())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        mockMvc.perform(post("/api/v2/grossings/%s/complete".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":0,\"idempotencyKey\":\"complete-i04-supplementary\"}"))
+                .andExpect(status().isOk());
+        JsonNode afterCompletion = json(mockMvc.perform(get("/api/v2/technical-orders/%s"
+                .formatted(created.get("orderId").asText())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(afterCompletion.get("items").get(0).get("outputs").toString())
+                .contains("GROSSING", "BLOCK").doesNotContain("SLIDE");
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM pis_v2.grossing WHERE case_id = ? AND source_type = 'TECHNICAL_ORDER' AND source_reference_id = ?",
                 Integer.class, setup.caseId(), UUID.fromString(itemId))).isEqualTo(1);
@@ -121,10 +138,11 @@ class V2TechnicalOrderWebTest {
                 Integer.class, setup.caseId())).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM pis_v2.slide WHERE case_id = ? AND source_context_type = 'TECHNICAL_ORDER'",
-                Integer.class, setup.caseId())).isEqualTo(1);
+                Integer.class, setup.caseId())).isZero();
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM pis_v2.slide WHERE case_id = ? AND source_context_type = 'INITIAL' AND completed_at IS NOT NULL",
                 Integer.class, setup.caseId())).isEqualTo(1);
+        assertThat(block.get("blockId").asText()).isNotBlank();
     }
 
     @Test

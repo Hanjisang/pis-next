@@ -44,7 +44,7 @@ class V2MaterialProductionWebTest {
     }
 
     @Test
-    void completeGrossingCreatesMissingSlidesOnceAndReopenOnlyCreatesNewOutputs() throws Exception {
+    void completeGrossingIsIdempotentAndCorrectionReopenDoesNotCreateNewOutputs() throws Exception {
         String caseId = createCase("APP-I02-001");
         String specimenA = createSpecimen(caseId, "A", "specimen-i02-001");
         String specimenB = createSpecimen(caseId, "B", "specimen-i02-002");
@@ -77,17 +77,18 @@ class V2MaterialProductionWebTest {
                 .content("{\"expectedVersion\":1,\"reason\":\"synthetic correction\",\"idempotencyKey\":\"reopen-i02-001\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(reopened.get("concurrencyVersion").asLong()).isEqualTo(2);
-        createBlock(grossingId, specimenA, "A3", "block-i02-a3");
-        JsonNode secondCompletion = completeGrossing(grossingId, 2, "complete-i02-002");
-        assertThat(secondCompletion.get("createdSlideCount").asInt()).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.slide", Integer.class)).isEqualTo(4);
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.slide WHERE slide_code = 'A3-HE'",
-                Integer.class)).isEqualTo(1);
+        assertThat(reopened.get("completedAt").isNull()).isFalse();
+        mockMvc.perform(post("/api/v2/grossings/%s/blocks".formatted(grossingId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"specimenId\":\"%s\",\"blockCode\":\"A3\",\"blockType\":\"ROUTINE\",\"idempotencyKey\":\"block-i02-a3\"}"
+                        .formatted(specimenA)))
+                .andExpect(status().isConflict());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.slide", Integer.class)).isEqualTo(3);
         assertThat(blockA1).isNotBlank();
     }
 
     @Test
-    void blockRenameAndSoftDeletePreserveTraceabilityAndUpdateMaterialTree() throws Exception {
+    void blockCorrectionPreservesTraceabilityAndSlidePreventsDeletion() throws Exception {
         String caseId = createCase("APP-I02-002");
         String specimenId = createSpecimen(caseId, "A", "specimen-i02-003");
         String grossingId = createGrossing(caseId, "grossing-i02-002");
@@ -103,7 +104,7 @@ class V2MaterialProductionWebTest {
 
         JsonNode renamed = objectMapper.readTree(mockMvc.perform(put("/api/v2/blocks/%s".formatted(blockId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"blockCode\":\"A1-R\",\"blockType\":\"ROUTINE\",\"expectedVersion\":0,\"idempotencyKey\":\"rename-i02-001\"}"))
+                .content("{\"blockCode\":\"A1-R\",\"blockType\":\"ROUTINE\",\"reason\":\"编号录入纠正\",\"expectedVersion\":0,\"idempotencyKey\":\"rename-i02-001\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(renamed.get("blockCode").asText()).isEqualTo("A1-R");
         assertThat(jdbcTemplate.queryForObject("SELECT slide_code FROM pis_v2.slide WHERE id = ?", String.class,
@@ -112,14 +113,14 @@ class V2MaterialProductionWebTest {
         mockMvc.perform(post("/api/v2/blocks/%s/soft-delete".formatted(blockId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"expectedVersion\":1,\"reason\":\"synthetic block correction\",\"idempotencyKey\":\"delete-i02-001\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isConflict());
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.block WHERE deleted_at IS NOT NULL",
-                Integer.class)).isEqualTo(1);
+                Integer.class)).isZero();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.slide WHERE deleted_at IS NOT NULL",
-                Integer.class)).isEqualTo(1);
+                Integer.class)).isZero();
         JsonNode tree = objectMapper.readTree(mockMvc.perform(get("/api/v2/cases/%s/materials".formatted(caseId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(tree.get("specimens").get(0).get("blocks")).isEmpty();
+        assertThat(tree.get("specimens").get(0).get("blocks")).hasSize(1);
     }
 
     @Test
@@ -258,7 +259,7 @@ class V2MaterialProductionWebTest {
                         .formatted(specimenId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         String imageId = image.get("imageId").asText();
-        assertThat(image.get("storageReference").asText()).startsWith("simulator://");
+        assertThat(image.get("storageReference").asText()).startsWith("data:image/svg+xml;base64,");
 
         JsonNode annotation = objectMapper.readTree(mockMvc.perform(post(
                 "/api/v2/material/grossings/images/%s/annotations".formatted(imageId))
@@ -301,12 +302,11 @@ class V2MaterialProductionWebTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reworkTypeCode\":\"RE_STAIN\",\"reason\":\"synthetic quality issue\",\"idempotencyKey\":\"rework-001\"}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v2/grossings/%s/reopen".formatted(grossingId))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"expectedVersion\":1,\"reason\":\"synthetic rework output\",\"idempotencyKey\":\"reopen-rework-001\"}"))
-                .andExpect(status().isOk());
-        String secondBlock = createBlock(grossingId, specimenId, "A2", "block-rework-002");
-        completeGrossing(grossingId, 2, "complete-rework-002");
+        String supplementaryGrossingId = createGrossing(caseId, "grossing-rework-002", "OTHER",
+                UUID.randomUUID().toString());
+        associateSpecimen(supplementaryGrossingId, specimenId, "associate-rework-002");
+        String secondBlock = createBlock(supplementaryGrossingId, specimenId, "A2", "block-rework-002");
+        completeGrossing(supplementaryGrossingId, 0, "complete-rework-002");
         String replacementSlide = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?",
                 String.class, UUID.fromString(secondBlock));
         String reworkId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.material_rework WHERE idempotency_key = ?",
@@ -347,13 +347,20 @@ class V2MaterialProductionWebTest {
     }
 
     private String createGrossing(String caseId, String suffix) throws Exception {
+        return createGrossing(caseId, suffix, "INITIAL", null);
+    }
+
+    private String createGrossing(String caseId, String suffix, String sourceType, String sourceReferenceId)
+            throws Exception {
+        String sourceReference = sourceReferenceId == null ? ""
+                : ",\"sourceReferenceId\":\"" + sourceReferenceId + "\"";
         JsonNode body = objectMapper.readTree(mockMvc.perform(post("/api/v2/cases/%s/grossings".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                        {"sourceType":"INITIAL","grossDescription":"synthetic gross description",
+                        {"sourceType":"%s"%s,"grossDescription":"synthetic gross description",
                          "grossingInstruction":"synthetic instruction","grossingDoctorId":"SYNTH-DOCTOR",
                          "recorderId":"SYNTH-RECORDER","idempotencyKey":"%s"}
-                        """.formatted(suffix)))
+                        """.formatted(sourceType, sourceReference, suffix)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         return body.get("grossingId").asText();
     }

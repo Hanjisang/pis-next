@@ -72,7 +72,7 @@ class V2RegistrationWebTest {
         String duplicateCode = specimenRequest(firstCaseId, "A", "specimen-i01-002", "SYNTH-LABEL-002");
         mockMvc.perform(post("/api/v2/registration/specimens")
                 .contentType(MediaType.APPLICATION_JSON).content(duplicateCode))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isConflict());
 
         String secondCaseId = createCase("APP-I01-003", "SYNTH-PATIENT-003", "case-i01-003");
         String secondSpecimenId = createSpecimen(secondCaseId, "A", "specimen-i01-003", "SYNTH-LABEL-003");
@@ -91,7 +91,7 @@ class V2RegistrationWebTest {
 
         mockMvc.perform(put("/api/v2/registration/specimens/%s".formatted(firstSpecimenId))
                 .contentType(MediaType.APPLICATION_JSON).content(update))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isConflict());
 
         String softDelete = """
                 {"expectedVersion":1,"reason":"synthetic correction"}
@@ -118,7 +118,7 @@ class V2RegistrationWebTest {
 
         String conflict = first.replace("SYNTH-PATIENT-004", "SYNTH-PATIENT-005");
         mockMvc.perform(post("/api/v2/registration/cases").contentType(MediaType.APPLICATION_JSON).content(conflict))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isConflict());
     }
 
     @Test
