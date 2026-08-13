@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.UUID;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -126,6 +128,25 @@ class V2ApplicationWebTest {
                 .anyMatch(value -> value.startsWith("C-"))
                 .anyMatch(value -> value.startsWith("F-"))
                 .anyMatch(value -> value.startsWith("M-"));
+        JsonNode frozenCase = null;
+        for (JsonNode item : registered.get("cases")) {
+            if ("SYNTH-FROZEN".equals(item.path("externalItemCode").asText())) {
+                frozenCase = item;
+                break;
+            }
+        }
+        assertThat(frozenCase).isNotNull();
+        UUID frozenCaseId = UUID.fromString(frozenCase.get("caseId").asText());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.frozen_round WHERE case_id = ?", Integer.class, frozenCaseId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pis_v2.frozen_round_specimen frs
+                JOIN pis_v2.frozen_round fr ON fr.id = frs.frozen_round_id
+                JOIN pis_v2.specimen s ON s.id = frs.specimen_id
+                WHERE fr.case_id = ? AND s.case_id = ?
+                """, Integer.class, frozenCaseId, frozenCaseId)).isEqualTo(1);
     }
 
     @Test

@@ -12,22 +12,43 @@ async function logout(page: Page) {
 async function registerCase(page: Page, testInfo: TestInfo, businessType: '常规组织病理' | '冰冻') {
   const suffix = `${Date.now()}-${testInfo.project.name}`;
   await login(page, 'registrar');
-  await page.goto('/v2/registration');
-  await page.getByRole('button', { name: '新增手工病例' }).click();
-  await page.getByLabel('患者编号').fill(`李四-${suffix.slice(-8)}`);
-  await page.getByLabel('就诊号').fill(`VISIT-${suffix}`);
-  await page.getByLabel('申请号').fill(`APPLICATION-${suffix}`);
-  await page.getByLabel('业务类型', { exact: true }).selectOption({ label: businessType });
-  await page
-    .getByLabel('取材部位')
-    .first()
-    .fill(businessType === '冰冻' ? '甲状腺结节' : '胃窦活检');
-  await page.getByRole('button', { name: '确认登记' }).click();
-  await expect(
-    page.getByRole('status').filter({ hasText: '登记完成，病理号已生成' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: '病例概览' }).click();
-  return new URL(page.url()).pathname.split('/').filter(Boolean).at(-1)!;
+  const suffixKey = suffix.replace(/[^a-zA-Z0-9-]/g, '-');
+  const applicationItemCode = businessType === '冰冻' ? 'SYNTH-FROZEN' : 'SYNTH-HISTOLOGY';
+  const caseResponse = await page.request.post('/api/v2/registration/cases', {
+    data: {
+      sourceSystemCode: 'PIS-PLAYWRIGHT',
+      externalApplicationId: `PX03C-${businessType}-${suffixKey}`,
+      applicationItemCode,
+      patientReference: `PX03C-PATIENT-${suffixKey}`,
+      visitReference: `PX03C-VISIT-${suffixKey}`,
+      idempotencyKey: `px03c-case-${businessType}-${suffixKey}`,
+    },
+  });
+  const created = (await caseResponse.json()) as { caseId: string };
+  expect(caseResponse.ok(), JSON.stringify(created)).toBe(true);
+
+  const specimenResponse = await page.request.post('/api/v2/registration/specimens', {
+    data: {
+      caseId: created.caseId,
+      specimenCode: 'SP1',
+      specimenName: businessType === '冰冻' ? '冰冻标本' : '常规组织标本',
+      specimenKindCode: businessType === '冰冻' ? 'FROZEN' : 'TISSUE',
+      creationSourceCode: 'REGISTRATION',
+      sourceKindCode: 'LOCAL',
+      sourceReference: `PX03C-SOURCE-${suffixKey}`,
+      collectionSite: businessType === '冰冻' ? '甲状腺结节' : '胃窦活检',
+      collectionMethodCode: 'SURGICAL',
+      quantityValue: 1,
+      quantityUnitCode: 'CONTAINER',
+      description: businessType === '冰冻' ? '冰冻合成标本' : '常规合成标本',
+      receivedAt: new Date().toISOString(),
+      labelCode: `PX03C-LABEL-${suffixKey}`,
+      idempotencyKey: `px03c-specimen-${businessType}-${suffixKey}`,
+    },
+  });
+  const specimen = (await specimenResponse.json()) as { specimenId: string };
+  expect(specimenResponse.ok(), JSON.stringify(specimen)).toBe(true);
+  return created.caseId;
 }
 
 async function prepareRoutineTask(page: Page, testInfo: TestInfo) {
@@ -165,9 +186,9 @@ test('PX03C：FrozenRound 进入时间与快速送诊工作区', async ({ page }
   await expect(page).toHaveURL(/\/v2\/frozen\/[^?]+\?.*origin=workbench/);
   await expect(page.getByRole('region', { name: '病例中心', exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '冰冻工作区' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /冰冻第 \d+ 轮/ })).toBeVisible();
-  await expect(page.getByText('等待', { exact: false }).first()).toBeVisible();
-  await expect(page.getByText('完成并送诊', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^第\s*\d+\s*轮$/, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('已用时', { exact: false }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '进入冰冻制片', exact: true })).toBeVisible();
   await expectNoPageOverflow(page);
 });
 

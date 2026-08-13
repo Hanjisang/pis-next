@@ -216,6 +216,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_slide_code_active
     ON pis_v2.slide (case_id, slide_code_active);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_cytology_output
     ON pis_v2.slide (specimen_id, source_context_type, rule_code, occurrence_no);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_frozen_output
+    ON pis_v2.slide (specimen_id, source_context_type, source_context_id, rule_code, occurrence_no);
 CREATE TABLE IF NOT EXISTS pis_v2.print_rule (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID,
     entity_kind_code VARCHAR(32) NOT NULL, trigger_code VARCHAR(64) NOT NULL, printer_profile_code VARCHAR(128) NOT NULL,
@@ -665,7 +667,8 @@ CREATE TABLE IF NOT EXISTS pis_v2.frozen_round (
     status_code VARCHAR(32) NOT NULL, arrival_time TIMESTAMP WITH TIME ZONE NOT NULL,
     registered_at TIMESTAMP WITH TIME ZONE NOT NULL, grossing_start_time TIMESTAMP WITH TIME ZONE,
     slide_completed_time TIMESTAMP WITH TIME ZONE, diagnosis_signed_time TIMESTAMP WITH TIME ZONE,
-    ended_at TIMESTAMP WITH TIME ZONE, ended_by_ref VARCHAR(128), concurrency_version BIGINT NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE, ended_by_ref VARCHAR(128), cancelled_at TIMESTAMP WITH TIME ZONE,
+    cancelled_by_ref VARCHAR(128), cancellation_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL,
     organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by_ref VARCHAR(128) NOT NULL, UNIQUE (case_id, round_no)
 );
@@ -674,10 +677,45 @@ CREATE TABLE IF NOT EXISTS pis_v2.frozen_round_specimen (
     linked_at TIMESTAMP WITH TIME ZONE NOT NULL, linked_by_ref VARCHAR(128) NOT NULL,
     PRIMARY KEY (frozen_round_id, specimen_id), UNIQUE (frozen_round_id, sequence_no)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_frozen_round_specimen_global
+    ON pis_v2.frozen_round_specimen (specimen_id);
 CREATE TABLE IF NOT EXISTS pis_v2.frozen_end (
     id UUID PRIMARY KEY, frozen_case_id UUID NOT NULL UNIQUE, routine_case_id UUID NOT NULL UNIQUE,
     idempotency_key VARCHAR(256) NOT NULL UNIQUE, ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
     ended_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.frozen_end_specimen (
+    id UUID PRIMARY KEY, frozen_end_id UUID NOT NULL, frozen_specimen_id UUID NOT NULL,
+    routine_specimen_id UUID NOT NULL, frozen_round_id UUID NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by_ref VARCHAR(128) NOT NULL, UNIQUE (frozen_end_id, frozen_specimen_id),
+    UNIQUE (routine_specimen_id)
+);
+MERGE INTO pis_v2.qc_rule
+    (id, rule_code, rule_name, metric_code, warning_threshold, overdue_threshold, active, created_at, created_by_ref)
+KEY (rule_code) VALUES
+    ('00000000-0000-0000-0000-00000000c390', 'FROZEN_TAT', '冰冻 TAT', 'FROZEN_TAT_HOURS', 1, 2, TRUE,
+     CURRENT_TIMESTAMP, 'TEST');
+CREATE TABLE IF NOT EXISTS pis_v2.integration_message_log (
+    id UUID PRIMARY KEY, hospital_profile_code VARCHAR(128) NOT NULL, direction_code VARCHAR(16) NOT NULL,
+    source_system_code VARCHAR(128) NOT NULL, target_system_code VARCHAR(128) NOT NULL,
+    message_id VARCHAR(256) NOT NULL, capability_code VARCHAR(64) NOT NULL, business_key VARCHAR(256) NOT NULL,
+    request_reference VARCHAR(1024) NOT NULL, request_digest VARCHAR(128) NOT NULL, response_summary VARCHAR(2000),
+    status_code VARCHAR(32) NOT NULL, error_code VARCHAR(128), error_message VARCHAR(2000), retry_count INTEGER NOT NULL,
+    max_retries INTEGER NOT NULL, next_retry_at TIMESTAMP WITH TIME ZONE, last_attempt_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (hospital_profile_code, source_system_code, target_system_code, message_id)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.integration_attempt (
+    id UUID PRIMARY KEY, message_log_id UUID NOT NULL, attempt_no INTEGER NOT NULL, adapter_code VARCHAR(128) NOT NULL,
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL, completed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    result_code VARCHAR(32) NOT NULL, response_summary VARCHAR(2000), error_code VARCHAR(128),
+    error_message VARCHAR(2000), retryable BOOLEAN NOT NULL, UNIQUE (message_log_id, attempt_no)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.integration_dead_letter (
+    id UUID PRIMARY KEY, message_log_id UUID NOT NULL UNIQUE, reason VARCHAR(2000) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, resolved_at TIMESTAMP WITH TIME ZONE,
+    resolved_by_ref VARCHAR(128), resolution VARCHAR(2000)
 );
 
 CREATE TABLE IF NOT EXISTS pis_v2.pathology_application (

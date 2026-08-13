@@ -41,7 +41,7 @@ class V36ExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("38");
+                String.class)).isEqualTo("41");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(before.values()).allMatch(count -> count > 0);
         assertThat(jdbc.queryForObject("SELECT specimen_name FROM pis_v2.specimen WHERE id = ?", String.class,

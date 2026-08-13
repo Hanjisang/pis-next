@@ -90,10 +90,10 @@ describe('V2FrozenWorkspace', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('冰冻第 1 轮');
-    expect(wrapper.text()).toContain('冰冻第 2 轮');
+    expect(wrapper.text()).toContain('第 1 轮');
+    expect(wrapper.text()).toContain('第 2 轮');
     expect(wrapper.text()).toContain('合成第二轮');
-    expect(wrapper.text()).not.toContain('登记术中新送标本');
+    expect(wrapper.text()).not.toContain('登记术中新增标本');
     expect(wrapper.text()).not.toContain('SourceContext');
   });
 });
