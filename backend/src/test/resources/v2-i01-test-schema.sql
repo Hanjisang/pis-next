@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS pis_v2.specimen (
     specimen_code VARCHAR(128) NOT NULL, specimen_name VARCHAR(500) NOT NULL,
     specimen_kind_code VARCHAR(64) NOT NULL, creation_source_code VARCHAR(32) NOT NULL,
     source_kind_code VARCHAR(64) NOT NULL, source_reference VARCHAR(256) NOT NULL,
-    collection_site VARCHAR(500), collection_method_code VARCHAR(64),
+    collection_site VARCHAR(500), collection_method_code VARCHAR(64), preparation_method_code VARCHAR(64),
     label_code VARCHAR(256), deleted_at TIMESTAMP WITH TIME ZONE, deleted_by_ref VARCHAR(128),
     deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS pis_v2.slide_rule (
 );
 CREATE TABLE IF NOT EXISTS pis_v2.slide (
     id UUID PRIMARY KEY, case_id UUID NOT NULL, block_id UUID, specimen_id UUID, slide_code VARCHAR(128) NOT NULL,
-    slide_type VARCHAR(64) NOT NULL, source_context_type VARCHAR(32) NOT NULL, source_context_id UUID,
+    slide_type VARCHAR(64) NOT NULL, stain_code VARCHAR(64), source_context_type VARCHAR(32) NOT NULL, source_context_id UUID,
     rule_code VARCHAR(64) NOT NULL, occurrence_no INTEGER NOT NULL, required BOOLEAN NOT NULL,
     completed_at TIMESTAMP WITH TIME ZONE, completed_by_ref VARCHAR(128), deleted_at TIMESTAMP WITH TIME ZONE,
     deleted_by_ref VARCHAR(128), deletion_reason VARCHAR(2000), concurrency_version BIGINT NOT NULL,
@@ -210,8 +210,12 @@ ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destroyed_at TIMESTAMP WITH TIME ZONE
 ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destroyed_by_ref VARCHAR(128);
 ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destruction_reason VARCHAR(2000);
 ALTER TABLE pis_v2.slide ADD IF NOT EXISTS destruction_batch_reference VARCHAR(256);
+ALTER TABLE pis_v2.specimen ADD IF NOT EXISTS preparation_method_code VARCHAR(64);
+ALTER TABLE pis_v2.slide ADD IF NOT EXISTS stain_code VARCHAR(64);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_slide_code_active
     ON pis_v2.slide (case_id, slide_code_active);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_v2_test_cytology_output
+    ON pis_v2.slide (specimen_id, source_context_type, rule_code, occurrence_no);
 CREATE TABLE IF NOT EXISTS pis_v2.print_rule (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID,
     entity_kind_code VARCHAR(32) NOT NULL, trigger_code VARCHAR(64) NOT NULL, printer_profile_code VARCHAR(128) NOT NULL,

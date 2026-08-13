@@ -31,7 +31,7 @@ class V36ExistingDatabaseUpgradeTest {
             .withPassword(UUID.randomUUID().toString());
 
     @Test
-    void upgradesRepresentativeV36MaterialChainToV37WithoutLosingMedicalFacts() {
+    void upgradesRepresentativeV36MaterialChainToLatestWithoutLosingMedicalFacts() {
         migrateTo("36");
         JdbcTemplate jdbc = jdbc();
         Seed seed = seedV35MaterialChain(jdbc);
@@ -41,7 +41,7 @@ class V36ExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("37");
+                String.class)).isEqualTo("38");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(before.values()).allMatch(count -> count > 0);
         assertThat(jdbc.queryForObject("SELECT specimen_name FROM pis_v2.specimen WHERE id = ?", String.class,
