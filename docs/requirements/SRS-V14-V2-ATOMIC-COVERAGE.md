@@ -8,8 +8,8 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 351 |
-| PARTIAL | 140 |
+| COMPLETE | 353 |
+| PARTIAL | 138 |
 | MISSING | 218 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
@@ -19,6 +19,7 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 
 FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTIAL 转为 COMPLETE；`GROSS-006`、`GROSS-008`、`GROSS-009`、`GROSS-010` 由 MISSING 转为 COMPLETE；`GROSS-007` 在产品内 Port、Simulator、失败语义与审计闭环后转为 EXTERNAL_DEPENDENCY，明确保留真实拍摄台硬件联调缺口。TOTAL 不变。
 FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、`SLIDE-015` 由 PARTIAL 转为 COMPLETE。统一 Slide、可选技术记录、物理返工、编号历史、软失效、打印、权限和数据隔离已形成闭环；自动脱水机、染色机、封片机等真实设备联调仍由既有 DEVICE/INT 外部依赖项承载。`QC-004` 仍为 PARTIAL，当前异常与返工事实不冒充完整玻片质控闭环。TOTAL 不变。
+FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转为 COMPLETE。统一 Case/Specimen/Slide 支持零玻片进入队列、多标本规则投影、直接 Specimen → Slide、制片方式审计、打印/重打和 PostgreSQL 并发唯一性；液基制片仪、细胞染色机、封片机及扫码硬件真实联调仍保持 EXTERNAL_DEPENDENCY。TBS、细胞诊断模板和细胞报告不在本轮关闭范围。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -3692,9 +3693,9 @@ FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J02 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J02 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J02 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CYTO-002 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 真实细胞采集设备与院内字典同步仍属于外部集成/配置运营验证；本轮不把硬件联调冒充为产品完成。
+- V2 Decision: 复用统一 Specimen 的 `specimen_kind_code`、采集信息和现有 ApplicationItemMapping，不创建 CytologySpecimen 或固定枚举；细胞生产工作区按该事实显示标本类型。
 
 ### CYTO-003 — 标本处理方法
 
@@ -3714,9 +3715,9 @@ FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J03 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J03 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J03 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CYTO-003 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 真实液基/离心/染色设备适配仍属于独立外部依赖；产品内制片方式记录和更正已闭环。
+- V2 Decision: V38 增加可空 `specimen.preparation_method_code`，通过后端版本校验 API 和细胞制片工作区保存；不创建新的 Specimen，也不把制片方式变成流程状态机。
 
 ### CYTO-004 — 登记
 
