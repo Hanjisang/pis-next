@@ -17,6 +17,7 @@ import {
   completeV2Responsibility,
   createV2DigitalAnnotation,
   createV2DigitalMeasurement,
+  createV2FrozenRoundDiagnosis,
   createV2TechnicalOrder,
   getV2DiagnosisWorkspace,
   getV2FrozenRoundDiagnosisWorkspace,
@@ -395,7 +396,7 @@ async function loadWorkspace() {
   try {
     const [loadedWorkspace, caseContext] = await Promise.all([
       props.frozenRoundId
-        ? getV2FrozenRoundDiagnosisWorkspace(props.frozenRoundId)
+        ? loadFrozenDiagnosisWorkspace(props.frozenRoundId)
         : getV2DiagnosisWorkspace(caseId.value),
       getV2CaseWorkspace(caseId.value),
     ]);
@@ -455,6 +456,25 @@ async function loadWorkspace() {
     error.value = friendlyError(requestError, '诊断工作区加载失败，请检查病例后重试。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadFrozenDiagnosisWorkspace(roundId: string) {
+  try {
+    return await getV2FrozenRoundDiagnosisWorkspace(roundId);
+  } catch (requestError) {
+    if (
+      !(requestError instanceof Error) ||
+      !requestError.message.startsWith('V2-FROZEN-DIAGNOSIS-NOT-FOUND')
+    ) {
+      throw requestError;
+    }
+    // The workbench may project a production-ready, unassigned Frozen round.
+    // Creating the unified Diagnosis is the explicit entry action; the POST is
+    // idempotent and does not create a second diagnosis when another doctor won
+    // the race.
+    await createV2FrozenRoundDiagnosis(roundId, `frozen-diagnosis-entry-${roundId}`);
+    return getV2FrozenRoundDiagnosisWorkspace(roundId);
   }
 }
 

@@ -25,7 +25,8 @@ public class V2FrozenController {
     @PostMapping("/frozen/cases/{caseId}/rounds")
     public V2FrozenApplicationService.RoundResult openRound(@PathVariable UUID caseId,
             @RequestBody OpenRoundRequest request) {
-        return service.openRound(caseId, new OpenRoundCommand(request.arrivalTime(), request.idempotencyKey()));
+        return service.openRound(caseId, new OpenRoundCommand(request.arrivalTime(), request.idempotencyKey(),
+                Boolean.TRUE.equals(request.createNew())));
     }
 
     @PostMapping("/frozen/cases/{caseId}/specimens")
@@ -49,12 +50,25 @@ public class V2FrozenController {
 
     @PostMapping("/frozen/cases/{caseId}/finish")
     public V2FrozenApplicationService.EndResult finish(@PathVariable UUID caseId,
-            @RequestBody IdempotencyRequest request) {
-        return service.finishFrozenCase(caseId, new FinishFrozenCommand(request.idempotencyKey()));
+            @RequestBody FinishRequest request) {
+        return service.finishFrozenCase(caseId, new FinishFrozenCommand(request.idempotencyKey(), request.specimenIds()));
     }
 
-    public record OpenRoundRequest(java.time.Instant arrivalTime, String idempotencyKey) { }
+    @PostMapping("/frozen/rounds/{roundId}/cancel")
+    public void cancelRound(@PathVariable UUID roundId, @RequestBody CancelRoundRequest request) {
+        service.cancelRound(roundId, new com.hanjisang.pis.v2.frozen.application.V2FrozenApplicationService.CancelRoundCommand(
+                request.reason(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/frozen/rounds/{roundId}/notification/retry")
+    public V2FrozenApplicationService.NotificationResult retryNotification(@PathVariable UUID roundId) {
+        return service.retryNotification(roundId);
+    }
+
+    public record OpenRoundRequest(java.time.Instant arrivalTime, String idempotencyKey, Boolean createNew) { }
     public record RegisterSpecimenRequest(String specimenCode, String specimenKindCode, String collectionSite,
             String collectionMethodCode, String labelCode, String idempotencyKey) { }
     public record IdempotencyRequest(String idempotencyKey) { }
+    public record FinishRequest(String idempotencyKey, java.util.List<UUID> specimenIds) { }
+    public record CancelRoundRequest(String reason, String idempotencyKey) { }
 }

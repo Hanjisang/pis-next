@@ -19,12 +19,12 @@ import com.hanjisang.pis.v2.administration.infrastructure.JdbcV2AdministrationRe
 public class V2AdministrationApplicationService {
 
     private static final String ADMIN_PERMISSION = "P14-PERM-001";
-    private static final Set<String> BUSINESS = Set.of("P14-PERM-001", "P14-PERM-004", "P14-PERM-008",
+    private static final Set<String> BUSINESS = Set.of("P14-PERM-001", "P14-PERM-004", "P14-PERM-008", "P14-PERM-019",
             "P14-PERM-013", "P14-PERM-014", "P14-PERM-015", "P14-PERM-017", "P14-PERM-034",
             "P14-PERM-048", "P14-PERM-049", "P14-PERM-055");
     private static final Set<String> ACTION = Set.of("P14-PERM-002", "P14-PERM-003", "P14-PERM-009",
             "P14-PERM-010", "P14-PERM-011", "P14-PERM-016", "P14-PERM-029", "P14-PERM-035",
-            "P14-PERM-036", "P14-PERM-042", "P14-PERM-044", "P14-PERM-046", "P14-PERM-047",
+            "P14-PERM-036", "P14-PERM-042", "P14-PERM-044", "P14-PERM-046", "P14-PERM-047", "P14-PERM-020", "P14-PERM-021",
             "P14-PERM-050", "P14-PERM-057", "P14-PERM-058");
     private final JdbcV2AdministrationRepository repository;
     private final P15AuthorizationService authorization;
@@ -96,6 +96,9 @@ public class V2AdministrationApplicationService {
             case "P14-PERM-042" -> "模板配置";
             case "P14-PERM-048" -> "查询";
             case "P14-PERM-055" -> "报告查看";
+            case "P14-PERM-019" -> "冰冻业务";
+            case "P14-PERM-020" -> "冰冻轮次管理";
+            case "P14-PERM-021" -> "结束冰冻并转常规";
             default -> code;
         };
     }

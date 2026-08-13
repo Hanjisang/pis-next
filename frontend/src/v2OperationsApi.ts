@@ -12,6 +12,7 @@ export type FrozenWorkspace = {
       specimenCode: string;
       specimenKindCode: string;
       collectionSite: string;
+      specimenName?: string;
     }>;
     totalRequiredSlides: number;
     completedRequiredSlides: number;
@@ -22,8 +23,16 @@ export type FrozenWorkspace = {
     grossingStartTime?: string;
     slideCompletedTime?: string;
     diagnosisSignedTime?: string;
+    cancelledAt?: string | null;
+    cancellationReason?: string | null;
+    elapsedMinutes?: number;
+    tatStatus?: 'NORMAL' | 'WARNING' | 'OVERDUE' | string;
+    notificationStatus?: string | null;
+    notificationMessageLogId?: string | null;
   }>;
   routineCaseId?: string;
+  routinePathologyNo?: string | null;
+  ended?: boolean;
 };
 
 export type DigitalSlide = {

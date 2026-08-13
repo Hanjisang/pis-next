@@ -32,6 +32,7 @@ import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2ApplicationReposit
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2ApplicationRepository.DeliveryRow;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository.CaseSnapshotInput;
+import com.hanjisang.pis.v2.frozen.application.V2FrozenApplicationService;
 
 @Service
 public class V2ApplicationApplicationService {
@@ -53,12 +54,13 @@ public class V2ApplicationApplicationService {
     private final JdbcAuditEventRepository audit;
     private final LabelPrintService labelPrintService;
     private final PatientInfoProviderPort patientInfoProvider;
+    private final V2FrozenApplicationService frozenService;
 
     public V2ApplicationApplicationService(JdbcV2ApplicationRepository repository,
             JdbcV2RegistrationRepository registrationRepository,
             V2RegistrationApplicationService registrationService, P15AuthorizationService authorization,
             JdbcAuditEventRepository audit, LabelPrintService labelPrintService,
-            PatientInfoProviderPort patientInfoProvider) {
+            PatientInfoProviderPort patientInfoProvider, V2FrozenApplicationService frozenService) {
         this.repository = repository;
         this.registrationRepository = registrationRepository;
         this.registrationService = registrationService;
@@ -66,6 +68,7 @@ public class V2ApplicationApplicationService {
         this.audit = audit;
         this.labelPrintService = labelPrintService;
         this.patientInfoProvider = patientInfoProvider;
+        this.frozenService = frozenService;
     }
 
     @Transactional
@@ -477,6 +480,9 @@ public class V2ApplicationApplicationService {
                     display(item.specimenKindCode(), "TISSUE"), "APPLICATION", application.applicationNo() + "-" + item.sequenceNo(),
                     site, "SUBMITTED", null, null, null, site, null, null, accepted.deliveredAt(), labelCode);
             registrationRepository.insertSpecimen(specimen, actor.hospitalScope(), actor.actorId(), now);
+            if ("FROZEN".equals(item.businessTypeCode())) {
+                frozenService.bootstrapRegisteredSpecimen(created.caseId(), specimenId);
+            }
             if (!repository.linkCase(application.id(), item.id(), created.caseId(), actor.actorId(), now)
                     || !repository.markItemRegistered(item.id())) {
                 throw conflict("V2-APPLICATION-ITEM-ALREADY-REGISTERED", "该申请项目已完成登记");

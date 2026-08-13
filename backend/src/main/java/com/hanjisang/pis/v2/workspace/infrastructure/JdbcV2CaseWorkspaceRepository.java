@@ -34,11 +34,40 @@ public class JdbcV2CaseWorkspaceRepository {
                         WHERE snapshot.case_id = c.id ORDER BY snapshot.snapshot_version_no DESC LIMIT 1) AS patient_reference,
                        (SELECT snapshot.visit_reference FROM pis_v2.case_context_snapshot snapshot
                         WHERE snapshot.case_id = c.id ORDER BY snapshot.snapshot_version_no DESC LIMIT 1) AS visit_reference
+                       ,(SELECT source.case_no FROM pis_v2.pathology_case source
+                         WHERE source.id = c.frozen_source_case_id) AS frozen_source_pathology_no
+                       ,(SELECT target.case_no FROM pis_v2.pathology_case target
+                         WHERE target.frozen_source_case_id = c.id ORDER BY target.created_at LIMIT 1)
+                         AS routine_target_pathology_no
                 FROM pis_v2.pathology_case c
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                 WHERE c.id = ? AND c.organization_reference = ?
                 """, rs -> rs.next() ? Optional.of(caseHeader(rs)) : Optional.empty(), caseId,
                 organizationReference);
+    }
+
+    public List<FrozenRoundRow> findFrozenRounds(UUID caseId, String organizationReference) {
+        return jdbc.query("""
+                SELECT fr.id, fr.round_no, fr.status_code, fr.arrival_time, fr.diagnosis_signed_time,
+                       (SELECT COUNT(*) FROM pis_v2.frozen_round_specimen frs
+                        WHERE frs.frozen_round_id = fr.id) AS specimen_count,
+                       (SELECT COUNT(*) FROM pis_v2.slide s
+                        WHERE s.source_context_type = 'FROZEN_ROUND' AND s.source_context_id = fr.id
+                          AND s.deleted_at IS NULL) AS slide_count,
+                       (SELECT COUNT(*) FROM pis_v2.slide s
+                        WHERE s.source_context_type = 'FROZEN_ROUND' AND s.source_context_id = fr.id
+                          AND s.completed_at IS NOT NULL AND s.deleted_at IS NULL) AS completed_slide_count,
+                       (SELECT COUNT(*) FROM pis_v2.report r
+                        JOIN pis_v2.diagnosis d ON d.id = r.diagnosis_id
+                        WHERE d.context_type = 'FROZEN_ROUND' AND d.context_id = fr.id
+                          AND r.organization_reference = fr.organization_reference) AS report_count
+                FROM pis_v2.frozen_round fr
+                WHERE fr.case_id = ? AND fr.organization_reference = ?
+                ORDER BY fr.round_no
+                """, (rs, rowNum) -> new FrozenRoundRow(rs.getObject("id", UUID.class), rs.getInt("round_no"),
+                rs.getString("status_code"), instant(rs, "arrival_time"), instant(rs, "diagnosis_signed_time"),
+                rs.getInt("specimen_count"), rs.getInt("slide_count"), rs.getInt("completed_slide_count"),
+                rs.getInt("report_count")), caseId, organizationReference);
     }
 
     public List<MaterialTreeRow> findMaterials(UUID caseId, String organizationReference) {
@@ -195,7 +224,8 @@ public class JdbcV2CaseWorkspaceRepository {
                 rs.getString("business_type_code"), rs.getString("business_type_name"),
                 rs.getString("lifecycle_state_code"), rs.getString("application_item_code"),
                 rs.getString("source_system_code"), rs.getString("external_application_id"),
-                rs.getString("patient_reference"), rs.getString("visit_reference"), instant(rs, "created_at"));
+                rs.getString("patient_reference"), rs.getString("visit_reference"), instant(rs, "created_at"),
+                rs.getString("frozen_source_pathology_no"), rs.getString("routine_target_pathology_no"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
@@ -205,7 +235,12 @@ public class JdbcV2CaseWorkspaceRepository {
 
     public record CaseHeaderRow(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
             String lifecycle, String applicationItemCode, String sourceSystemCode, String applicationNo,
-            String patientReference, String visitReference, Instant createdAt) { }
+            String patientReference, String visitReference, Instant createdAt, String frozenSourcePathologyNo,
+            String routineTargetPathologyNo) { }
+
+    public record FrozenRoundRow(UUID roundId, int roundNo, String statusCode, Instant arrivalTime,
+            Instant diagnosisSignedTime, int specimenCount, int slideCount, int completedSlideCount,
+            int reportCount) { }
 
     public record GrossingRow(UUID grossingId, String grossingNo, String sourceType, String grossDescription,
             String grossingDoctor, String recorder, Instant startedAt, Instant completedAt, String completedBy) { }

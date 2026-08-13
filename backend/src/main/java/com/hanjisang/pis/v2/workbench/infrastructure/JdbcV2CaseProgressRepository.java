@@ -59,20 +59,48 @@ public class JdbcV2CaseProgressRepository {
                                c.created_at) AS material_at
                     FROM pis_v2.pathology_case c
                     WHERE c.organization_reference = ?
-                ), frozen_summary AS (
-                    SELECT fr.case_id,
+                ), frozen_round_summary AS (
+                    SELECT fr.case_id, fr.id AS round_id,
                            COUNT(DISTINCT frs.specimen_id) AS specimen_count,
-                           COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) AS required_slide_count,
-                           COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
-                               AS completed_slide_count
+                           COUNT(DISTINCT frs.specimen_id)
+                               * COALESCE((SELECT SUM(sr.copies)
+                                             FROM pis_v2.slide_rule sr
+                                            WHERE sr.organization_reference = c.organization_reference
+                                              AND sr.business_type_id = c.business_type_id
+                                              AND sr.source_context_type = 'FROZEN_ROUND'
+                                              AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                                              AND sr.active = TRUE), 1) AS required_slide_count,
+                           (SELECT COUNT(*)
+                              FROM pis_v2.slide sl
+                              JOIN pis_v2.frozen_round_specimen completed_frs
+                                ON completed_frs.frozen_round_id = fr.id
+                               AND (completed_frs.specimen_id = sl.specimen_id
+                                OR EXISTS (SELECT 1 FROM pis_v2.block completed_block
+                                           WHERE completed_block.id = sl.block_id
+                                             AND completed_block.specimen_id = completed_frs.specimen_id
+                                             AND completed_block.deleted_at IS NULL))
+                              JOIN pis_v2.specimen completed_sp
+                                ON completed_sp.id = completed_frs.specimen_id
+                               AND completed_sp.deleted_at IS NULL
+                             WHERE sl.case_id = fr.case_id
+                               AND sl.source_context_type = 'FROZEN_ROUND'
+                               AND sl.source_context_id = fr.id
+                               AND sl.required = TRUE
+                               AND sl.completed_at IS NOT NULL
+                               AND sl.deleted_at IS NULL) AS completed_slide_count
                     FROM pis_v2.frozen_round fr
-                    LEFT JOIN pis_v2.frozen_round_specimen frs ON frs.frozen_round_id = fr.id
-                    LEFT JOIN pis_v2.slide sl ON sl.case_id = fr.case_id
-                        AND sl.source_context_type = 'FROZEN_ROUND'
-                        AND sl.source_context_id = fr.id
-                        AND sl.deleted_at IS NULL
+                    JOIN pis_v2.pathology_case c ON c.id = fr.case_id
+                    JOIN pis_v2.frozen_round_specimen frs ON frs.frozen_round_id = fr.id
+                    JOIN pis_v2.specimen sp ON sp.id = frs.specimen_id AND sp.deleted_at IS NULL
                     WHERE fr.organization_reference = ? AND fr.status_code = 'OPEN'
-                    GROUP BY fr.case_id
+                    GROUP BY fr.case_id, fr.id, c.organization_reference, c.business_type_id
+                ), frozen_summary AS (
+                    SELECT case_id,
+                           SUM(specimen_count) AS specimen_count,
+                           SUM(required_slide_count) AS required_slide_count,
+                           SUM(completed_slide_count) AS completed_slide_count
+                    FROM frozen_round_summary
+                    GROUP BY case_id
                 ), report_summary AS (
                     SELECT r.case_id,
                            CASE WHEN MAX(CASE WHEN r.status_code = 'EFFECTIVE' THEN 1 ELSE 0 END) = 1

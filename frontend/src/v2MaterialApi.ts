@@ -320,6 +320,35 @@ export function generateV2RequiredCytologySlides(input: {
   });
 }
 
+export function generateV2RequiredFrozenSlides(input: {
+  caseId: string;
+  roundId: string;
+  specimenIds?: string[];
+  idempotencyKey: string;
+}): Promise<{ createdCount: number; slides: V2SlideResult[]; duplicate: boolean }> {
+  const { caseId, roundId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/frozen-rounds/${roundId}/slides/generate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2ExtraFrozenSlide(input: {
+  caseId: string;
+  roundId: string;
+  specimenId: string;
+  slideType?: string;
+  stainCode?: string;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { caseId, roundId, specimenId, ...body } = input;
+  return materialRequest(
+    `/cases/${caseId}/frozen-rounds/${roundId}/specimens/${specimenId}/slides/extra`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
 export function createV2ExtraCytologySlide(input: {
   caseId: string;
   specimenId: string;
@@ -604,8 +633,9 @@ export function performV2ProductionRework(input: {
   });
 }
 
-export function getV2MaterialTree(caseId: string): Promise<V2MaterialTree> {
-  return materialRequest(`/cases/${caseId}/materials`);
+export function getV2MaterialTree(caseId: string, frozenRoundId?: string): Promise<V2MaterialTree> {
+  const query = frozenRoundId ? `?frozenRoundId=${encodeURIComponent(frozenRoundId)}` : '';
+  return materialRequest(`/cases/${caseId}/materials${query}`);
 }
 
 export function getV2GrossingWorkspace(

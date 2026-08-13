@@ -47,13 +47,15 @@ public class V2CaseWorkspaceApplicationService {
                 repository.findDigitalSlides(caseId).stream().map(this::digitalSlide).toList(),
                 repository.findReports(caseId, actor.hospitalScope()).stream().map(this::report).toList(),
                 repository.findTimeline(caseId, actor.hospitalScope()).stream().map(this::timeline).toList(),
+                repository.findFrozenRounds(caseId, actor.hospitalScope()).stream().map(this::frozenRound).toList(),
                 Instant.now());
     }
 
     private CaseHeader header(CaseHeaderRow row) {
         return new CaseHeader(row.caseId(), row.pathologyNo(), row.businessTypeCode(), row.businessTypeName(),
                 row.lifecycle(), row.applicationItemCode(), row.sourceSystemCode(), row.applicationNo(),
-                row.patientReference(), row.visitReference(), row.createdAt());
+                row.patientReference(), row.visitReference(), row.createdAt(), row.frozenSourcePathologyNo(),
+                row.routineTargetPathologyNo());
     }
 
     private MaterialTree materialTree(UUID caseId, CaseHeaderRow header, List<MaterialTreeRow> rows) {
@@ -105,6 +107,12 @@ public class V2CaseWorkspaceApplicationService {
         return new Report(row.reportId(), row.reportNo(), row.natureCode(), row.priorReportId(), row.statusCode(),
                 row.signedBy(), row.signedAt(), row.withdrawnBy(), row.withdrawnAt(), row.withdrawalReason(),
                 row.pdfFileReference());
+    }
+
+    private FrozenRoundSummary frozenRound(JdbcV2CaseWorkspaceRepository.FrozenRoundRow row) {
+        return new FrozenRoundSummary(row.roundId(), row.roundNo(), row.statusCode(), row.arrivalTime(),
+                row.diagnosisSignedTime(), row.specimenCount(), row.slideCount(), row.completedSlideCount(),
+                row.reportCount());
     }
 
     private TimelineEntry timeline(AuditRow row) {
@@ -269,11 +277,16 @@ public class V2CaseWorkspaceApplicationService {
     public record CaseWorkspaceResult(CaseHeader caseHeader, MaterialTree materialTree, List<Grossing> grossings,
             List<Responsibility> responsibilities, List<TechnicalOrder> technicalOrders,
             List<DigitalSlide> digitalSlides, List<Report> reports, List<TimelineEntry> timeline,
-            Instant refreshedAt) { }
+            List<FrozenRoundSummary> frozenRounds, Instant refreshedAt) { }
+
+    public record FrozenRoundSummary(UUID roundId, int roundNo, String statusCode, Instant arrivalTime,
+            Instant diagnosisSignedTime, int specimenCount, int slideCount, int completedSlideCount,
+            int reportCount) { }
 
     public record CaseHeader(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
             String lifecycle, String applicationItemCode, String sourceSystemCode, String applicationNo,
-            String patientReference, String visitReference, Instant createdAt) { }
+            String patientReference, String visitReference, Instant createdAt, String frozenSourcePathologyNo,
+            String routineTargetPathologyNo) { }
 
     public record MaterialTree(UUID caseId, String pathologyNo, String businessTypeCode, List<Specimen> specimens) { }
     public record Specimen(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,

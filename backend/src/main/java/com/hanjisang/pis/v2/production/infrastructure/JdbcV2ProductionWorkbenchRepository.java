@@ -131,14 +131,22 @@ public class JdbcV2ProductionWorkbenchRepository {
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
                        COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
                        fr.id AS round_id, fr.round_no, COUNT(DISTINCT frs.specimen_id) AS specimen_count,
-                       COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) AS required_count,
+                       COUNT(DISTINCT frs.specimen_id)
+                           * COALESCE((SELECT SUM(sr.copies)
+                                         FROM pis_v2.slide_rule sr
+                                        WHERE sr.organization_reference = c.organization_reference
+                                          AND sr.business_type_id = c.business_type_id
+                                          AND sr.source_context_type = 'FROZEN_ROUND'
+                                          AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                                          AND sr.active = TRUE), 1) AS required_count,
                        COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
                            AS completed_count,
                        fr.arrival_time AS entered_at
                 FROM pis_v2.frozen_round fr
                 JOIN pis_v2.pathology_case c ON c.id = fr.case_id
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
-                LEFT JOIN pis_v2.frozen_round_specimen frs ON frs.frozen_round_id = fr.id
+                JOIN pis_v2.frozen_round_specimen frs ON frs.frozen_round_id = fr.id
+                JOIN pis_v2.specimen sp ON sp.id = frs.specimen_id AND sp.deleted_at IS NULL
                 LEFT JOIN pis_v2.slide sl ON sl.case_id = c.id
                     AND sl.source_context_type = 'FROZEN_ROUND' AND sl.source_context_id = fr.id
                     AND sl.deleted_at IS NULL
@@ -146,12 +154,20 @@ public class JdbcV2ProductionWorkbenchRepository {
                     AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
                         FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
-                  AND bt.modality_code = 'FROZEN' AND fr.status_code = 'OPEN'
+                  AND bt.modality_code = 'FROZEN'
+                  AND fr.status_code IN ('OPEN', 'PRODUCTION_COMPLETE')
                 GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name,
-                         ctx.patient_reference, fr.id, fr.round_no, fr.arrival_time
-                HAVING COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) = 0
-                    OR COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
-                       < COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END)
+                         ctx.patient_reference, fr.id, fr.round_no, fr.arrival_time,
+                         c.organization_reference, c.business_type_id
+                HAVING COUNT(DISTINCT frs.specimen_id)
+                           * COALESCE((SELECT SUM(sr.copies)
+                                         FROM pis_v2.slide_rule sr
+                                        WHERE sr.organization_reference = c.organization_reference
+                                          AND sr.business_type_id = c.business_type_id
+                                          AND sr.source_context_type = 'FROZEN_ROUND'
+                                          AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                                          AND sr.active = TRUE), 1)
+                       > COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
                 ORDER BY fr.arrival_time, fr.id
                 """, (rs, rowNum) -> frozen(rs), organizationReference);
     }

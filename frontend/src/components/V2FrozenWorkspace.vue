@@ -4,17 +4,19 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { V2AuthUser } from '../auth';
 import {
   appendNavigationContext,
-  safeLocalPath,
   workspaceBackLabel,
   workspaceBackTarget,
   type V2Route,
 } from '../navigation';
-import { formatDateTime, friendlyError, idempotencyKey, statusName } from '../uiText';
+import { friendlyError, idempotencyKey } from '../uiText';
 import { getV2Case, type V2CaseResult } from '../v2Api';
-import { getV2MaterialTree, printV2Slide, type V2MaterialTree } from '../v2MaterialApi';
+import {
+  getV2MaterialTree,
+  printV2Slides,
+  type V2MaterialTree,
+  type V2SlideNode,
+} from '../v2MaterialApi';
 import { operationsRequest, type FrozenWorkspace } from '../v2OperationsApi';
-import V2CaseHeader from './V2CaseHeader.vue';
-import V2HistoryDrawer from './V2HistoryDrawer.vue';
 
 const props = defineProps<{
   caseId?: string;
@@ -24,19 +26,29 @@ const props = defineProps<{
   queue?: string;
   returnTo?: string;
 }>();
+
 const emit = defineEmits<{ navigate: [path: string] }>();
 
-const lookupCaseId = ref(props.caseId ?? '');
 const workspace = ref<FrozenWorkspace | null>(null);
-const selectedRoundId = ref('');
-const frozenCaseSummary = ref<V2CaseResult | null>(null);
+const caseSummary = ref<V2CaseResult | null>(null);
 const materialTree = ref<V2MaterialTree | null>(null);
-const clock = ref(Date.now());
+const selectedRoundId = ref('');
+const selectedSpecimenId = ref('');
+const specimenCode = ref('');
+const collectionSite = ref('');
+const collectionMethodCode = ref('FROZEN');
+const cancellationReason = ref('');
 const loading = ref(false);
 const submitting = ref(false);
 const error = ref('');
 const notice = ref('');
-const historyDrawerOpen = ref(false);
+const endDialogOpen = ref(false);
+const endSpecimenIds = ref<string[]>([]);
+const clock = ref(Date.now());
+
+const canManageRounds = computed(() => hasPermission('P14-PERM-019'));
+const canCancelRound = computed(() => hasPermission('P14-PERM-020'));
+const canEndFrozen = computed(() => hasPermission('P14-PERM-021'));
 const backLabel = computed(() => workspaceBackLabel(props.origin ?? 'direct'));
 const backTarget = computed(() =>
   workspaceBackTarget(
@@ -44,18 +56,81 @@ const backTarget = computed(() =>
     props.caseId ?? '',
   ),
 );
-const caseOverviewTarget = computed(() => {
-  const preservedCase = safeLocalPath(props.returnTo);
-  if (props.origin === 'case' && preservedCase) return preservedCase;
-  const path = `/v2/cases/${encodeURIComponent(props.caseId ?? '')}`;
-  return props.origin === 'workbench'
-    ? appendNavigationContext(path, {
-        origin: 'workbench',
-        queue: props.queue,
-        returnTo: props.returnTo,
-      })
-    : path;
+
+const selectedRound = computed(
+  () => workspace.value?.rounds.find((round) => round.roundId === selectedRoundId.value) ?? null,
+);
+const activeRounds = computed(() =>
+  (workspace.value?.rounds ?? []).filter((round) => round.status !== 'CANCELLED'),
+);
+const selectedSpecimen = computed(
+  () =>
+    selectedRound.value?.specimens.find(
+      (specimen) => specimen.specimenId === selectedSpecimenId.value,
+    ) ??
+    selectedRound.value?.specimens[0] ??
+    null,
+);
+const roundSlides = computed<V2SlideNode[]>(() => {
+  const specimenIds = new Set(
+    (selectedRound.value?.specimens ?? []).map((item) => item.specimenId),
+  );
+  return (materialTree.value?.specimens ?? [])
+    .filter((specimen) => specimenIds.has(specimen.specimenId))
+    .flatMap((specimen) => [
+      ...specimen.directSlides,
+      ...specimen.blocks.flatMap((block) => block.slides),
+    ]);
 });
+const selectedRoundFinished = computed(() =>
+  Boolean(selectedRound.value?.diagnosisSignedTime || selectedRound.value?.status === 'SIGNED'),
+);
+const canCreateNextRound = computed(() =>
+  Boolean(selectedRoundFinished.value && !workspace.value?.ended && canManageRounds.value),
+);
+const canEnd = computed(() =>
+  Boolean(
+    canEndFrozen.value &&
+      workspace.value &&
+      !workspace.value.ended &&
+      activeRounds.value.length > 0 &&
+      activeRounds.value.every((round) => round.status === 'SIGNED'),
+  ),
+);
+
+const elapsedLabel = computed(() => {
+  const round = selectedRound.value;
+  if (!round) return '—';
+  const start = Date.parse(round.arrivalTime);
+  if (!Number.isFinite(start)) return '—';
+  const end = round.diagnosisSignedTime ? Date.parse(round.diagnosisSignedTime) : clock.value;
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}分${String(seconds % 60).padStart(2, '0')}秒`;
+});
+
+watch(
+  () => [props.caseId, props.roundId],
+  ([caseId, roundId]) => {
+    selectedRoundId.value = roundId ?? '';
+    if (caseId) void load();
+  },
+  { immediate: true },
+);
+
+let timer: number | undefined;
+onMounted(() => {
+  timer = window.setInterval(() => {
+    clock.value = Date.now();
+  }, 1000);
+});
+onUnmounted(() => {
+  if (timer) window.clearInterval(timer);
+});
+
+function hasPermission(permission: string) {
+  return props.authUser?.permissions.includes(permission) ?? false;
+}
 
 function contextualPath(path: string) {
   return appendNavigationContext(path, {
@@ -65,50 +140,55 @@ function contextualPath(path: string) {
   });
 }
 
-const selectedRound = computed(
-  () => workspace.value?.rounds.find((item) => item.roundId === selectedRoundId.value) ?? null,
-);
-const canManageRounds = computed(
-  () => props.authUser?.permissions.includes('P14-PERM-008') ?? false,
-);
-const elapsedLabel = computed(() => {
-  const round = selectedRound.value;
-  if (!round) return '—';
-  const start = Date.parse(round.arrivalTime);
-  if (!Number.isFinite(start)) return '—';
-  const totalSeconds = Math.max(0, Math.floor((clock.value - start) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes + '分' + String(seconds).padStart(2, '0') + '秒';
-});
-const frozenSlides = computed(
-  () =>
-    (materialTree.value?.specimens ?? []).flatMap((specimen) => [
-      ...specimen.blocks.flatMap((block) => block.slides),
-      ...specimen.directSlides,
-    ]) ?? [],
-);
+function roundLabel(round: FrozenWorkspace['rounds'][number]) {
+  if (round.status === 'CANCELLED') return '已取消';
+  if (round.diagnosisSignedTime || round.status === 'SIGNED') return '已报告';
+  if (round.diagnosisId) return '待报告';
+  if (round.productionComplete) return '待诊断';
+  if (round.totalRequiredSlides > 0) return '冰冻制片';
+  return '待取材';
+}
 
-watch(
-  () => [props.caseId, props.roundId],
-  ([value]) => {
-    lookupCaseId.value = value ?? '';
-    if (value) void loadFrozen();
-  },
-  { immediate: true },
-);
+function tatLabel(status?: string) {
+  return status === 'OVERDUE' ? '已超时' : status === 'WARNING' ? '临近时限' : '正常';
+}
 
-let timer: number | undefined;
+async function load() {
+  if (!props.caseId) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    const [loadedWorkspace, loadedCase] = await Promise.all([
+      operationsRequest<FrozenWorkspace>(`/frozen/cases/${props.caseId}/workspace`),
+      getV2Case(props.caseId),
+    ]);
+    workspace.value = loadedWorkspace;
+    caseSummary.value = loadedCase;
+    materialTree.value = await getV2MaterialTree(props.caseId).catch(() => null);
+    const nextRound =
+      loadedWorkspace.rounds.find(
+        (round) => round.roundId === (props.roundId || selectedRoundId.value),
+      ) ?? loadedWorkspace.rounds.at(-1);
+    selectedRoundId.value = nextRound?.roundId ?? '';
+    selectedSpecimenId.value = nextRound?.specimens[0]?.specimenId ?? '';
+    if (nextRound) {
+      endSpecimenIds.value = nextRound.specimens.map((specimen) => specimen.specimenId);
+    }
+  } catch (requestError) {
+    workspace.value = null;
+    caseSummary.value = null;
+    materialTree.value = null;
+    error.value = friendlyError(requestError, '无法打开冰冻病例，请返回工作台重试');
+  } finally {
+    loading.value = false;
+  }
+}
 
-onMounted(() => {
-  timer = window.setInterval(() => {
-    clock.value = Date.now();
-  }, 1000);
-});
-
-onUnmounted(() => {
-  if (timer) window.clearInterval(timer);
-});
+function selectRound(round: FrozenWorkspace['rounds'][number]) {
+  selectedRoundId.value = round.roundId;
+  selectedSpecimenId.value = round.specimens[0]?.specimenId ?? '';
+  endSpecimenIds.value = round.specimens.map((specimen) => specimen.specimenId);
+}
 
 async function submit(operation: () => Promise<void>) {
   submitting.value = true;
@@ -117,543 +197,709 @@ async function submit(operation: () => Promise<void>) {
   try {
     await operation();
   } catch (requestError) {
-    error.value = friendlyError(requestError, '冰冻操作未完成，请检查当前轮次后重试。');
+    error.value = friendlyError(requestError, '操作未完成，请检查当前轮次后重试');
   } finally {
     submitting.value = false;
   }
 }
 
-async function loadFrozen() {
-  if (!lookupCaseId.value.trim()) return;
-  loading.value = true;
-  error.value = '';
-  try {
-    const frozenCaseId = lookupCaseId.value.trim();
-    const [loadedWorkspace, loadedCase] = await Promise.all([
-      operationsRequest<FrozenWorkspace>(`/frozen/cases/${frozenCaseId}/workspace`),
-      getV2Case(frozenCaseId),
-    ]);
-    workspace.value = loadedWorkspace;
-    frozenCaseSummary.value = loadedCase;
-    materialTree.value = await getV2MaterialTree(frozenCaseId).catch(() => null);
-    selectedRoundId.value =
-      workspace.value.rounds.find(
-        (item) => item.roundId === (props.roundId || selectedRoundId.value),
-      )?.roundId ??
-      workspace.value.rounds.at(-1)?.roundId ??
-      '';
-  } catch (requestError) {
-    workspace.value = null;
-    frozenCaseSummary.value = null;
-    materialTree.value = null;
-    error.value = friendlyError(requestError, '未找到冰冻病例，请从冰冻登记或工作台进入。');
-  } finally {
-    loading.value = false;
-  }
-}
-
 function startFirstRound() {
-  if (!workspace.value) return;
+  if (!props.caseId) return;
   void submit(async () => {
-    await operationsRequest(`/frozen/cases/${workspace.value!.frozenCaseId}/rounds`, {
+    await operationsRequest(`/frozen/cases/${props.caseId}/rounds`, {
       method: 'POST',
       body: JSON.stringify({
         arrivalTime: new Date().toISOString(),
-        idempotencyKey: idempotencyKey('ux01-frozen-round'),
+        idempotencyKey: idempotencyKey('frozen-round'),
       }),
     });
-    await loadFrozen();
-    notice.value = '冰冻第 1 轮已开始。';
+    await load();
+    notice.value = '第 1 轮已开始';
   });
 }
 
-function openMaterials() {
-  if (!workspace.value || !selectedRound.value) return;
-  const destination = selectedRound.value.totalRequiredSlides
-    ? `/v2/production/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`
-    : `/v2/grossing/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`;
-  emit('navigate', contextualPath(destination));
+function createNextRound() {
+  if (!props.caseId) return;
+  void submit(async () => {
+    await operationsRequest(`/frozen/cases/${props.caseId}/rounds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        arrivalTime: new Date().toISOString(),
+        createNew: true,
+        idempotencyKey: idempotencyKey('frozen-round'),
+      }),
+    });
+    await load();
+    notice.value = '新的冰冻轮次已创建';
+  });
 }
 
-function openDiagnosis() {
-  if (!workspace.value || !selectedRound.value) return;
+function addSpecimen() {
+  if (!props.caseId) return;
+  void submit(async () => {
+    await operationsRequest(`/frozen/cases/${props.caseId}/specimens`, {
+      method: 'POST',
+      body: JSON.stringify({
+        specimenCode: specimenCode.value.trim(),
+        specimenKindCode: 'TISSUE',
+        collectionSite: collectionSite.value.trim(),
+        collectionMethodCode: collectionMethodCode.value.trim() || 'FROZEN',
+        idempotencyKey: idempotencyKey('frozen-specimen'),
+      }),
+    });
+    specimenCode.value = '';
+    collectionSite.value = '';
+    await load();
+    notice.value = '冰冻标本已加入当前轮次';
+  });
+}
+
+function openGrossing() {
+  if (!props.caseId || !selectedRound.value) return;
   emit(
     'navigate',
-    contextualPath(
-      `/v2/diagnosis/${workspace.value.frozenCaseId}?roundId=${selectedRound.value.roundId}`,
-    ),
+    contextualPath(`/v2/grossing/${props.caseId}?roundId=${selectedRound.value.roundId}`),
   );
 }
 
-function printFrozenSlides() {
-  if (!frozenSlides.value.length) return;
-  void submit(async () => {
-    await Promise.all(
-      frozenSlides.value.map((slide) =>
-        printV2Slide({
-          slideId: slide.slideId,
-          reason: '冰冻工作区打印',
-          idempotencyKey: idempotencyKey('px03c-frozen-print') + '-' + slide.slideId,
-        }),
-      ),
+function openProduction() {
+  if (!props.caseId || !selectedRound.value) return;
+  emit(
+    'navigate',
+    contextualPath(`/v2/production/${props.caseId}?roundId=${selectedRound.value.roundId}`),
+  );
+}
+
+async function openDiagnosis() {
+  if (!props.caseId || !selectedRound.value) return;
+  const roundId = selectedRound.value.roundId;
+  let diagnosisId = selectedRound.value.diagnosisId;
+  await submit(async () => {
+    if (!diagnosisId) {
+      const result = await operationsRequest<{ diagnosisId: string }>(
+        `/frozen/rounds/${roundId}/diagnosis`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ idempotencyKey: idempotencyKey('frozen-diagnosis') }),
+        },
+      );
+      diagnosisId = result.diagnosisId;
+      await load();
+    }
+    emit(
+      'navigate',
+      contextualPath(`/v2/diagnosis/${props.caseId}?roundId=${roundId}&focusId=${diagnosisId}`),
     );
-    notice.value = '冰冻玻片标签已发送到当前打印机。';
   });
 }
 
-function roundStatus(round: FrozenWorkspace['rounds'][number]) {
-  if (round.diagnosisSignedTime) return '报告已签发';
-  if (round.diagnosisId) return '诊断中';
-  if (round.productionComplete) return '待诊断';
-  if (round.totalRequiredSlides) return '制片中';
-  if (round.specimens.length) return '待取材';
-  return statusName(round.status);
+function printSlides() {
+  if (!roundSlides.value.length) return;
+  void submit(async () => {
+    await printV2Slides({
+      slideIds: roundSlides.value.map((slide) => slide.slideId),
+      reason: '冰冻轮次标签打印',
+      idempotencyKey: idempotencyKey('frozen-slide-print'),
+    });
+    notice.value = '冰冻玻片标签打印记录已保存';
+  });
+}
+
+function cancelRound() {
+  if (!selectedRound.value || !cancellationReason.value.trim()) return;
+  void submit(async () => {
+    await operationsRequest(`/frozen/rounds/${selectedRound.value!.roundId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: cancellationReason.value.trim(),
+        idempotencyKey: idempotencyKey('frozen-round-cancel'),
+      }),
+    });
+    cancellationReason.value = '';
+    await load();
+    notice.value = '本轮已取消，历史材料仍保留';
+  });
+}
+
+function openEndDialog() {
+  endSpecimenIds.value = activeRounds.value.flatMap((round) =>
+    round.specimens.map((specimen) => specimen.specimenId),
+  );
+  endDialogOpen.value = true;
+}
+
+function finishFrozen() {
+  if (!props.caseId) return;
+  void submit(async () => {
+    const result = await operationsRequest<{ routinePathologyNo: string; duplicate: boolean }>(
+      `/frozen/cases/${props.caseId}/finish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          specimenIds: endSpecimenIds.value,
+          idempotencyKey: idempotencyKey('frozen-end'),
+        }),
+      },
+    );
+    endDialogOpen.value = false;
+    await load();
+    notice.value = result.duplicate
+      ? `冰冻病例已结束，常规病理号：${result.routinePathologyNo ?? '—'}`
+      : `冰冻已结束，已创建常规病例：${result.routinePathologyNo ?? '—'}`;
+  });
+}
+
+function retryNotification() {
+  if (!selectedRound.value) return;
+  void submit(async () => {
+    await operationsRequest(`/frozen/rounds/${selectedRound.value!.roundId}/notification/retry`, {
+      method: 'POST',
+    });
+    await load();
+    notice.value = '通知已重新发送';
+  });
 }
 </script>
 
 <template>
-  <!-- Legacy layout retained as a reference for the focused redesign.
-    <section class="frozen-page" aria-label="冰冻工作区">
-      <header class="page-heading compact-heading">
-        <div>
-          <p class="section-kicker">术中快速诊断</p>
-          <h2>冰冻工作区</h2>
-          <p>当前轮次、材料和下一步在同一个页面完成。</p>
-        </div>
-        <form class="case-lookup" @submit.prevent="loadFrozen">
-          <label
-            >打开冰冻病例 <input v-model="lookupCaseId" placeholder="输入冰冻病例标识"
-          /></label>
-          <button class="secondary-button" type="submit" :disabled="loading">
-            {{ loading ? '读取中…' : '打开' }}
-          </button>
-        </form>
-      </header>
-
-      <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
-      <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
-      <div v-if="loading" class="list-skeleton"><span></span><span></span><span></span></div>
-      <div v-else-if="!workspace" class="empty-state workspace-panel">
-        <strong>请打开一个冰冻病例</strong><span>从冰冻登记进入时会自动带入病例。</span>
-      </div>
-
-      <template v-else>
-        <V2CaseHeader
-          :case-id="workspace.frozenCaseId"
-          :pathology-no="workspace.pathologyNo"
-          :patient-reference="frozenCaseSummary?.patientReference ?? '当前病例'"
-          :visit-reference="frozenCaseSummary?.visitReference"
-          :business-type-code="workspace.businessTypeCode"
-          :current-responsibility="latestRound ? `冰冻第 ${latestRound.roundNo} 轮` : '待开始冰冻'"
-          :report-status="latestRound ? roundStatus(latestRound) : '待开始'"
-          :progress="`${workspace.rounds.length} 轮${routineCase ? '，已生成冰剩常规' : ''}`"
-          @open-case="emit('navigate', `/v2/cases/${workspace.frozenCaseId}`)"
-        >
-          <template #actions>
-            <button
-              v-if="routineCase"
-              class="secondary-button"
-              type="button"
-              @click="emit('navigate', `/v2/grossing/${routineCase.caseId}`)"
-            >
-              查看冰剩常规
-            </button>
-            <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
-              历史记录
-            </button>
-          </template>
-        </V2CaseHeader>
-
-        <div v-if="!workspace.rounds.length" class="empty-state workspace-panel">
-          <strong>冰冻尚未开始</strong><span>标本到达后开始第 1 轮。</span>
-          <button
-            v-if="canManageRounds"
-            class="primary-button"
-            type="button"
-            :disabled="submitting"
-            @click="startFirstRound"
-          >
-            开始第 1 轮
-          </button>
-          <span v-else class="muted">等待登记或技术人员开始本轮。</span>
-        </div>
-
-        <template v-else>
-          <nav class="frozen-round-timeline" aria-label="冰冻轮次">
-            <button
-              v-for="round in workspace.rounds"
-              :key="round.roundId"
-              type="button"
-              :class="{ current: round.roundId === selectedRoundId }"
-              @click="selectedRoundId = round.roundId"
-            >
-              <span
-                ><strong>冰冻第 {{ round.roundNo }} 轮</strong
-                ><span v-if="round.diagnosisSignedTime" aria-label="已完成">✓</span></span
-              >
-              <span>{{ roundStatus(round) }}</span>
-              <small
-                >{{ formatDateTime(round.arrivalTime)
-                }}<template v-if="round.diagnosisSignedTime">
-                  → {{ formatDateTime(round.diagnosisSignedTime) }}</template
-                ></small
-              >
-            </button>
-          </nav>
-
-          <div class="frozen-workspace-grid">
-            <section class="workspace-panel" aria-labelledby="round-materials-heading">
-              <header class="panel-title-row">
-                <div>
-                  <p class="section-kicker">第 {{ selectedRound?.roundNo }} 轮材料</p>
-                  <h3 id="round-materials-heading">
-                    {{ selectedRound?.specimens.length ?? 0 }} 个标本
-                  </h3>
-                </div>
-                <span class="status-pill" :class="{ success: selectedRound?.productionComplete }"
-                  >{{ selectedRound?.completedRequiredSlides }}/{{
-                    selectedRound?.totalRequiredSlides
-                  }}
-                  张玻片</span
-                >
-              </header>
-              <ul v-if="selectedRound?.specimens.length" class="round-specimen-list">
-                <li v-for="specimen in selectedRound.specimens" :key="specimen.specimenId">
-                  <span class="specimen-code">{{ specimen.specimenCode }}</span
-                  ><span
-                    ><strong>{{ specimen.collectionSite || '未填写部位' }}</strong
-                    ><small>{{ specimen.specimenNo }}</small></span
-                  >
-                </li>
-              </ul>
-              <div v-else class="empty-state compact">
-                <strong>本轮还没有标本</strong><span>登记新送检后显示在这里。</span>
-              </div>
-            </section>
-
-            <section
-              class="workspace-panel frozen-current-action"
-              aria-labelledby="current-action-heading"
-            >
-              <header class="panel-title-row">
-                <div>
-                  <p class="section-kicker">当前操作</p>
-                  <h3 id="current-action-heading">{{ roundStatus(selectedRound!) }}</h3>
-                </div>
-                <span class="status-pill current">第 {{ selectedRound?.roundNo }} 轮</span>
-              </header>
-              <div class="frozen-stage-list">
-                <button
-                  type="button"
-                  :class="{ done: selectedRound?.grossingStartTime }"
-                  :disabled="!selectedRound?.productionComplete && !canGross"
-                  @click="openMaterials"
-                >
-                  <span>1</span
-                  ><span
-                    ><strong>取材与制片</strong
-                    ><small>{{
-                      selectedRound?.productionComplete
-                        ? '玻片已全部完成'
-                        : canGross
-                          ? '进入本轮材料工作区'
-                          : '等待技术人员完成'
-                    }}</small></span
-                  ><b>{{ selectedRound?.productionComplete ? '✓' : canGross ? '进入' : '等待' }}</b>
-                </button>
-                <button
-                  type="button"
-                  :class="{ done: selectedRound?.diagnosisId }"
-                  :disabled="!selectedRound?.productionComplete"
-                  @click="selectedRound?.diagnosisId ? openDiagnosis() : createDiagnosis()"
-                >
-                  <span>2</span
-                  ><span
-                    ><strong>快速诊断</strong
-                    ><small>{{
-                      selectedRound?.diagnosisId ? '诊断已建立' : '制片完成后可诊断'
-                    }}</small></span
-                  ><b>{{ selectedRound?.diagnosisId ? '进入' : '建立' }}</b>
-                </button>
-                <button
-                  type="button"
-                  :class="{ done: selectedRound?.diagnosisSignedTime }"
-                  :disabled="!selectedRound?.diagnosisId"
-                  @click="openDiagnosis"
-                >
-                  <span>3</span
-                  ><span
-                    ><strong>独立签发</strong
-                    ><small>{{
-                      selectedRound?.diagnosisSignedTime
-                        ? `签发于 ${formatDateTime(selectedRound.diagnosisSignedTime)}`
-                        : '进入报告预览与签发'
-                    }}</small></span
-                  ><b>{{ selectedRound?.diagnosisSignedTime ? '✓' : '进入' }}</b>
-                </button>
-              </div>
-  </section>
-
-          <section
-            v-if="!workspace.routineCaseId && canManageRounds"
-            class="workspace-panel frozen-submission-panel"
-          >
-            <header class="panel-title-row">
-              <div>
-                <p class="section-kicker">新送检</p>
-                <h3>登记术中新送标本</h3>
-                <p class="muted">
-                  {{
-                    nextSpecimenCreatesRound
-                      ? `第 ${latestRound!.roundNo} 轮已签发，登记后会自动创建第 ${latestRound!.roundNo + 1} 轮。`
-                      : `当前轮次尚未签发，新标本会加入第 ${latestRound!.roundNo} 轮。`
-                  }}
-                </p>
-              </div>
-            </header>
-            <form class="field-grid three-columns" @submit.prevent="registerSpecimen">
-              <label
-                >标本编号 <input v-model="specimenDraft.specimenCode" required placeholder="例如 B"
-              /></label>
-              <label>送检部位 <input v-model="specimenDraft.collectionSite" required /></label>
-              <label>标签号 <input v-model="specimenDraft.labelCode" /></label>
-              <button class="primary-button" type="submit" :disabled="submitting">
-                {{
-                  nextSpecimenCreatesRound
-                    ? `创建第 ${latestRound!.roundNo + 1} 轮并登记`
-                    : '加入当前轮次'
-                }}
-              </button>
-            </form>
-          </section>
-
-          <div class="sticky-form-actions">
-            <span v-if="routineCase" class="feedback success frozen-routine-link"
-              >已创建冰剩常规病例：<strong>{{ routineCase.caseNo }}</strong
-              ><button
-                class="text-button"
-                type="button"
-                @click="emit('navigate', `/v2/grossing/${routineCase.caseId}`)"
-              >
-                进入常规流程 →
-              </button></span
-            >
-            <span v-else class="muted">所有已送检轮次签发后结束冰冻。</span>
-            <button
-              v-if="!routineCase"
-              class="primary-button"
-              type="button"
-              :disabled="!canFinish || submitting"
-              @click="finishFrozen"
-            >
-              冰冻结束
-            </button>
-          </div>
-        </template>
-      </template>
-      <V2HistoryDrawer
-        :open="historyDrawerOpen"
-        :case-id="frozenCaseSummary?.caseId || props.caseId"
-        title="冰冻历史"
-        target-label="冰冻工作台"
-        @close="historyDrawerOpen = false"
-      />
-    </section>
-  </div>
-
-  -->
-
   <section class="focused-frozen-page" aria-label="冰冻工作区">
     <template v-if="!caseId">
-      <header class="page-heading compact-heading">
-        <div>
-          <p class="section-kicker">冰冻</p>
-          <h2>打开冰冻任务</h2>
-          <p>从工作台进入时会自动带入病例和当前轮次。</p>
-        </div>
-        <form class="case-lookup" @submit.prevent="loadFrozen">
-          <label>病理号<input v-model="lookupCaseId" placeholder="输入病例号" /></label>
-          <button class="secondary-button" type="submit" :disabled="loading">打开</button>
-        </form>
-      </header>
-      <div v-if="error" class="feedback error" role="alert">{{ error }}</div>
-      <div v-else class="empty-state workspace-panel">
-        <strong>请选择一个冰冻病例</strong><span>当前任务会在这里直接打开。</span>
+      <div class="empty-state workspace-panel">
+        <strong>请从工作台打开一例冰冻病例</strong>
+        <span>冰冻轮次、计时和当前材料会在这里集中显示。</span>
       </div>
     </template>
+    <template v-else-if="loading">
+      <div class="list-skeleton"><span></span><span></span><span></span></div>
+    </template>
+    <template v-else-if="workspace">
+      <header class="frozen-header">
+        <div class="header-leading">
+          <button class="text-button" type="button" @click="emit('navigate', backTarget)">
+            ← {{ backLabel }}
+          </button>
+          <div>
+            <p class="section-kicker">冰冻工作区</p>
+            <h1>{{ workspace.pathologyNo }}</h1>
+            <p class="muted">
+              {{ caseSummary?.patientReference || '当前患者' }} · {{ workspace.businessTypeCode }}
+            </p>
+          </div>
+        </div>
+        <div class="frozen-header-meta">
+          <span>第 {{ selectedRound?.roundNo ?? '—' }} 轮</span>
+          <strong>已用时 {{ elapsedLabel }}</strong>
+          <span :class="['tat-status', selectedRound?.tatStatus?.toLowerCase()]">{{
+            tatLabel(selectedRound?.tatStatus)
+          }}</span>
+        </div>
+        <button
+          class="secondary-button"
+          type="button"
+          @click="emit('navigate', contextualPath(`/v2/cases/${workspace.frozenCaseId}`))"
+        >
+          查看病例
+        </button>
+      </header>
 
-    <template v-else>
       <p v-if="error" class="feedback error" role="alert">{{ error }}</p>
       <p v-if="notice" class="feedback success" role="status">{{ notice }}</p>
-      <div v-if="loading" class="list-skeleton"><span></span><span></span><span></span></div>
 
-      <template v-else-if="workspace">
-        <V2CaseHeader
-          :case-id="workspace.frozenCaseId"
-          :pathology-no="workspace.pathologyNo"
-          :patient-reference="frozenCaseSummary?.patientReference ?? '当前病例'"
-          :visit-reference="frozenCaseSummary?.visitReference"
-          :business-type-code="workspace.businessTypeCode"
-          :current-work="selectedRound ? '冰冻第 ' + selectedRound.roundNo + ' 轮' : '冰冻'"
-          :progress="
-            selectedRound
-              ? selectedRound.completedRequiredSlides +
-                '/' +
-                selectedRound.totalRequiredSlides +
-                ' 张玻片'
-              : '等待开始'
-          "
-          :report-status="selectedRound ? roundStatus(selectedRound) : '等待轮次'"
-          :back-label="backLabel"
-          @open-case="emit('navigate', backTarget)"
-          @open-overview="emit('navigate', caseOverviewTarget)"
+      <nav class="frozen-round-tabs" aria-label="冰冻轮次">
+        <button
+          v-for="round in workspace.rounds"
+          :key="round.roundId"
+          type="button"
+          :class="{ active: round.roundId === selectedRoundId }"
+          @click="selectRound(round)"
         >
-          <template #actions>
-            <button class="secondary-button" type="button" @click="historyDrawerOpen = true">
-              历史记录
-            </button>
-          </template>
-        </V2CaseHeader>
+          <strong>第 {{ round.roundNo }} 轮</strong>
+          <span>{{ roundLabel(round) }}</span>
+          <small>{{ round.specimens.length }} 个标本 · {{ round.elapsedMinutes ?? 0 }} 分钟</small>
+        </button>
+        <span v-if="workspace.ended" class="status-pill success">冰冻已结束</span>
+      </nav>
 
-        <div v-if="!workspace.rounds.length" class="empty-state workspace-panel">
-          <strong>冰冻尚未开始</strong>
-          <span>标本到达后开始第 1 轮。</span>
-          <button
-            v-if="canManageRounds"
-            class="primary-button"
-            type="button"
-            :disabled="submitting"
-            @click="startFirstRound"
-          >
-            开始第 1 轮
-          </button>
+      <section v-if="selectedRound" class="frozen-workspace-panel workspace-panel">
+        <div class="panel-toolbar">
+          <div>
+            <p class="section-kicker">第 {{ selectedRound.roundNo }} 轮</p>
+            <h2>{{ roundLabel(selectedRound) }}</h2>
+            <p class="muted">
+              {{ selectedRound.specimens.length }} 个标本 · 玻片
+              {{ selectedRound.completedRequiredSlides }}/{{
+                selectedRound.totalRequiredSlides
+              }}
+              完成 · {{ selectedRound.arrivalTime }}
+            </p>
+          </div>
+          <div class="toolbar-actions">
+            <button
+              v-if="!selectedRound.productionComplete"
+              class="secondary-button"
+              type="button"
+              @click="openGrossing"
+            >
+              冰冻取材
+            </button>
+            <button
+              v-if="selectedRound.productionComplete && !selectedRound.diagnosisSignedTime"
+              class="primary-button"
+              type="button"
+              @click="openDiagnosis"
+            >
+              进入冰冻诊断
+            </button>
+            <button
+              v-if="roundSlides.length"
+              class="secondary-button"
+              type="button"
+              :disabled="submitting"
+              @click="printSlides"
+            >
+              打印标签
+            </button>
+            <button
+              v-if="selectedRound.notificationStatus === 'FAILED'"
+              class="secondary-button"
+              type="button"
+              :disabled="submitting"
+              @click="retryNotification"
+            >
+              重试通知
+            </button>
+          </div>
         </div>
 
-        <template v-else>
-          <nav class="frozen-round-timeline" aria-label="冰冻轮次">
+        <div class="frozen-material-layout">
+          <section class="frozen-specimen-column" aria-label="本轮标本">
+            <div class="panel-title-row">
+              <h3>本轮标本</h3>
+              <span class="muted">{{ selectedRound.specimens.length }} 个</span>
+            </div>
             <button
-              v-for="round in workspace.rounds"
-              :key="round.roundId"
+              v-for="specimen in selectedRound.specimens"
+              :key="specimen.specimenId"
               type="button"
-              :class="{ current: round.roundId === selectedRoundId }"
-              @click="selectedRoundId = round.roundId"
+              class="specimen-row"
+              :class="{ active: specimen.specimenId === selectedSpecimen?.specimenId }"
+              @click="selectedSpecimenId = specimen.specimenId"
             >
-              <strong>冰冻第 {{ round.roundNo }} 轮</strong>
-              <span>{{ roundStatus(round) }}</span>
-              <small>{{ formatDateTime(round.arrivalTime) }}</small>
+              <strong>{{ specimen.specimenCode }}</strong>
+              <span>{{ specimen.specimenName || specimen.collectionSite || '未填写部位' }}</span>
+              <small>{{ specimen.specimenNo }}</small>
             </button>
-          </nav>
+            <p v-if="!selectedRound.specimens.length" class="empty-state compact">
+              本轮尚未登记标本
+            </p>
+          </section>
 
-          <section class="workspace-panel frozen-focused-summary" aria-label="当前冰冻轮次">
-            <div class="frozen-round-identity">
-              <div>
-                <p class="section-kicker">当前轮次</p>
-                <h2>冰冻第 {{ selectedRound?.roundNo }} 轮</h2>
-                <p>{{ selectedRound ? roundStatus(selectedRound) : '等待轮次' }}</p>
-              </div>
-              <div class="frozen-elapsed">
-                <small>等待时间</small><strong>{{ elapsedLabel }}</strong>
-              </div>
+          <section class="frozen-slide-column" aria-label="本轮玻片">
+            <div class="panel-title-row">
+              <h3>{{ selectedSpecimen?.specimenCode || '本轮' }} 的玻片</h3>
+              <span class="muted">{{ roundSlides.length }} 张</span>
             </div>
-            <div class="frozen-focused-grid">
-              <section class="frozen-material-focus">
-                <header class="panel-title-row">
-                  <div>
-                    <p class="section-kicker">标本</p>
-                    <h3>{{ selectedRound?.specimens.length ?? 0 }} 个标本</h3>
-                  </div>
-                  <span class="status-pill"
-                    >{{ selectedRound?.completedRequiredSlides ?? 0 }}/{{
-                      selectedRound?.totalRequiredSlides ?? 0
-                    }}</span
-                  >
-                </header>
-                <ul v-if="selectedRound?.specimens.length" class="round-specimen-list">
-                  <li v-for="specimen in selectedRound.specimens" :key="specimen.specimenId">
-                    <strong>{{ specimen.specimenCode }}</strong
-                    ><span>{{ specimen.collectionSite || '未填写部位' }}</span
-                    ><small>{{ specimen.specimenNo }}</small>
-                  </li>
-                </ul>
-                <div v-else class="empty-state compact"><strong>本轮还没有标本</strong></div>
-              </section>
-              <section class="frozen-slide-focus">
-                <header class="panel-title-row">
-                  <div>
-                    <p class="section-kicker">玻片</p>
-                    <h3>快速处理</h3>
-                  </div>
-                  <span class="muted">{{ frozenSlides.length }} 张</span>
-                </header>
-                <div v-if="frozenSlides.length" class="frozen-slide-list">
-                  <div
-                    v-for="slide in frozenSlides"
-                    :key="slide.slideId"
-                    class="material-slide-row"
-                  >
-                    <span
-                      ><strong>{{ slide.slideCode }}</strong
-                      ><small>{{ slide.slideType }}</small></span
-                    ><span
-                      :class="slide.completed ? 'status-pill success' : 'status-pill warning'"
-                      >{{ slide.completed ? '已完成' : '待完成' }}</span
-                    ><button
-                      v-if="!slide.completed"
-                      class="text-button"
-                      type="button"
-                      @click="
-                        emit(
-                          'navigate',
-                          contextualPath(
-                            '/v2/production/' +
-                              workspace.frozenCaseId +
-                              '?roundId=' +
-                              selectedRoundId,
-                          ),
-                        )
-                      "
-                    >
-                      处理
-                    </button>
-                  </div>
-                </div>
-                <div v-else class="empty-state compact">
-                  <strong>当前还没有玻片</strong><span>先新增玻片并打印标签。</span>
-                </div>
-              </section>
+            <div v-if="roundSlides.length" class="dense-table-wrap">
+              <table class="dense-table">
+                <thead>
+                  <tr>
+                    <th>玻片编号</th>
+                    <th>项目</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="slide in roundSlides" :key="slide.slideId">
+                    <td>
+                      <strong>{{ slide.slideCode }}</strong>
+                    </td>
+                    <td>{{ slide.stainCode || slide.slideType || '冰冻制片' }}</td>
+                    <td>
+                      <span :class="['status-pill', slide.completed ? 'success' : 'warning']">{{
+                        slide.completed ? '已完成' : '待完成'
+                      }}</span>
+                    </td>
+                    <td>
+                      <button
+                        v-if="!slide.completed"
+                        class="text-button"
+                        type="button"
+                        @click="openProduction"
+                      >
+                        进入制片</button
+                      ><span v-else class="muted">已完成</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div class="focused-bottom-actions">
-              <button class="secondary-button" type="button" @click="openMaterials">
-                新增玻片
-              </button>
-              <button
-                class="secondary-button"
-                type="button"
-                :disabled="!frozenSlides.length || submitting"
-                @click="printFrozenSlides"
-              >
-                打印
-              </button>
-              <button
-                class="primary-button"
-                type="button"
-                :disabled="!selectedRound?.productionComplete"
-                @click="openDiagnosis"
-              >
-                完成并送诊
+            <div v-else class="empty-state compact">
+              <strong>本轮尚未建立玻片</strong>
+              <span>从这里直接进入冰冻制片，按当前轮次标本生成玻片。</span>
+              <button class="primary-button" type="button" @click="openProduction">
+                进入冰冻制片
               </button>
             </div>
           </section>
-        </template>
+        </div>
 
-        <V2HistoryDrawer
-          :open="historyDrawerOpen"
-          :case-id="workspace.frozenCaseId"
-          title="冰冻历史"
-          target-label="当前冰冻轮次"
-          @close="historyDrawerOpen = false"
-        />
-      </template>
+        <details class="frozen-secondary-details">
+          <summary>技术记录与轮次操作</summary>
+          <div class="secondary-details-grid">
+            <form
+              v-if="!workspace.ended && canManageRounds"
+              class="inline-form"
+              @submit.prevent="addSpecimen"
+            >
+              <strong>新增本轮标本</strong>
+              <input v-model="specimenCode" required placeholder="标本编号" aria-label="标本编号" />
+              <input
+                v-model="collectionSite"
+                required
+                placeholder="部位/来源"
+                aria-label="部位或来源"
+              />
+              <input v-model="collectionMethodCode" placeholder="采集方式" aria-label="采集方式" />
+              <button class="secondary-button" type="submit" :disabled="submitting">
+                加入本轮
+              </button>
+            </form>
+            <div
+              v-if="
+                canCancelRound &&
+                !selectedRoundFinished &&
+                selectedRound.status !== 'CANCELLED' &&
+                !workspace.ended
+              "
+              class="inline-form"
+            >
+              <strong>取消本轮</strong>
+              <input
+                v-model="cancellationReason"
+                required
+                placeholder="取消原因"
+                aria-label="取消原因"
+              />
+              <button
+                class="danger-button"
+                type="button"
+                :disabled="submitting || !cancellationReason.trim()"
+                @click="cancelRound"
+              >
+                确认取消
+              </button>
+            </div>
+            <p v-if="selectedRound.notificationStatus" class="muted">
+              通知状态：{{ selectedRound.notificationStatus
+              }}{{
+                selectedRound.cancellationReason ? ` · ${selectedRound.cancellationReason}` : ''
+              }}
+            </p>
+          </div>
+        </details>
+      </section>
+
+      <section v-else class="empty-state workspace-panel">
+        <strong>尚未创建冰冻轮次</strong><span>只有确认收到有效标本后才创建轮次。</span
+        ><button
+          v-if="canManageRounds && !workspace.ended"
+          class="primary-button"
+          type="button"
+          @click="startFirstRound"
+        >
+          开始第 1 轮
+        </button>
+      </section>
+
+      <footer class="frozen-footer-actions">
+        <button
+          v-if="canCreateNextRound"
+          class="secondary-button"
+          type="button"
+          :disabled="submitting"
+          @click="createNextRound"
+        >
+          新增一轮
+        </button>
+        <span v-if="workspace.routinePathologyNo" class="feedback success"
+          >已转常规：{{ workspace.routinePathologyNo }}</span
+        >
+        <button
+          v-if="canEnd"
+          class="primary-button"
+          type="button"
+          :disabled="submitting"
+          @click="openEndDialog"
+        >
+          结束冰冻并转常规
+        </button>
+      </footer>
+
+      <div
+        v-if="endDialogOpen"
+        class="modal-backdrop"
+        role="presentation"
+        @click.self="endDialogOpen = false"
+      >
+        <section
+          class="confirm-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="frozen-end-title"
+        >
+          <h2 id="frozen-end-title">结束冰冻并转常规</h2>
+          <p>
+            将结束冰冻，创建 1
+            个新的常规病例、新的常规病理号和新的常规标本。请选择需要转入常规的有效标本。
+          </p>
+          <label v-for="round in activeRounds" :key="round.roundId" class="end-round-group">
+            <strong>第 {{ round.roundNo }} 轮</strong>
+            <span
+              v-for="specimen in round.specimens"
+              :key="specimen.specimenId"
+              class="end-specimen-option"
+            >
+              <input v-model="endSpecimenIds" type="checkbox" :value="specimen.specimenId" />
+              {{ specimen.specimenCode }} ·
+              {{ specimen.specimenName || specimen.collectionSite || '未填写部位' }}
+            </span>
+          </label>
+          <div class="dialog-actions">
+            <button class="secondary-button" type="button" @click="endDialogOpen = false">
+              返回</button
+            ><button
+              class="primary-button"
+              type="button"
+              :disabled="submitting || !endSpecimenIds.length"
+              @click="finishFrozen"
+            >
+              确认结束
+            </button>
+          </div>
+        </section>
+      </div>
     </template>
   </section>
 </template>
+
+<style scoped>
+.focused-frozen-page {
+  display: grid;
+  gap: 12px;
+}
+.frozen-header,
+.panel-toolbar,
+.frozen-footer-actions,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.frozen-header {
+  min-height: 72px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle, #dfe5ec);
+}
+.header-leading,
+.frozen-header-meta,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.frozen-header h1,
+.panel-toolbar h2 {
+  margin: 0;
+}
+.frozen-header-meta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  font-size: 13px;
+}
+.frozen-header-meta strong {
+  font-size: 18px;
+}
+.tat-status {
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #edf5ef;
+  color: #287344;
+}
+.tat-status.warning {
+  background: #fff6df;
+  color: #8a5b00;
+}
+.tat-status.overdue {
+  background: #fff0ed;
+  color: #a33a27;
+}
+.frozen-round-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  overflow-x: auto;
+}
+.frozen-round-tabs button {
+  min-width: 150px;
+  display: grid;
+  gap: 3px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle, #dfe5ec);
+  border-radius: 6px;
+  background: #fff;
+  text-align: left;
+  color: inherit;
+}
+.frozen-round-tabs button.active {
+  border-color: #2563eb;
+  box-shadow: inset 0 -2px #2563eb;
+}
+.frozen-round-tabs small {
+  color: #6b7280;
+}
+.frozen-material-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.35fr) minmax(420px, 1fr);
+  gap: 16px;
+}
+.frozen-specimen-column,
+.frozen-slide-column {
+  min-width: 0;
+}
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.panel-title-row h3 {
+  margin: 0;
+}
+.specimen-row {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border-subtle, #e4e8ee);
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+.specimen-row.active {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.specimen-row span,
+.specimen-row small {
+  color: #687386;
+}
+.dense-table-wrap {
+  overflow-x: auto;
+}
+.dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dense-table th,
+.dense-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle, #e4e8ee);
+  text-align: left;
+  white-space: nowrap;
+}
+.status-pill.warning {
+  background: #fff6df;
+  color: #8a5b00;
+}
+.status-pill.success {
+  background: #edf5ef;
+  color: #287344;
+}
+.frozen-secondary-details {
+  border-top: 1px solid var(--border-subtle, #e4e8ee);
+  padding-top: 10px;
+}
+.frozen-secondary-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.secondary-details-grid {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+.inline-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.inline-form strong {
+  margin-right: 4px;
+}
+.inline-form input {
+  min-width: 120px;
+  padding: 7px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+.danger-button {
+  border: 1px solid #d05a4b;
+  color: #a33a27;
+  background: #fff;
+  border-radius: 4px;
+  padding: 7px 10px;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.confirm-dialog {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
+}
+.confirm-dialog h2 {
+  margin: 0;
+}
+.end-round-group {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #e4e8ee;
+  border-radius: 5px;
+}
+.end-specimen-option {
+  display: block;
+  font-weight: 400;
+}
+@media (max-width: 900px) {
+  .frozen-header,
+  .panel-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .frozen-material-layout {
+    grid-template-columns: 1fr;
+  }
+  .toolbar-actions {
+    flex-wrap: wrap;
+  }
+}
+</style>

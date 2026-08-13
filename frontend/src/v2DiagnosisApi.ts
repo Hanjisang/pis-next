@@ -255,6 +255,13 @@ export function getV2FrozenRoundDiagnosisWorkspace(roundId: string): Promise<V2D
   return diagnosisRequest(`/diagnosis-workspaces/frozen-rounds/${roundId}`);
 }
 
+export function createV2FrozenRoundDiagnosis(roundId: string, idempotencyKey: string) {
+  return diagnosisRequest<{ diagnosisId: string; roundId: string; duplicate: boolean }>(
+    `/frozen/rounds/${roundId}/diagnosis`,
+    { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
+  );
+}
+
 export function getV2ReportPreview(diagnosisId: string, templateVersionId?: string) {
   const query = templateVersionId
     ? `?templateVersionId=${encodeURIComponent(templateVersionId)}`

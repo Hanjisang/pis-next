@@ -944,7 +944,18 @@ onMounted(() => void loadDoctors());
           <button
             class="secondary-button"
             type="button"
-            @click="emit('navigate', contextualPath(`/v2/production/${workspace.caseId}`))"
+            @click="
+              emit(
+                'navigate',
+                contextualPath(
+                  `/v2/production/${workspace.caseId}${
+                    props.sourceType === 'FROZEN_CONTEXT' && props.sourceReferenceId
+                      ? `?roundId=${props.sourceReferenceId}`
+                      : ''
+                  }`,
+                ),
+              )
+            "
           >
             查看制片
           </button>

@@ -517,6 +517,15 @@ public class JdbcV2MaterialRepository {
                 """, Integer.class, specimenId, sourceContextType, ruleCode, occurrenceNo) > 0;
     }
 
+    public boolean slideOutputExistsForSpecimen(UUID specimenId, String sourceContextType, UUID sourceContextId,
+            String ruleCode, int occurrenceNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.slide
+                WHERE specimen_id = ? AND source_context_type = ? AND source_context_id = ?
+                  AND rule_code = ? AND occurrence_no = ? AND deleted_at IS NULL
+                """, Integer.class, specimenId, sourceContextType, sourceContextId, ruleCode, occurrenceNo) > 0;
+    }
+
     public void insertSlide(Slide slide, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.slide
@@ -720,6 +729,22 @@ public class JdbcV2MaterialRepository {
                 """, UUID.class, roundId, caseId, organizationReference);
     }
 
+    public Optional<FrozenRoundScope> frozenRoundScope(UUID roundId, UUID caseId,
+            String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT fr.round_no, fr.status_code, c.lifecycle_state_code, bt.modality_code
+                  FROM pis_v2.frozen_round fr
+                  JOIN pis_v2.pathology_case c ON c.id = fr.case_id
+                  JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                 WHERE fr.id = ? AND fr.case_id = ?
+                   AND fr.organization_reference = ? AND c.organization_reference = ?
+                   AND bt.modality_code = 'FROZEN'
+                """, rs -> rs.next() ? Optional.of(new FrozenRoundScope(rs.getInt("round_no"),
+                        rs.getString("status_code"), rs.getString("lifecycle_state_code"),
+                        rs.getString("modality_code"))) : Optional.empty(),
+                roundId, caseId, organizationReference, organizationReference);
+    }
+
     public boolean isSpecimenInFrozenRound(UUID roundId, UUID specimenId, String organizationReference) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -859,6 +884,9 @@ public class JdbcV2MaterialRepository {
 
     public record MaterialIdempotencyResult(String payloadDigest, String resultKindCode, UUID resultEntityId,
             Integer resultCount) { }
+
+    public record FrozenRoundScope(int roundNo, String statusCode, String lifecycleStateCode,
+            String modalityCode) { }
 
     public record MaterialTreeRow(UUID specimenId, String specimenNo, String specimenCode, String specimenName,
             String specimenKindCode, String creationSourceCode, String collectionSite, String collectionMethodCode,

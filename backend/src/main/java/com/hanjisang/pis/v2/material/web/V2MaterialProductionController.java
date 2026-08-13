@@ -29,6 +29,8 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectSlideCompletionCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredSlidesCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredCytologySlidesCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredFrozenSlidesCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateExtraFrozenSlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintSlidesCommand;
@@ -138,6 +140,22 @@ public class V2MaterialProductionController {
             @PathVariable UUID caseId, @RequestBody GenerateCytologySlidesRequest request) {
         return service.generateRequiredCytologySlides(caseId, new GenerateRequiredCytologySlidesCommand(
                 request.specimenIds(), request.slideType(), request.stainCode(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/cases/{caseId}/frozen-rounds/{roundId}/slides/generate")
+    public V2MaterialProductionApplicationService.SlideBatchGenerationResult generateFrozenSlides(
+            @PathVariable UUID caseId, @PathVariable UUID roundId, @RequestBody GenerateFrozenSlidesRequest request) {
+        return service.generateRequiredFrozenSlides(caseId, roundId,
+                new GenerateRequiredFrozenSlidesCommand(request.specimenIds(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/cases/{caseId}/frozen-rounds/{roundId}/specimens/{specimenId}/slides/extra")
+    public V2MaterialProductionApplicationService.SlideResult createExtraFrozenSlide(
+            @PathVariable UUID caseId, @PathVariable UUID roundId, @PathVariable UUID specimenId,
+            @RequestBody CreateExtraFrozenSlideRequest request) {
+        return service.createExtraFrozenSlide(caseId, roundId, specimenId,
+                new CreateExtraFrozenSlideCommand(request.slideType(), request.stainCode(), request.reason(),
+                        request.idempotencyKey()));
     }
 
     @PostMapping("/cases/{caseId}/specimens/{specimenId}/cytology-slides/extra")
@@ -269,8 +287,9 @@ public class V2MaterialProductionController {
     }
 
     @GetMapping("/cases/{caseId}/materials")
-    public V2MaterialProductionApplicationService.MaterialTreeResult materialTree(@PathVariable UUID caseId) {
-        return service.materialTree(caseId);
+    public V2MaterialProductionApplicationService.MaterialTreeResult materialTree(@PathVariable UUID caseId,
+            @RequestParam(required = false) UUID frozenRoundId) {
+        return service.materialTree(caseId, frozenRoundId);
     }
 
     @GetMapping("/cases/{caseId}/materials/locate")
@@ -311,6 +330,11 @@ public class V2MaterialProductionController {
             String stainCode) { }
 
     public record GenerateCytologySlidesRequest(List<UUID> specimenIds, String slideType, String stainCode,
+            String idempotencyKey) { }
+
+    public record GenerateFrozenSlidesRequest(List<UUID> specimenIds, String idempotencyKey) { }
+
+    public record CreateExtraFrozenSlideRequest(String slideType, String stainCode, String reason,
             String idempotencyKey) { }
 
     public record CreateExtraCytologySlideRequest(String slideType, String stainCode, String reason,

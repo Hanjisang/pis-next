@@ -22,6 +22,7 @@ import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.Q
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.WorkbenchRow;
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.GrossingRow;
 import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.RegisteredRow;
+import com.hanjisang.pis.v2.workbench.infrastructure.JdbcV2WorkbenchRepository.FrozenDiagnosisRow;
 import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationService;
 import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationService.ApplicationQueueResult;
 import com.hanjisang.pis.v2.production.application.V2ProductionWorkbenchApplicationService;
@@ -107,23 +108,26 @@ public class V2WorkbenchApplicationService {
             result.add(queue("GROSSING_PENDING", "待取材", "PENDING",
                     repository.findPendingGrossing(actor.hospitalScope(), false).stream()
                             .map(row -> grossingItem(row, false, false)).toList()));
-            result.add(queue("FROZEN_GROSSING", "冰冻待取材", "PENDING",
-                    repository.findPendingGrossing(actor.hospitalScope(), true).stream()
-                            .map(row -> grossingItem(row, true, false)).toList()));
+            if (hasAny(user, "P14-PERM-019")) {
+                result.add(queue("FROZEN_GROSSING", "冰冻待取材", "PENDING",
+                        repository.findPendingGrossing(actor.hospitalScope(), true).stream()
+                                .map(row -> grossingItem(row, true, false)).toList()));
+            }
             result.add(queue("GROSSED_TODAY", "我今天取材", "TRACKING",
                     repository.findGrossedToday(actor.hospitalScope(), actor.actorId()).stream()
                             .map(row -> grossingItem(row, false, true)).toList()));
         }
         if (hasTechnicalProductionAccess(user)) {
             var queues = production.workbench().queues();
+            if (hasAny(user, "P14-PERM-019")) result.add(productionQueue(queues.frozenProduction()));
             result.add(productionQueue(queues.routineProduction()));
             result.add(productionQueue(queues.cytologyProduction()));
             result.add(productionQueue(queues.incompleteSlides()));
-            if (hasAny(user, "P14-PERM-008")) result.add(productionQueue(queues.frozenProduction()));
             result.add(productionQueue(queues.technicalOrders()));
             result.add(productionQueue(queues.exceptions()));
         }
         if (hasAny(user, DIAGNOSIS_INITIAL)) {
+            if (hasAny(user, "P14-PERM-019")) result.add(frozenDiagnosisQueue(actor));
             result.add(diagnosisQueue("PUBLIC_POOL", "待接诊", publicPool));
             result.add(diagnosisQueue("INITIAL", "待初诊", myWork));
             result.add(diagnosisQueue("REVIEW", "待复诊", myWork));
@@ -133,6 +137,24 @@ public class V2WorkbenchApplicationService {
         if (hasAny(user, REPORT_SIGN_OUT)) result.add(diagnosisQueue(
                 "WITHDRAWN_REPORT_REQUIRES_ATTENTION", "撤回待处理", myWork));
         return List.copyOf(result);
+    }
+
+    private CapabilityQueue frozenDiagnosisQueue(ActorContext actor) {
+        List<QueueItem> items = repository.findFrozenDiagnosis(actor.hospitalScope(), actor.actorId()).stream()
+                .map(this::frozenDiagnosisItem).toList();
+        return queue("FROZEN_DIAGNOSIS", "冰冻待诊断", "PENDING", items);
+    }
+
+    private QueueItem frozenDiagnosisItem(FrozenDiagnosisRow row) {
+        long waiting = waiting(row.arrivalTime());
+        String task = "第 " + row.roundNo() + " 轮冰冻诊断";
+        String detail = "UNASSIGNED".equals(row.assignmentState()) ? "待接诊 · 冰冻优先" : "待初诊 · 冰冻优先";
+        String link = "/v2/diagnosis/" + row.caseId() + "?roundId=" + row.roundId()
+                + "&origin=workbench&queue=FROZEN_DIAGNOSIS&returnTo=/v2/workbench";
+        return new QueueItem("FROZEN-DIAGNOSIS-" + row.roundId(), row.caseId(), null, null,
+                row.pathologyNo(), row.patientReference(), "第 " + row.roundNo() + " 轮 · 已用时 " + waiting + " 分钟",
+                null, row.businessTypeCode(), task, detail, row.arrivalTime(), waiting, true,
+                Set.of("OPEN", "UNASSIGNED".equals(row.assignmentState()) ? "CREATE_DIAGNOSIS" : "EDIT"), link);
     }
 
     private CapabilityQueue diagnosisQueue(String code, String label, List<WorkItem> source) {
@@ -279,7 +301,7 @@ public class V2WorkbenchApplicationService {
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.staining() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.coverslipping() : 0,
                     hasAny(user, TECHNICAL_EXECUTION) ? counts.technical() : 0,
-                    hasTechnicalProductionAccess(user) && hasAny(user, "P14-PERM-008") ? counts.frozen() : 0,
+                    hasTechnicalProductionAccess(user) && hasAny(user, "P14-PERM-019") ? counts.frozen() : 0,
                     hasAny(user, REPORT_SIGN_OUT) ? counts.withdrawn() : 0,
                     hasTechnicalProductionAccess(user) ? counts.cytologyPreparation() : 0,
                     hasTechnicalProductionAccess(user) ? cytologyCases : List.of());

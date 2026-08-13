@@ -339,6 +339,7 @@ public class V2ReportApplicationService {
         repository.insertPdf(reportId, fileReference, rendered.pdf(), rendered.pdfContentHash(), now, actor.actorId());
         if (nature == ReportNature.ORIGINAL && diagnosis.contextType() == com.hanjisang.pis.v2.diagnosis.domain.DiagnosisContextType.FROZEN_ROUND) {
             frozenService.markReportSigned(diagnosis.id(), actor.hospitalScope());
+            frozenService.notifyReportSigned(diagnosis.id(), report.id(), report.reportNo(), actor.hospitalScope(), now);
         }
         repository.insertIdempotency(operation, idempotencyKey, digest, reportId, now, actor.actorId());
         audit.append(nature == ReportNature.ORIGINAL ? "PIS-V2-I05-REPORT-SIGN-OUT" : "PIS-V2-I05-REPORT-SUPPLEMENT",

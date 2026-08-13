@@ -14,6 +14,7 @@ import { getV2Case, type V2CaseResult } from '../v2Api';
 import {
   completeV2Slide,
   createV2DirectCytologySlide,
+  generateV2RequiredFrozenSlides,
   getV2MaterialTree,
   printV2Slide,
   type V2MaterialTree,
@@ -184,11 +185,11 @@ const productionQueues = computed<V2ProductionQueue[]>(() => {
   if (permissions.has('P14-PERM-014')) {
     result.push(queues.routineProduction, queues.cytologyProduction, queues.incompleteSlides);
   }
-  if (permissions.has('P14-PERM-008')) result.push(queues.frozenProduction);
+  if (permissions.has('P14-PERM-019')) result.push(queues.frozenProduction);
   if (permissions.has('P14-PERM-017')) result.push(queues.technicalOrders);
   if (
     permissions.has('P14-PERM-014') ||
-    permissions.has('P14-PERM-008') ||
+    permissions.has('P14-PERM-019') ||
     permissions.has('P14-PERM-017')
   ) {
     result.push(queues.exceptions);
@@ -240,7 +241,7 @@ async function loadMaterialTree() {
     return;
   }
   try {
-    materialTree.value = await getV2MaterialTree(caseId.value);
+    materialTree.value = await getV2MaterialTree(caseId.value, props.frozenRoundId || undefined);
     directSpecimenId.value = materialTree.value.specimens[0]?.specimenId ?? '';
     directSlideCode.value ||= `${materialTree.value.specimens[0]?.specimenCode ?? 'A'}-1`;
   } catch {
@@ -269,7 +270,7 @@ async function loadHistology() {
 async function loadProductionWorkbench() {
   if (
     !(props.authUser?.permissions ?? []).some((permission) =>
-      ['P14-PERM-014', 'P14-PERM-008', 'P14-PERM-017'].includes(permission),
+      ['P14-PERM-014', 'P14-PERM-019', 'P14-PERM-017'].includes(permission),
     )
   ) {
     return;
@@ -365,6 +366,28 @@ function createDirectSlide() {
     directSlideCode.value = '';
     await Promise.all([loadHistology(), loadMaterialTree(), loadProductionWorkbench()]);
   });
+}
+
+function generateFrozenSlides() {
+  if (!caseId.value || !props.frozenRoundId) return;
+  void run(async () => {
+    await generateV2RequiredFrozenSlides({
+      caseId: caseId.value,
+      roundId: props.frozenRoundId,
+      specimenIds: materialTree.value?.specimens.map((specimen) => specimen.specimenId),
+      idempotencyKey: idempotencyKey('fc03c-frozen-slide-generate'),
+    });
+    notice.value = '冰冻轮次所需玻片已按规则生成。';
+    await Promise.all([loadMaterialTree(), loadHistology(), loadProductionWorkbench()]);
+  });
+}
+
+function generateSlides() {
+  if (isFrozen.value) {
+    generateFrozenSlides();
+    return;
+  }
+  openSlideGenerator();
 }
 
 function histologyForSlide(slideId: string) {
@@ -633,7 +656,7 @@ onMounted(() => {
         </p>
       </section>
 
-      <details v-if="!isCytology" class="optional-trace-panel">
+      <details v-if="!isCytology && !isFrozen" class="optional-trace-panel">
         <summary>展开可选技术记录（脱水、包埋、切片、染色、封片）</summary>
         <section
           class="workspace-panel histology-queue-panel"
@@ -1235,12 +1258,21 @@ onMounted(() => {
           <div>
             <p class="section-kicker">当前任务</p>
             <h2>{{ isFrozen ? '冰冻制片' : '常规制片' }}</h2>
-            <p>从来源蜡块生成需要的玻片，并逐张完成。</p>
+            <p>
+              {{
+                isFrozen
+                  ? '本轮标本 → 玻片；不要求蜡块。'
+                  : '从来源蜡块生成需要的玻片，并逐张完成。'
+              }}
+            </p>
           </div>
           <span class="status-pill">{{ completedCaseSlides }}/{{ caseSlides.length }} 张完成</span>
         </header>
         <div class="production-sheet-summary">
-          <strong>{{ caseBlocks.length }} 个蜡块</strong>
+          <strong
+            >{{ isFrozen ? (materialTree?.specimens.length ?? 0) : caseBlocks.length }}
+            {{ isFrozen ? '个标本' : '个蜡块' }}</strong
+          >
           <span>
             要求
             {{ caseSlides.filter((slide) => slide.required).length || caseSlides.length }} 张
@@ -1318,12 +1350,14 @@ onMounted(() => {
           </template>
         </div>
         <div v-else class="empty-state compact">
-          <strong>当前还没有需要完成的玻片</strong>
-          <span>先生成玻片，再回到本工作表完成。</span>
+          <strong>{{ isFrozen ? '本轮尚未建立玻片' : '当前还没有需要完成的玻片' }}</strong>
+          <span>{{
+            isFrozen ? '选择生成玻片后，再完成当前冰冻轮次。' : '先生成玻片，再回到本工作表完成。'
+          }}</span>
         </div>
         <div class="focused-form-actions">
-          <button class="secondary-button" type="button" @click="openSlideGenerator">
-            生成玻片
+          <button class="secondary-button" type="button" :disabled="busy" @click="generateSlides">
+            {{ isFrozen ? '按规则生成冰冻玻片' : '生成玻片' }}
           </button>
           <button
             class="secondary-button"
@@ -1375,7 +1409,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <details v-if="!isCytology" class="optional-trace-panel">
+      <details v-if="!isCytology && !isFrozen" class="optional-trace-panel">
         <summary>更多：技术记录</summary>
         <div class="histology-stage-queues" role="group" aria-label="技术阶段记录">
           <button

@@ -171,7 +171,7 @@ public class AuthIdentityRepository implements AuthenticatedUserDirectory {
 
     private static List<AccountSpec> syntheticAccounts() {
         String query = "P14-PERM-048,P14-PERM-055";
-        String diagnosis = "P14-PERM-034,P14-PERM-015," + query;
+        String diagnosis = "P14-PERM-019,P14-PERM-034,P14-PERM-015," + query;
         String audit = diagnosis + ",P14-PERM-035,P14-PERM-036";
         return List.of(
                 new AccountSpec("doctor-a", "Doctor A", "DOCTOR", "DOC-A", "主治医师", "PATHOLOGY",
@@ -185,17 +185,17 @@ public class AuthIdentityRepository implements AuthenticatedUserDirectory {
                                 + "P14-PERM-006,P14-PERM-007,P14-PERM-008,P14-PERM-009,P14-PERM-010," + query)),
                 new AccountSpec("grossing", "Grossing Staff", "GROSSING", null, null, "PATHOLOGY",
                         "P16-GROSSING-BLOCK-LABELING",
-                        permissions("P14-PERM-008,P14-PERM-010,P14-PERM-013,P14-PERM-014," + query)),
+                        permissions("P14-PERM-008,P14-PERM-010,P14-PERM-013,P14-PERM-014,P14-PERM-019," + query)),
                 new AccountSpec("technician", "Technician", "TECHNICIAN", null, null, "PATHOLOGY",
                         "P16-GROSSING-BLOCK-LABELING,P17-TECHNICAL-PROCESSING-EMBEDDING,P18-TECHNICAL-ORDER",
-                        permissions("P14-PERM-008,P14-PERM-013,P14-PERM-014,P14-PERM-015,P14-PERM-016,P14-PERM-017,P14-PERM-049," + query)),
+                        permissions("P14-PERM-008,P14-PERM-013,P14-PERM-014,P14-PERM-015,P14-PERM-016,P14-PERM-017,P14-PERM-019,P14-PERM-049," + query)),
                 new AccountSpec("registrar-tech", "Registrar Technician", "MULTI_ROLE", null, null, "PATHOLOGY",
                         "P15-REGISTRATION-RECEIVING,P17-TECHNICAL-PROCESSING-EMBEDDING,P18-TECHNICAL-ORDER",
                         permissions("P14-PERM-002,P14-PERM-003,P14-PERM-004,P14-PERM-006,P14-PERM-007,"
-                                + "P14-PERM-008,P14-PERM-009,P14-PERM-010,P14-PERM-014,P14-PERM-017," + query)),
+                                + "P14-PERM-008,P14-PERM-009,P14-PERM-010,P14-PERM-014,P14-PERM-017,P14-PERM-019," + query)),
                 new AccountSpec("admin", "Admin", "ADMIN", null, null, "ADMINISTRATION",
                         "P15-REGISTRATION-RECEIVING,P16-GROSSING-BLOCK-LABELING,P17-TECHNICAL-PROCESSING-EMBEDDING,P18-TECHNICAL-ORDER,P19-DIAGNOSIS-REPORT",
-                        permissions("P14-PERM-001,P14-PERM-002,P14-PERM-003,P14-PERM-004,P14-PERM-006,P14-PERM-007,P14-PERM-008,P14-PERM-009,P14-PERM-010,P14-PERM-011,P14-PERM-013,P14-PERM-014,P14-PERM-015,P14-PERM-016,P14-PERM-017,P14-PERM-029,P14-PERM-034,P14-PERM-035,P14-PERM-036,P14-PERM-042,P14-PERM-044,P14-PERM-046,P14-PERM-047,P14-PERM-048,P14-PERM-049,P14-PERM-050,P14-PERM-055,P14-PERM-057,P14-PERM-058")));
+                        permissions("P14-PERM-001,P14-PERM-002,P14-PERM-003,P14-PERM-004,P14-PERM-006,P14-PERM-007,P14-PERM-008,P14-PERM-009,P14-PERM-010,P14-PERM-011,P14-PERM-013,P14-PERM-014,P14-PERM-015,P14-PERM-016,P14-PERM-017,P14-PERM-019,P14-PERM-020,P14-PERM-021,P14-PERM-029,P14-PERM-034,P14-PERM-035,P14-PERM-036,P14-PERM-042,P14-PERM-044,P14-PERM-046,P14-PERM-047,P14-PERM-048,P14-PERM-049,P14-PERM-050,P14-PERM-055,P14-PERM-057,P14-PERM-058")));
     }
 
     private static Set<String> permissions(String csv) {

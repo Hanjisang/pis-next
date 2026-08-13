@@ -30,7 +30,7 @@ import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchR
 public class V2ProductionWorkbenchApplicationService {
 
     public static final String MATERIAL_PERMISSION = "P14-PERM-014";
-    public static final String FROZEN_PERMISSION = "P14-PERM-008";
+    public static final String FROZEN_PERMISSION = "P14-PERM-019";
     public static final String TECHNICAL_PERMISSION = "P14-PERM-017";
 
     private final JdbcV2ProductionWorkbenchRepository repository;

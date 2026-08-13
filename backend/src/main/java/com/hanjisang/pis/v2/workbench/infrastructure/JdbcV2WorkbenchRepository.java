@@ -87,7 +87,7 @@ public class JdbcV2WorkbenchRepository {
                        COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
                        'WITHDRAWN_REPORT_REQUIRES_ATTENTION' AS work_code,
                        '撤回报告待处理' AS work_label,
-                       COALESCE(di.display_name, r.withdrawn_by_ref) AS responsibility_name,
+                       COALESCE(di.display_name, MAX(r.withdrawn_by_ref)) AS responsibility_name,
                        MAX(r.withdrawn_at) AS occurred_at,
                        c.created_at AS case_created_at
                 FROM pis_v2.pathology_case c
@@ -105,6 +105,65 @@ public class JdbcV2WorkbenchRepository {
                          di.display_name, current_r.doctor_id, c.created_at
                 ORDER BY MAX(r.withdrawn_at) DESC, c.id
                 """, (rs, rowNum) -> row(rs), actorReference, organizationReference);
+    }
+
+    /** Frozen diagnosis is a round projection, not a second diagnosis task entity. */
+    public List<FrozenDiagnosisRow> findFrozenDiagnosis(String organizationReference, String actorReference) {
+        return jdbc.query("""
+                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       fr.id AS round_id, fr.round_no, fr.arrival_time,
+                       CASE WHEN d.id IS NULL THEN 'UNASSIGNED' ELSE 'ASSIGNED' END AS assignment_state
+                FROM pis_v2.frozen_round fr
+                JOIN pis_v2.pathology_case c ON c.id = fr.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
+                  AND ctx.snapshot_version_no = (SELECT MAX(ctx2.snapshot_version_no)
+                      FROM pis_v2.case_context_snapshot ctx2 WHERE ctx2.case_id = c.id)
+                LEFT JOIN pis_v2.diagnosis d ON d.context_type = 'FROZEN_ROUND'
+                  AND d.context_id = fr.id AND d.organization_reference = c.organization_reference
+                LEFT JOIN pis_v2.responsibility_unit r ON r.diagnosis_id = d.id
+                  AND r.role_code = 'INITIAL' AND r.doctor_id = ?
+                  AND r.completed_at IS NULL AND r.ended_at IS NULL
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'FROZEN'
+                  AND fr.status_code IN ('OPEN', 'PRODUCTION_COMPLETE')
+                  AND EXISTS (SELECT 1
+                              FROM pis_v2.frozen_round_specimen frs
+                              JOIN pis_v2.specimen sp ON sp.id = frs.specimen_id AND sp.deleted_at IS NULL
+                              WHERE frs.frozen_round_id = fr.id)
+                  AND NOT EXISTS (SELECT 1
+                                  FROM pis_v2.frozen_round_specimen pending_frs
+                                  JOIN pis_v2.specimen pending_sp ON pending_sp.id = pending_frs.specimen_id
+                                      AND pending_sp.deleted_at IS NULL
+                                  WHERE pending_frs.frozen_round_id = fr.id
+                                    AND (SELECT COUNT(*)
+                                           FROM pis_v2.slide pending
+                                          WHERE pending.case_id = c.id
+                                            AND (pending.specimen_id = pending_frs.specimen_id
+                                             OR EXISTS (SELECT 1 FROM pis_v2.block pending_block
+                                                        WHERE pending_block.id = pending.block_id
+                                                          AND pending_block.specimen_id = pending_frs.specimen_id
+                                                          AND pending_block.deleted_at IS NULL))
+                                            AND pending.source_context_type = 'FROZEN_ROUND'
+                                            AND pending.source_context_id = fr.id
+                                            AND pending.required = TRUE
+                                            AND pending.completed_at IS NOT NULL
+                                            AND pending.deleted_at IS NULL)
+                                      < COALESCE((SELECT SUM(sr.copies)
+                                                    FROM pis_v2.slide_rule sr
+                                                   WHERE sr.organization_reference = c.organization_reference
+                                                     AND sr.business_type_id = c.business_type_id
+                                                     AND sr.source_context_type = 'FROZEN_ROUND'
+                                                     AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                                                     AND sr.active = TRUE), 1))
+                  AND (d.id IS NULL OR r.id IS NOT NULL)
+                ORDER BY fr.arrival_time ASC, fr.id
+                """, (rs, rowNum) -> new FrozenDiagnosisRow(rs.getObject("id", UUID.class),
+                rs.getString("case_no"), rs.getString("business_type_code"), rs.getString("display_name"),
+                rs.getString("patient_reference"), rs.getObject("round_id", UUID.class), rs.getInt("round_no"),
+                rs.getTimestamp("arrival_time").toInstant(), rs.getString("assignment_state")), actorReference,
+                organizationReference);
     }
 
     public List<GrossingRow> findPendingGrossing(String organizationReference, boolean frozen) {
@@ -287,8 +346,40 @@ public class JdbcV2WorkbenchRepository {
                 WHERE o.organization_reference = ? AND o.status_code NOT IN ('COMPLETED', 'CANCELLED')
                 """, organizationReference);
         int frozen = count("""
-                SELECT COUNT(*) FROM pis_v2.pathology_case c JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
-                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE' AND bt.business_type_code = 'FROZEN'
+                SELECT COUNT(*) FROM pis_v2.frozen_round fr
+                JOIN pis_v2.pathology_case c ON c.id = fr.case_id
+                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                  AND bt.modality_code = 'FROZEN' AND fr.status_code IN ('OPEN', 'PRODUCTION_COMPLETE')
+                  AND EXISTS (SELECT 1
+                              FROM pis_v2.frozen_round_specimen frs
+                              JOIN pis_v2.specimen sp ON sp.id = frs.specimen_id AND sp.deleted_at IS NULL
+                              WHERE frs.frozen_round_id = fr.id)
+                  AND EXISTS (SELECT 1
+                              FROM pis_v2.frozen_round_specimen pending_frs
+                              JOIN pis_v2.specimen pending_sp ON pending_sp.id = pending_frs.specimen_id
+                                  AND pending_sp.deleted_at IS NULL
+                              WHERE pending_frs.frozen_round_id = fr.id
+                                AND (SELECT COUNT(*)
+                                       FROM pis_v2.slide pending
+                                      WHERE pending.case_id = c.id
+                                        AND (pending.specimen_id = pending_frs.specimen_id
+                                         OR EXISTS (SELECT 1 FROM pis_v2.block pending_block
+                                                    WHERE pending_block.id = pending.block_id
+                                                      AND pending_block.specimen_id = pending_frs.specimen_id
+                                                      AND pending_block.deleted_at IS NULL))
+                                        AND pending.source_context_type = 'FROZEN_ROUND'
+                                        AND pending.source_context_id = fr.id
+                                        AND pending.required = TRUE
+                                        AND pending.completed_at IS NOT NULL
+                                        AND pending.deleted_at IS NULL)
+                                  < COALESCE((SELECT SUM(sr.copies)
+                                                FROM pis_v2.slide_rule sr
+                                               WHERE sr.organization_reference = c.organization_reference
+                                                 AND sr.business_type_id = c.business_type_id
+                                                 AND sr.source_context_type = 'FROZEN_ROUND'
+                                                 AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                                                 AND sr.active = TRUE), 1))
                 """, organizationReference);
         int withdrawn = count("""
                 SELECT COUNT(DISTINCT r.case_id) FROM pis_v2.report r
@@ -346,6 +437,10 @@ public class JdbcV2WorkbenchRepository {
     public record WorkbenchRow(UUID caseId, String pathologyNo, String businessTypeCode,
             String businessTypeName, String patientReference, String workCode, String workLabel,
             String responsibilityName, Instant occurredAt, Instant caseCreatedAt) { }
+
+    public record FrozenDiagnosisRow(UUID caseId, String pathologyNo, String businessTypeCode,
+            String businessTypeName, String patientReference, UUID roundId, int roundNo, Instant arrivalTime,
+            String assignmentState) { }
 
     public record QueueCounts(int histology, int dehydration, int embedding, int cutting, int staining,
             int coverslipping, int technical, int frozen, int withdrawn, int cytologyPreparation) { }

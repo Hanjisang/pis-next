@@ -391,6 +391,7 @@ onUnmounted(() => {
         <V2FrozenWorkspace
           v-else-if="route.name === 'frozen'"
           :case-id="route.caseId"
+          :round-id="route.roundId"
           :auth-user="authUser"
           :origin="route.origin"
           :queue="route.queue"

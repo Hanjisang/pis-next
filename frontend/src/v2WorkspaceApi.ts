@@ -7,7 +7,20 @@ export type V2CaseWorkspace = {
   digitalSlides: V2WorkspaceDigitalSlide[];
   reports: V2WorkspaceReport[];
   timeline: V2WorkspaceTimelineEntry[];
+  frozenRounds?: V2FrozenRoundSummary[];
   refreshedAt: string;
+};
+
+export type V2FrozenRoundSummary = {
+  roundId: string;
+  roundNo: number;
+  statusCode: string;
+  arrivalTime: string;
+  diagnosisSignedTime: string | null;
+  specimenCount: number;
+  slideCount: number;
+  completedSlideCount: number;
+  reportCount: number;
 };
 
 export type V2WorkbenchItem = {
@@ -171,6 +184,8 @@ export type V2CaseHeader = {
   patientReference: string;
   visitReference: string | null;
   createdAt: string;
+  frozenSourcePathologyNo?: string | null;
+  routineTargetPathologyNo?: string | null;
 };
 
 export type V2WorkspaceMaterialTree = {

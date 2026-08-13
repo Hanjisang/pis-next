@@ -44,6 +44,7 @@ public class V2MaterialProductionApplicationService {
 
     private static final String GROSSING_PERMISSION = "P14-PERM-013";
     private static final String MATERIAL_PERMISSION = "P14-PERM-014";
+    private static final String FROZEN_PERMISSION = "P14-PERM-019";
     private static final String QUERY_PERMISSION = "P14-PERM-048";
     private static final String RECEIVING_PERMISSION = "P14-PERM-008";
     private static final String SPECIMEN_CANCEL_PERMISSION = "P14-PERM-010";
@@ -415,6 +416,132 @@ public class V2MaterialProductionApplicationService {
         audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", caseId, "V2-CASE",
                 UUID.randomUUID().toString(), "cytology slides generated=" + created.size());
         return new SlideBatchGenerationResult(created.size(), created, false);
+    }
+
+    /**
+     * Generates the required physical Slides for one FrozenRound directly from
+     * its unified Specimen records. A Frozen round never needs a Block in order
+     * to produce a Slide; the round id is the production context and the
+     * database uniqueness constraint is the final concurrency guard.
+     */
+    @Transactional
+    public SlideBatchGenerationResult generateRequiredFrozenSlides(UUID caseId, UUID roundId,
+            GenerateRequiredFrozenSlidesCommand command) {
+        validate(caseId, "caseId is required");
+        validate(roundId, "roundId is required");
+        validate(command.idempotencyKey(), "idempotencyKey is required");
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        Case pathologyCase = activeCase(caseId, actor);
+        var round = repository.frozenRoundScope(roundId, caseId, actor.hospitalScope())
+                .orElseThrow(() -> notFound("Frozen round is outside the current case or data scope"));
+        if (!"ACTIVE".equals(round.lifecycleStateCode())
+                || !List.of("OPEN", "PRODUCTION_COMPLETE").contains(round.statusCode())) {
+            throw conflict("当前冰冻轮次不可生成玻片");
+        }
+
+        List<UUID> roundSpecimenIds = repository.findFrozenRoundSpecimenIds(roundId, caseId,
+                actor.hospitalScope());
+        List<UUID> selectedIds = command.specimenIds() == null ? List.of()
+                : command.specimenIds().stream().filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        if (!selectedIds.isEmpty() && !roundSpecimenIds.containsAll(selectedIds)) {
+            throw conflict("所选标本不属于当前冰冻轮次");
+        }
+        List<UUID> specimenIds = selectedIds.isEmpty() ? roundSpecimenIds : selectedIds;
+        if (specimenIds.isEmpty()) throw conflict("当前冰冻轮次没有有效标本");
+
+        String operation = "PIS-V2-FC03C-FROZEN-SLIDE-GENERATE";
+        String digest = digest(caseId, roundId, specimenIds);
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) {
+            return new SlideBatchGenerationResult(existing.resultCount() == null ? 0 : existing.resultCount(),
+                    List.of(), true);
+        }
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE_BATCH", roundId, actor);
+        if (!repository.lockActiveCase(caseId, actor.hospitalScope())) {
+            throw conflict("病例已取消或不在当前数据范围");
+        }
+
+        UUID businessTypeId = repository.findCaseBusinessTypeId(pathologyCase.id(), actor.hospitalScope())
+                .orElseThrow(() -> notFound("病例业务类型不存在"));
+        List<SlideRule> rules = repository.findSlideRules(actor.hospitalScope(), businessTypeId,
+                Slide.FROZEN_ROUND, "ON_GROSSING_COMPLETE");
+        if (rules.isEmpty()) throw conflict("当前冰冻业务未配置玻片生成规则");
+
+        Instant now = Instant.now();
+        List<SlideResult> created = new ArrayList<>();
+        try {
+            for (UUID specimenId : specimenIds) {
+                Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                        .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                        .orElseThrow(() -> conflict("冰冻标本不属于当前病例"));
+                int outputSequence = 0;
+                for (SlideRule rule : rules) {
+                    for (int occurrence = 1; occurrence <= rule.copies(); occurrence++) {
+                        outputSequence++;
+                        if (repository.slideOutputExistsForSpecimen(specimen.id(), Slide.FROZEN_ROUND, roundId,
+                                rule.ruleCode(), occurrence)) {
+                            continue;
+                        }
+                        Slide slide = Slide.fromSpecimenContextWithStain(UUID.randomUUID(), caseId, specimen.id(),
+                                frozenSlideCode(specimen.specimenCode(), round.roundNo(), outputSequence),
+                                rule.slideType(), rule.stainCode(), Slide.FROZEN_ROUND, roundId, rule.ruleCode(),
+                                occurrence, true);
+                        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+                        created.add(SlideResult.of(slide, false));
+                    }
+                }
+            }
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("其他技术员已生成相同冰冻玻片，请刷新后重试");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), created.size());
+        audit.append(operation, FROZEN_PERMISSION, actor, "ALLOWED", "COMPLETED", roundId, "V2-FROZEN-ROUND",
+                UUID.randomUUID().toString(), "frozen slides generated=" + created.size());
+        return new SlideBatchGenerationResult(created.size(), created, false);
+    }
+
+    @Transactional
+    public SlideResult createExtraFrozenSlide(UUID caseId, UUID roundId, UUID specimenId,
+            CreateExtraFrozenSlideCommand command) {
+        validate(caseId, "caseId is required");
+        validate(roundId, "roundId is required");
+        validate(specimenId, "specimenId is required");
+        validate(command.reason(), "额外冰冻玻片原因不能为空");
+        validate(command.idempotencyKey(), "idempotencyKey is required");
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        activeCase(caseId, actor);
+        var round = repository.frozenRoundScope(roundId, caseId, actor.hospitalScope())
+                .orElseThrow(() -> notFound("Frozen round is outside the current case or data scope"));
+        if (!List.of("OPEN", "PRODUCTION_COMPLETE").contains(round.statusCode())) {
+            throw conflict("当前冰冻轮次不可新增玻片");
+        }
+        if (!repository.isSpecimenInFrozenRound(roundId, specimenId, actor.hospitalScope())) {
+            throw conflict("标本不属于当前冰冻轮次");
+        }
+        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                .orElseThrow(() -> notFound("冰冻标本不存在或已失效"));
+        String operation = "PIS-V2-FC03C-FROZEN-SLIDE-EXTRA";
+        String digest = digest(caseId, roundId, specimenId, command.slideType(), command.stainCode(), command.reason());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) return SlideResult.replayed(findSlide(existing, actor));
+        UUID slideId = UUID.randomUUID();
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
+        int occurrence = repository.nextSpecimenSlideOccurrence(specimenId, Slide.FROZEN_ROUND,
+                actor.hospitalScope());
+        String code = frozenSlideCode(specimen.specimenCode(), round.roundNo(), occurrence) + "-X" + occurrence;
+        String slideType = nonBlank(command.slideType(), "FROZEN", "FROZEN");
+        Slide slide = Slide.fromSpecimenContextWithStain(slideId, caseId, specimenId, code, slideType,
+                command.stainCode(), Slide.FROZEN_ROUND, roundId, "MANUAL-FROZEN-EXTRA", occurrence, false);
+        try {
+            repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), Instant.now());
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("冰冻玻片编号 " + code + " 已存在");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, FROZEN_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), command.reason());
+        return SlideResult.of(slide, false);
     }
 
     @Transactional
@@ -1129,9 +1256,19 @@ public class V2MaterialProductionApplicationService {
 
     @Transactional(readOnly = true)
     public MaterialTreeResult materialTree(UUID caseId) {
+        return materialTree(caseId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public MaterialTreeResult materialTree(UUID caseId, UUID frozenRoundId) {
         ActorContext actor = authorization.require(QUERY_PERMISSION);
         Case pathologyCase = findCaseScoped(caseId, actor);
         List<MaterialTreeRow> rows = repository.findMaterialTree(caseId, actor.hospitalScope());
+        Set<UUID> frozenRoundSpecimenIds = frozenRoundId == null ? Set.of()
+                : Set.copyOf(repository.frozenRoundScope(frozenRoundId, caseId, actor.hospitalScope())
+                        .map(ignored -> repository.findFrozenRoundSpecimenIds(frozenRoundId, caseId,
+                                actor.hospitalScope()))
+                        .orElseThrow(() -> notFound("Frozen round is outside the current case or data scope")));
         Map<UUID, SpecimenNodeBuilder> specimens = new LinkedHashMap<>();
         for (MaterialTreeRow row : rows) {
             SpecimenNodeBuilder specimen = specimens.computeIfAbsent(row.specimenId(), ignored ->
@@ -1160,6 +1297,10 @@ public class V2MaterialProductionApplicationService {
             }
         }
         List<SpecimenNode> specimenNodes = specimens.values().stream().map(SpecimenNodeBuilder::build).toList();
+        if (frozenRoundId != null) {
+            specimenNodes = specimenNodes.stream().filter(item -> frozenRoundSpecimenIds.contains(item.specimenId()))
+                    .toList();
+        }
         int required = 0;
         int completed = 0;
         for (SpecimenNode specimen : specimenNodes) {
@@ -1173,7 +1314,20 @@ public class V2MaterialProductionApplicationService {
             }
         }
         BusinessTypeCapability capability = capabilityService.forBusinessType(pathologyCase.businessTypeCode());
-        if (capability.usesHistologyProcessing()) {
+        if ("FROZEN".equals(capability.modalityCode())) {
+            UUID businessTypeId = repository.findCaseBusinessTypeId(caseId, actor.hospitalScope()).orElseThrow();
+            int perSpecimen = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.FROZEN_ROUND,
+                    "ON_GROSSING_COMPLETE").stream().mapToInt(SlideRule::copies).sum();
+            if (perSpecimen == 0) perSpecimen = 1;
+            required = specimenNodes.size() * perSpecimen;
+            Set<UUID> activeSpecimenIds = specimenNodes.stream().map(SpecimenNode::specimenId)
+                    .collect(Collectors.toSet());
+            completed = (int) repository.findActiveSlidesByCase(caseId, actor.hospitalScope()).stream()
+                    .filter(slide -> Slide.FROZEN_ROUND.equals(slide.sourceContextType()) && slide.required()
+                            && activeSpecimenIds.contains(slide.specimenId())
+                            && (frozenRoundId == null || frozenRoundId.equals(slide.sourceContextId()))
+                            && slide.isCompleted()).count();
+        } else if (capability.usesHistologyProcessing()) {
             UUID businessTypeId = repository.findCaseBusinessTypeId(caseId, actor.hospitalScope()).orElseThrow();
             int perBlock = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.INITIAL,
                     "ON_GROSSING_COMPLETE").stream().mapToInt(SlideRule::copies).sum();
@@ -1195,7 +1349,15 @@ public class V2MaterialProductionApplicationService {
                     .filter(slide -> Slide.CYTOLOGY.equals(slide.sourceContextType()) && slide.required()
                             && activeSpecimenIds.contains(slide.specimenId()) && slide.isCompleted()).count();
         }
-        List<String> availableActions = authorization.decide(MATERIAL_PERMISSION).allowed()
+        boolean frozenProductionAccess = authorization.decide(FROZEN_PERMISSION).allowed();
+        List<String> availableActions = "FROZEN".equals(capability.modalityCode())
+                ? (frozenProductionAccess
+                        ? List.of("GENERATE_FROZEN_SLIDES", "CREATE_EXTRA_FROZEN_SLIDE", "PRINT_SLIDE",
+                                "COMPLETE_SLIDE", "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE",
+                                "SCAN_MATERIAL", "RECORD_TECHNICAL_TRACE", "RECORD_PRODUCTION_EXCEPTION",
+                                "PERFORM_REWORK")
+                        : List.of())
+                : authorization.decide(MATERIAL_PERMISSION).allowed()
                 ? (capability.supportsDirectSlides()
                         ? List.of("GENERATE_CYTOLOGY_SLIDES", "CREATE_EXTRA_CYTOLOGY_SLIDE", "PRINT_SLIDE",
                                 "COMPLETE_SLIDE", "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE",
@@ -1459,6 +1621,12 @@ public class V2MaterialProductionApplicationService {
         return fallback;
     }
 
+    private static String frozenSlideCode(String specimenCode, int roundNo, int outputSequence) {
+        String safeSpecimenCode = specimenCode == null || specimenCode.isBlank() ? "SPECIMEN"
+                : specimenCode.trim().replaceAll("[^A-Za-z0-9_-]", "-");
+        return safeSpecimenCode + "-R" + roundNo + "-" + outputSequence;
+    }
+
     private static P15BusinessException reject(String code, String message) {
         return new P15BusinessException(code, message);
     }
@@ -1580,6 +1748,11 @@ public class V2MaterialProductionApplicationService {
 
     public record GenerateRequiredCytologySlidesCommand(List<UUID> specimenIds, String slideType,
             String stainCode, String idempotencyKey) { }
+
+    public record GenerateRequiredFrozenSlidesCommand(List<UUID> specimenIds, String idempotencyKey) { }
+
+    public record CreateExtraFrozenSlideCommand(String slideType, String stainCode, String reason,
+            String idempotencyKey) { }
 
     public record CreateExtraCytologySlideCommand(String slideType, String stainCode, String reason,
             String idempotencyKey) { }

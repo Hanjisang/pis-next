@@ -331,6 +331,17 @@ watch(
             <span v-if="header.visitReference">就诊 {{ header.visitReference }}</span>
             <span>{{ businessTypeName(header.businessTypeCode) }}</span>
           </p>
+          <p
+            v-if="header.frozenSourcePathologyNo || header.routineTargetPathologyNo"
+            class="case-lineage-hint"
+          >
+            <span v-if="header.frozenSourcePathologyNo"
+              >来源冰冻病例：{{ header.frozenSourcePathologyNo }}</span
+            >
+            <span v-if="header.routineTargetPathologyNo"
+              >冰剩常规病例：{{ header.routineTargetPathologyNo }}</span
+            >
+          </p>
         </div>
         <div class="case-overview-actions">
           <button
@@ -470,6 +481,55 @@ watch(
         <button type="button" @click="openFocus('report')">报告</button>
         <button type="button">病例记录</button>
       </nav>
+
+      <section
+        v-if="header.businessTypeCode === 'FROZEN' && workspace.frozenRounds?.length"
+        class="workspace-panel frozen-round-summary-panel"
+        aria-label="冰冻轮次"
+      >
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">冰冻轮次</p>
+            <h2>按轮次查看材料与报告</h2>
+          </div>
+          <button class="secondary-button" type="button" @click="openFocus('frozen')">
+            进入冰冻工作区
+          </button>
+        </header>
+        <div class="frozen-round-summary-table">
+          <div
+            v-for="round in workspace.frozenRounds"
+            :key="round.roundId"
+            class="frozen-round-summary-row"
+          >
+            <strong>第 {{ round.roundNo }} 轮</strong>
+            <span>{{
+              round.statusCode === 'CANCELLED'
+                ? '已取消'
+                : round.reportCount
+                  ? '已报告'
+                  : round.slideCount && round.completedSlideCount === round.slideCount
+                    ? '待诊断'
+                    : '处理中'
+            }}</span>
+            <span>{{ round.specimenCount }} 个标本</span>
+            <span>玻片 {{ round.completedSlideCount }}/{{ round.slideCount }}</span>
+            <span>报告 {{ round.reportCount }}</span>
+            <button
+              class="text-button"
+              type="button"
+              @click="
+                emit(
+                  'navigate',
+                  `/v2/frozen/${props.caseId}?roundId=${round.roundId}&origin=case&returnTo=${encodeURIComponent(caseCenterPath)}`,
+                )
+              "
+            >
+              查看本轮
+            </button>
+          </div>
+        </div>
+      </section>
 
       <main class="case-overview-grid">
         <section class="workspace-panel overview-block" aria-label="临床摘要">
@@ -652,3 +712,27 @@ watch(
     </template>
   </section>
 </template>
+
+<style scoped>
+.frozen-round-summary-panel {
+  margin-top: 12px;
+}
+.frozen-round-summary-table {
+  display: grid;
+  gap: 0;
+}
+.frozen-round-summary-row {
+  display: grid;
+  grid-template-columns: 90px 90px 110px 120px 80px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--border-subtle, #e4e8ee);
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .frozen-round-summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>

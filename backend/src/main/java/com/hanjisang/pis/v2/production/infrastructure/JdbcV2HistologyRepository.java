@@ -59,7 +59,7 @@ public class JdbcV2HistologyRepository {
                           AND p.slide_id = sl.id))
                 WHERE sl.organization_reference = ? AND sl.deleted_at IS NULL
                   AND c.lifecycle_state_code = 'ACTIVE' AND bt.modality_code IN ('TISSUE', 'FROZEN')
-                  AND sl.block_id IS NOT NULL
+                  AND (sl.block_id IS NOT NULL OR sl.source_context_type = 'FROZEN_ROUND')
                 """ + caseFilter + roundFilter + """
                 ORDER BY CASE WHEN sl.completed_at IS NULL THEN 0 ELSE 1 END,
                     c.case_no, sl.slide_code, stage_codes.stage_code""";
@@ -100,8 +100,9 @@ public class JdbcV2HistologyRepository {
                     WHERE sl.id = ? AND sl.organization_reference = ? AND sl.deleted_at IS NULL
                       AND c.lifecycle_state_code = 'ACTIVE'
                       AND ((bt.modality_code = 'TISSUE' AND sl.source_context_type = 'INITIAL')
-                        OR (bt.modality_code = 'CYTOLOGY' AND sl.source_context_type = 'CYTOLOGY'))
-                      AND b.deleted_at IS NULL
+                        OR (bt.modality_code = 'CYTOLOGY' AND sl.source_context_type = 'CYTOLOGY')
+                        OR (bt.modality_code = 'FROZEN' AND sl.source_context_type = 'FROZEN_ROUND'))
+                      AND (b.id IS NULL OR b.deleted_at IS NULL)
                     """, rs -> rs.next() ? Optional.of(new TargetScope("SLIDE", rs.getObject("target_id", UUID.class),
                     rs.getObject("case_id", UUID.class), rs.getString("display_code"))) : Optional.empty(),
                     targetId, organizationReference);
