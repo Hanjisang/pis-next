@@ -89,6 +89,25 @@ public class JdbcV2MaterialRepository {
                 organizationReference);
     }
 
+    public boolean lockActiveCase(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id FROM pis_v2.pathology_case
+                WHERE id = ? AND organization_reference = ? AND lifecycle_state_code = 'ACTIVE'
+                FOR UPDATE
+                """, (org.springframework.jdbc.core.ResultSetExtractor<Boolean>) rs -> rs.next(),
+                caseId, organizationReference);
+    }
+
+    public Optional<UUID> findCompletedInitialGrossingId(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id FROM pis_v2.grossing
+                WHERE case_id = ? AND organization_reference = ? AND source_type = 'INITIAL'
+                  AND completed_at IS NOT NULL AND deleted_at IS NULL
+                ORDER BY completed_at DESC, id DESC LIMIT 1
+                """, rs -> rs.next() ? Optional.of(rs.getObject(1, UUID.class)) : Optional.empty(),
+                caseId, organizationReference);
+    }
+
     public void insertGrossing(Grossing grossing, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.grossing
@@ -337,6 +356,19 @@ public class JdbcV2MaterialRepository {
                 """, (rs, rowNum) -> toBlock(rs), grossingId, organizationReference);
     }
 
+    public List<Block> findActiveInitialBlocksByCase(UUID caseId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT b.id, b.case_id, b.grossing_id, b.specimen_id, b.block_code, b.block_type,
+                       b.external_source_flag, b.external_source_reference, b.sampling_description,
+                       b.quantity, b.note, b.deleted_at, b.deletion_reason, b.concurrency_version
+                FROM pis_v2.block b
+                JOIN pis_v2.grossing g ON g.id = b.grossing_id
+                WHERE b.case_id = ? AND b.organization_reference = ? AND b.deleted_at IS NULL
+                  AND g.source_type = 'INITIAL' AND g.completed_at IS NOT NULL AND g.deleted_at IS NULL
+                ORDER BY b.block_code, b.id
+                """, (rs, rowNum) -> toBlock(rs), caseId, organizationReference);
+    }
+
     public Optional<UUID> findActiveBlockIdByCode(UUID caseId, String blockCode, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id FROM pis_v2.block
@@ -489,6 +521,15 @@ public class JdbcV2MaterialRepository {
                 Timestamp.from(now), actorRef, Timestamp.from(now), actorRef);
     }
 
+    public int nextSlideOccurrence(UUID blockId, String sourceContextType, String organizationReference) {
+        Integer occurrence = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(MAX(occurrence_no), 0) + 1
+                FROM pis_v2.slide
+                WHERE block_id = ? AND source_context_type = ? AND organization_reference = ?
+                """, Integer.class, blockId, sourceContextType, organizationReference);
+        return occurrence == null ? 1 : occurrence;
+    }
+
     public Optional<Slide> findSlide(UUID slideId, String organizationReference) {
         return jdbcTemplate.query("""
                 SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
@@ -529,6 +570,27 @@ public class JdbcV2MaterialRepository {
                 organizationReference);
     }
 
+    public Optional<MaterialLocateRow> locateMaterial(UUID caseId, String barcode, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT located.material_kind, located.material_id, located.case_id, located.business_code
+                FROM (
+                    SELECT 'BLOCK' AS material_kind, b.id AS material_id, b.case_id, b.block_code AS business_code
+                    FROM pis_v2.block b
+                    WHERE UPPER(b.block_code) = UPPER(?) AND b.organization_reference = ? AND b.deleted_at IS NULL
+                    UNION ALL
+                    SELECT 'SLIDE' AS material_kind, sl.id AS material_id, sl.case_id,
+                           sl.slide_code AS business_code
+                    FROM pis_v2.slide sl
+                    WHERE UPPER(sl.slide_code) = UPPER(?) AND sl.organization_reference = ? AND sl.deleted_at IS NULL
+                ) located
+                ORDER BY CASE WHEN located.case_id = ? THEN 0 ELSE 1 END, located.material_kind
+                LIMIT 1
+                """, rs -> rs.next() ? Optional.of(new MaterialLocateRow(rs.getString("material_kind"),
+                rs.getObject("material_id", UUID.class), rs.getObject("case_id", UUID.class),
+                rs.getString("business_code"))) : Optional.empty(), barcode, organizationReference,
+                barcode, organizationReference, caseId);
+    }
+
     public boolean saveSlide(Slide slide, String organizationReference, long expectedVersion,
             String actorRef, Instant now) {
         return jdbcTemplate.update("""
@@ -550,6 +612,71 @@ public class JdbcV2MaterialRepository {
                  WHERE id = ? AND organization_reference = ? AND concurrency_version = ? AND deleted_at IS NULL
                 """, Timestamp.from(now), actorRef, reason, expectedVersion + 1, Timestamp.from(now), actorRef,
                 slideId, organizationReference, expectedVersion) == 1;
+    }
+
+    public void insertSlideCodeHistory(UUID slideId, String oldCode, String newCode, String reason,
+            String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.slide_code_history
+                    (id, slide_id, old_slide_code, new_slide_code, reason, changed_at,
+                     changed_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), slideId, oldCode, newCode, reason, Timestamp.from(now), actorRef,
+                organizationReference);
+    }
+
+    public void insertSlideCompletionCorrection(UUID slideId, Instant priorCompletedAt,
+            String priorCompletedBy, String reason, String organizationReference, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.slide_completion_correction
+                    (id, slide_id, prior_completed_at, prior_completed_by_ref, reason,
+                     corrected_at, corrected_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), slideId, Timestamp.from(priorCompletedAt), priorCompletedBy, reason,
+                Timestamp.from(now), actorRef, organizationReference);
+    }
+
+    public void resolveReworkSourceExceptions(UUID replacementSlideId, String organizationReference,
+            String actorRef, Instant completedAt) {
+        jdbcTemplate.update("""
+                UPDATE pis_v2.material_process_fact fact
+                   SET exception_resolved_at = ?, exception_resolved_by_ref = ?,
+                       exception_resolution_note = '返工替代玻片已完成', updated_at = ?,
+                       concurrency_version = concurrency_version + 1
+                 WHERE fact.slide_id IN (
+                       SELECT rework.original_slide_id
+                         FROM pis_v2.material_rework rework
+                        WHERE rework.replacement_slide_id = ?
+                          AND rework.organization_reference = ?
+                          AND rework.status_code = 'COMPLETED')
+                   AND fact.organization_reference = ? AND fact.exception_code IS NOT NULL
+                   AND fact.exception_resolved_at IS NULL
+                """, Timestamp.from(completedAt), actorRef, Timestamp.from(completedAt), replacementSlideId,
+                organizationReference, organizationReference);
+    }
+
+    public boolean hasSlideDownstreamDependency(UUID slideId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT
+                    (SELECT COUNT(*) FROM pis_v2.digital_slide WHERE slide_id = ?)
+                  + (SELECT COUNT(*) FROM pis_v2.technical_order_target WHERE slide_target_id = ?)
+                  + (SELECT COUNT(*) FROM pis_v2.technical_order_output WHERE slide_output_id = ?)
+                  + (SELECT COUNT(*) FROM pis_v2.slide_archive_current WHERE slide_id = ?)
+                  + (SELECT COUNT(*) FROM pis_v2.loan_item WHERE slide_id = ?)
+                """, Integer.class, slideId, slideId, slideId, slideId, slideId);
+        return count != null && count > 0;
+    }
+
+    public List<SlideCodeHistoryRow> findSlideCodeHistory(UUID slideId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT old_slide_code, new_slide_code, reason, changed_at, changed_by_ref
+                FROM pis_v2.slide_code_history
+                WHERE slide_id = ? AND organization_reference = ?
+                ORDER BY changed_at, id
+                """, (rs, rowNum) -> new SlideCodeHistoryRow(rs.getString("old_slide_code"),
+                rs.getString("new_slide_code"), rs.getString("reason"),
+                rs.getTimestamp("changed_at").toInstant(), rs.getString("changed_by_ref")),
+                slideId, organizationReference);
     }
 
     public Optional<UUID> findSpecimenIdByCase(UUID caseId, UUID specimenId, String organizationReference) {
@@ -598,7 +725,7 @@ public class JdbcV2MaterialRepository {
                        material.block_concurrency_version, material.block_print_count, material.slide_id,
                        material.slide_code, material.slide_type,
                        material.source_context_type, material.completed_at, material.completed_by_ref,
-                       material.required, material.concurrency_version
+                       material.required, material.concurrency_version, material.slide_print_count
                 FROM (
                     SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_name,
                            s.specimen_kind_code, s.creation_source_code, s.collection_site, s.description,
@@ -611,7 +738,9 @@ public class JdbcV2MaterialRepository {
                            (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
                              WHERE pl.entity_kind_code = 'BLOCK' AND pl.entity_id = b.id) AS block_print_count,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
-                           sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
+                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version,
+                            (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
+                              WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS slide_print_count
                     FROM pis_v2.specimen s
                     LEFT JOIN pis_v2.specimen_split split ON split.child_specimen_id = s.id
                     LEFT JOIN pis_v2.specimen source ON source.id = split.source_specimen_id
@@ -629,7 +758,9 @@ public class JdbcV2MaterialRepository {
                            NULL AS block_concurrency_version,
                            0 AS block_print_count,
                            sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
-                           sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version
+                            sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version,
+                            (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
+                              WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS slide_print_count
                     FROM pis_v2.specimen s
                     LEFT JOIN pis_v2.specimen_split split ON split.child_specimen_id = s.id
                     LEFT JOIN pis_v2.specimen source ON source.id = split.source_specimen_id
@@ -650,7 +781,8 @@ public class JdbcV2MaterialRepository {
                 rs.getObject("slide_id", UUID.class),
                 rs.getString("slide_code"), rs.getString("slide_type"),
                 rs.getString("source_context_type"), instant(rs, "completed_at"), rs.getString("completed_by_ref"),
-                rs.getObject("required", Boolean.class), rs.getLong("concurrency_version")), caseId,
+                rs.getObject("required", Boolean.class), rs.getLong("concurrency_version"),
+                rs.getInt("slide_print_count")), caseId,
                 organizationReference, caseId, organizationReference);
     }
 
@@ -712,7 +844,12 @@ public class JdbcV2MaterialRepository {
             Long blockConcurrencyVersion, Integer blockPrintCount, UUID slideId,
             String slideCode, String slideType,
             String sourceContextType, Instant completedAt, String completedByRef, Boolean required,
-            long concurrencyVersion) { }
+            long concurrencyVersion, int slidePrintCount) { }
+
+    public record SlideCodeHistoryRow(String oldCode, String newCode, String reason, Instant changedAt,
+            String changedByRef) { }
+
+    public record MaterialLocateRow(String materialKind, UUID materialId, UUID caseId, String businessCode) { }
 
     public record PrintServiceResult(String resultCode, String failureReason) { }
 

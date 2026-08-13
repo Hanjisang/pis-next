@@ -18,6 +18,7 @@ import V2QualityWorkbench from './components/V2QualityWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2ReportCenter from './components/V2ReportCenter.vue';
 import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.vue';
+import V2RoutineProductionWorkspace from './components/V2RoutineProductionWorkspace.vue';
 import V2SystemAdminHub from './components/V2SystemAdminHub.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 import {
@@ -323,6 +324,17 @@ onUnmounted(() => {
           :auth-user="authUser"
           :source-type="route.roundId ? 'FROZEN_CONTEXT' : route.sourceType || 'INITIAL'"
           :source-reference-id="route.roundId || route.sourceReferenceId || undefined"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
+          @navigate="navigate"
+        />
+        <V2RoutineProductionWorkspace
+          v-else-if="
+            route.name === 'production' && route.queue === 'ROUTINE_PRODUCTION' && route.caseId
+          "
+          v-model:case-id="routeCaseId"
+          :auth-user="authUser"
           :origin="route.origin"
           :queue="route.queue"
           :return-to="route.returnTo"

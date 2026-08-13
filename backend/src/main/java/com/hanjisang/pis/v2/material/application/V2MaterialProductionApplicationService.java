@@ -10,7 +10,9 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -637,6 +639,117 @@ public class V2MaterialProductionApplicationService {
     }
 
     @Transactional
+    public SlideBatchGenerationResult generateRequiredSlides(UUID caseId, GenerateRequiredSlidesCommand command) {
+        validate(caseId, "病例内部ID不能为空");
+        validate(command.idempotencyKey(), "幂等键不能为空");
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        Case pathologyCase = activeCase(caseId, actor);
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.usesHistologyProcessing()) {
+            throw conflict("当前业务类型不属于常规组织制片");
+        }
+        List<UUID> selectedIds = command.blockIds() == null ? List.of() : command.blockIds().stream()
+                .filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        String operation = "PIS-V2-FC03A-ROUTINE-SLIDE-GENERATE";
+        String digest = digest(caseId, selectedIds);
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) {
+            return new SlideBatchGenerationResult(existing.resultCount() == null ? 0 : existing.resultCount(),
+                    List.of(), true);
+        }
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE_BATCH", caseId, actor);
+        if (!repository.lockActiveCase(caseId, actor.hospitalScope())) {
+            throw conflict("病例已取消或不在当前数据范围");
+        }
+        UUID grossingId = repository.findCompletedInitialGrossingId(caseId, actor.hospitalScope())
+                .orElseThrow(() -> conflict("首次取材尚未完成，不能生成常规玻片"));
+        List<Block> blocks = repository.findActiveInitialBlocksByCase(caseId, actor.hospitalScope());
+        if (!selectedIds.isEmpty()) {
+            Set<UUID> allowed = blocks.stream().map(Block::id).collect(Collectors.toSet());
+            if (!allowed.containsAll(selectedIds)) {
+                throw conflict("所选材块不属于当前病例、已失效或不是首次取材材块");
+            }
+            blocks = blocks.stream().filter(block -> selectedIds.contains(block.id())).toList();
+        }
+        if (blocks.isEmpty()) {
+            throw conflict("当前病例没有可生成玻片的活动材块");
+        }
+        UUID businessTypeId = repository.findCaseBusinessTypeId(pathologyCase.id(), actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "病例业务类型不存在"));
+        List<SlideRule> rules = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.INITIAL,
+                "ON_GROSSING_COMPLETE");
+        if (rules.isEmpty()) {
+            throw conflict("当前业务类型没有生效的常规玻片规则");
+        }
+        Instant now = Instant.now();
+        List<SlideResult> created = new ArrayList<>();
+        try {
+            for (Block block : blocks) {
+                for (SlideRule rule : rules) {
+                    for (int occurrence = 1; occurrence <= rule.copies(); occurrence++) {
+                        if (repository.slideOutputExists(block.id(), Slide.INITIAL, grossingId,
+                                rule.ruleCode(), occurrence)) {
+                            continue;
+                        }
+                        Slide slide = Slide.initialFromBlock(UUID.randomUUID(), caseId, block.id(),
+                                rule.slideCode(block.blockCode(), occurrence), rule.slideType(), grossingId,
+                                rule.ruleCode(), occurrence, true);
+                        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+                        created.add(SlideResult.of(slide, false));
+                    }
+                }
+            }
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("其他技术员已生成相同玻片，请刷新后继续");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), created.size());
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", caseId, "V2-CASE",
+                UUID.randomUUID().toString(), "按常规规则生成玻片 " + created.size() + " 张");
+        return new SlideBatchGenerationResult(created.size(), created, false);
+    }
+
+    @Transactional
+    public SlideResult createExtraSlide(UUID blockId, CreateExtraSlideCommand command) {
+        validate(blockId, "材块内部ID不能为空");
+        validate(command.reason(), "额外制片原因不能为空");
+        validate(command.idempotencyKey(), "幂等键不能为空");
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        Block block = findBlock(blockId, actor);
+        activeCase(block.caseId(), actor);
+        BusinessTypeCapability capability = capabilityService.forCase(block.caseId(), actor.hospitalScope());
+        if (!capability.usesHistologyProcessing() || block.isDeleted()) {
+            throw conflict("当前材块不能额外生成常规玻片");
+        }
+        UUID grossingId = repository.findCompletedInitialGrossingId(block.caseId(), actor.hospitalScope())
+                .orElseThrow(() -> conflict("首次取材尚未完成"));
+        String operation = "PIS-V2-FC03A-ROUTINE-SLIDE-EXTRA";
+        String digest = digest(blockId, command.slideType(), command.reason());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) return SlideResult.replayed(findSlide(existing, actor));
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", UUID.randomUUID(), actor);
+        if (!repository.lockActiveCase(block.caseId(), actor.hospitalScope())) {
+            throw conflict("病例已取消");
+        }
+        int occurrence = repository.nextSlideOccurrence(block.id(), Slide.INITIAL, actor.hospitalScope());
+        String slideType = command.slideType() == null || command.slideType().isBlank() ? "HE"
+                : command.slideType().trim().toUpperCase();
+        String code = block.blockCode() + "-" + slideType + "-X" + occurrence;
+        UUID slideId = repository.findMaterialIdempotency(operation, command.idempotencyKey())
+                .map(MaterialIdempotencyResult::resultEntityId).orElseThrow();
+        Slide slide = Slide.initialFromBlock(slideId, block.caseId(), block.id(), code, slideType, grossingId,
+                "MANUAL-EXTRA-" + slideType, occurrence, false);
+        try {
+            repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), Instant.now());
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("玻片编号 " + code + " 已存在");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), command.reason());
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
     public SlideResult completeSlide(UUID slideId, CompleteSlideCommand command) {
         ActorContext actor = authorization.require(MATERIAL_PERMISSION);
         validate(slideId, "切片内部ID不能为空");
@@ -658,6 +771,7 @@ public class V2MaterialProductionApplicationService {
         if (slide.concurrencyVersion() != command.expectedVersion()) {
             persistSlide(slide, actor, command.expectedVersion());
         }
+        repository.resolveReworkSourceExceptions(slide.id(), actor.hospitalScope(), actor.actorId(), now);
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
         audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slideId, "V2-SLIDE",
                 UUID.randomUUID().toString(), "V2切片已完成");
@@ -693,6 +807,7 @@ public class V2MaterialProductionApplicationService {
             if (!slide.isCompleted()) {
                 slide.complete(actor.actorId(), now);
                 persistSlide(slide, actor, completion.expectedVersion());
+                repository.resolveReworkSourceExceptions(slide.id(), actor.hospitalScope(), actor.actorId(), now);
                 changed++;
             }
         }
@@ -700,6 +815,85 @@ public class V2MaterialProductionApplicationService {
         audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", resultId, "V2-SLIDE-BATCH",
                 UUID.randomUUID().toString(), "V2切片批量完成");
         return new SlideBatchResult(changed, false);
+    }
+
+    @Transactional
+    public SlideResult correctSlideCode(UUID slideId, CorrectSlideCodeCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(command.newSlideCode(), "新玻片编号不能为空");
+        validate(command.reason(), "玻片编号更正原因不能为空");
+        Slide slide = findSlide(slideId, actor);
+        activeCase(slide.caseId(), actor);
+        requireVersion(slide.concurrencyVersion(), command.expectedVersion());
+        String newCode = command.newSlideCode().trim();
+        UUID duplicate = repository.findActiveSlideIdByCode(slide.caseId(), newCode, actor.hospitalScope()).orElse(null);
+        if (duplicate != null && !duplicate.equals(slide.id())) {
+            throw conflict("玻片编号 " + newCode + " 已存在");
+        }
+        String oldCode = slide.slideCode();
+        if (oldCode.equals(newCode)) throw conflict("新玻片编号与当前编号相同");
+        slide.renameCode(newCode);
+        Instant now = Instant.now();
+        try {
+            persistSlide(slide, actor, command.expectedVersion());
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("玻片编号 " + newCode + " 已存在");
+        }
+        repository.insertSlideCodeHistory(slide.id(), oldCode, newCode, command.reason(), actor.hospitalScope(),
+                actor.actorId(), now);
+        audit.appendWithChanges("PIS-V2-FC03A-SLIDE-CODE-CORRECT", MATERIAL_PERMISSION, actor, "COMPLETED",
+                slide.id(), "V2-SLIDE", UUID.randomUUID().toString(), command.reason(),
+                List.of(new AuditChange("slideCode", "玻片编号", oldCode, newCode)));
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
+    public SlideResult cancelSlide(UUID slideId, SoftDeleteCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(command.reason(), "玻片失效原因不能为空");
+        validate(command.idempotencyKey(), "幂等键不能为空");
+        Slide slide = findSlide(slideId, actor);
+        activeCase(slide.caseId(), actor);
+        requireVersion(slide.concurrencyVersion(), command.expectedVersion());
+        if (repository.hasSlideDownstreamDependency(slideId)) {
+            throw conflict("玻片已有数字切片、医嘱、归档或借阅关联，只能保留历史，不能失效");
+        }
+        String operation = "PIS-V2-FC03A-SLIDE-CANCEL";
+        String digest = digest(slideId, command.expectedVersion(), command.reason());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) return SlideResult.of(findSlide(slideId, actor), true);
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
+        Instant now = Instant.now();
+        slide.softDelete(command.reason(), now);
+        if (!repository.softDeleteSlide(slideId, actor.hospitalScope(), command.expectedVersion(), command.reason(),
+                actor.actorId(), now)) throw conflict("玻片已被其他用户修改，请刷新后重试");
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slideId, "V2-SLIDE",
+                UUID.randomUUID().toString(), command.reason());
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
+    public SlideResult correctSlideCompletion(UUID slideId, CorrectSlideCompletionCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(command.reason(), "完成记录修正原因不能为空");
+        Slide slide = findSlide(slideId, actor);
+        activeCase(slide.caseId(), actor);
+        requireVersion(slide.concurrencyVersion(), command.expectedVersion());
+        Instant priorAt = slide.completedAt();
+        String priorBy = slide.completedBy();
+        try {
+            slide.correctCompletion();
+        } catch (IllegalStateException exception) {
+            throw conflict(exception.getMessage());
+        }
+        Instant now = Instant.now();
+        persistSlide(slide, actor, command.expectedVersion());
+        repository.insertSlideCompletionCorrection(slideId, priorAt, priorBy, command.reason(),
+                actor.hospitalScope(), actor.actorId(), now);
+        audit.append("PIS-V2-FC03A-SLIDE-COMPLETION-CORRECT", MATERIAL_PERMISSION, actor, "ALLOWED",
+                "COMPLETED", slideId, "V2-SLIDE", UUID.randomUUID().toString(), command.reason());
+        return SlideResult.of(slide, false);
     }
 
     @Transactional
@@ -750,6 +944,24 @@ public class V2MaterialProductionApplicationService {
         return result;
     }
 
+    @Transactional
+    public PrintBatchResult printSlides(PrintSlidesCommand command) {
+        if (command.slideIds() == null || command.slideIds().isEmpty()) {
+            throw badRequest("请选择至少一张待打印玻片");
+        }
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        List<Slide> slides = command.slideIds().stream().distinct()
+                .map(id -> findSlide(id, actor))
+                .sorted(Comparator.comparing(Slide::slideCode).thenComparing(Slide::id)).toList();
+        List<PrintResult> results = new ArrayList<>();
+        int index = 0;
+        for (Slide slide : slides) {
+            results.add(printSlide(slide.id(), new PrintCommand(command.reason(),
+                    command.idempotencyKey() + "/" + index++)));
+        }
+        return new PrintBatchResult(results);
+    }
+
     @Transactional(readOnly = true)
     public MaterialTreeResult materialTree(UUID caseId) {
         ActorContext actor = authorization.require(QUERY_PERMISSION);
@@ -773,12 +985,12 @@ public class V2MaterialProductionApplicationService {
                 if (row.slideId() != null) {
                     block.slides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
                             row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
-                            row.concurrencyVersion()));
+                            row.concurrencyVersion(), row.slidePrintCount()));
                 }
             } else if (row.slideId() != null) {
                 specimen.directSlides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
                         row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
-                        row.concurrencyVersion()));
+                        row.concurrencyVersion(), row.slidePrintCount()));
             }
         }
         List<SpecimenNode> specimenNodes = specimens.values().stream().map(SpecimenNodeBuilder::build).toList();
@@ -794,9 +1006,41 @@ public class V2MaterialProductionApplicationService {
                 if (slide.required()) { required++; if (slide.completed()) completed++; }
             }
         }
+        BusinessTypeCapability capability = capabilityService.forBusinessType(pathologyCase.businessTypeCode());
+        if (capability.usesHistologyProcessing()) {
+            UUID businessTypeId = repository.findCaseBusinessTypeId(caseId, actor.hospitalScope()).orElseThrow();
+            int perBlock = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.INITIAL,
+                    "ON_GROSSING_COMPLETE").stream().mapToInt(SlideRule::copies).sum();
+            Set<UUID> activeInitialBlockIds = repository.findActiveInitialBlocksByCase(caseId, actor.hospitalScope())
+                    .stream().map(Block::id).collect(Collectors.toSet());
+            required = activeInitialBlockIds.size() * perBlock;
+            completed = (int) repository.findActiveSlidesByCase(caseId, actor.hospitalScope()).stream()
+                    .filter(slide -> Slide.INITIAL.equals(slide.sourceContextType()) && slide.required()
+                            && activeInitialBlockIds.contains(slide.blockId()) && slide.isCompleted()).count();
+        }
+        List<String> availableActions = authorization.decide(MATERIAL_PERMISSION).allowed()
+                ? List.of("GENERATE_REQUIRED_SLIDES", "CREATE_EXTRA_SLIDE", "PRINT_SLIDE", "COMPLETE_SLIDE",
+                        "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE", "SCAN_MATERIAL",
+                        "RECORD_TECHNICAL_TRACE",
+                        "RECORD_PRODUCTION_EXCEPTION", "PERFORM_REWORK")
+                : List.of();
         return new MaterialTreeResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
-                capabilityService.forBusinessType(pathologyCase.businessTypeCode()), specimenNodes, required,
-                completed, required > 0 && required == completed);
+                capability, specimenNodes, required, completed, required > 0 && required == completed,
+                availableActions);
+    }
+
+    @Transactional(readOnly = true)
+    public MaterialLocateResult locateMaterial(UUID caseId, String barcode) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(barcode, "条码不能为空");
+        activeCase(caseId, actor);
+        var located = repository.locateMaterial(caseId, barcode.trim(), actor.hospitalScope())
+                .orElseThrow(() -> new P15BusinessException("V2-MATERIAL-BARCODE-NOT-FOUND",
+                        "未找到该材块或玻片", 404));
+        if (!located.caseId().equals(caseId)) {
+            throw new P15BusinessException("V2-MATERIAL-WRONG-CASE", "该材料不属于当前病例", 409);
+        }
+        return new MaterialLocateResult(located.materialKind(), located.materialId(), located.businessCode());
     }
 
     @Transactional(readOnly = true)
@@ -934,17 +1178,17 @@ public class V2MaterialProductionApplicationService {
 
     private Grossing findGrossing(UUID id, ActorContext actor) {
         return repository.findGrossing(id, actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "取材不存在或不在当前数据范围"));
+                .orElseThrow(() -> notFound("取材不存在或不在当前数据范围"));
     }
 
     private Block findBlock(UUID id, ActorContext actor) {
         return repository.findBlock(id, actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "蜡块不存在或不在当前数据范围"));
+                .orElseThrow(() -> notFound("蜡块不存在或不在当前数据范围"));
     }
 
     private Slide findSlide(UUID id, ActorContext actor) {
         return repository.findSlide(id, actor.hospitalScope())
-                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "切片不存在或不在当前数据范围"));
+                .orElseThrow(() -> notFound("切片不存在或不在当前数据范围"));
     }
 
     private Case activeCase(UUID caseId, ActorContext actor) {
@@ -1030,6 +1274,10 @@ public class V2MaterialProductionApplicationService {
 
     private static P15BusinessException reject(String code, String message) {
         return new P15BusinessException(code, message);
+    }
+
+    private static P15BusinessException notFound(String message) {
+        return new P15BusinessException("V2-SOURCE-NOT-FOUND", message, 404);
     }
 
     private static P15BusinessException badRequest(String message) {
@@ -1154,9 +1402,19 @@ public class V2MaterialProductionApplicationService {
 
     public record CompleteSlidesCommand(List<SlideCompletion> slides, String idempotencyKey) { }
 
+    public record GenerateRequiredSlidesCommand(List<UUID> blockIds, String idempotencyKey) { }
+
+    public record CreateExtraSlideCommand(String slideType, String reason, String idempotencyKey) { }
+
+    public record CorrectSlideCodeCommand(String newSlideCode, String reason, long expectedVersion) { }
+
+    public record CorrectSlideCompletionCommand(String reason, long expectedVersion) { }
+
     public record PrintCommand(String reason, String idempotencyKey) { }
 
     public record PrintBlocksCommand(List<UUID> blockIds, String reason, String idempotencyKey) { }
+
+    public record PrintSlidesCommand(List<UUID> slideIds, String reason, String idempotencyKey) { }
 
     public record GrossingResult(UUID grossingId, String grossingNo, UUID caseId, String sourceType,
             Instant completedAt, long concurrencyVersion, boolean duplicate, int affectedCount, boolean reopened) {
@@ -1195,6 +1453,8 @@ public class V2MaterialProductionApplicationService {
 
     public record SlideBatchResult(int changedCount, boolean duplicate) { }
 
+    public record SlideBatchGenerationResult(int createdCount, List<SlideResult> slides, boolean duplicate) { }
+
     public record PrintResult(UUID entityId, boolean duplicate, String resultCode) { }
 
     public record PrintBatchResult(List<PrintResult> results) { }
@@ -1207,7 +1467,9 @@ public class V2MaterialProductionApplicationService {
     public record MaterialTreeResult(UUID caseId, String caseNo, String businessTypeCode,
             BusinessTypeCapability capability,
             List<SpecimenNode> specimens, int initialRequiredCount, int initialCompletedCount,
-            boolean initialProductionComplete) { }
+            boolean initialProductionComplete, List<String> availableActions) { }
+
+    public record MaterialLocateResult(String materialKind, UUID materialId, String businessCode) { }
 
     public record GrossingWorkspaceResult(UUID caseId, String caseNo, String businessTypeCode,
             String patientReference, String visitReference, String applicationNo, List<SpecimenNode> specimens,
@@ -1240,5 +1502,5 @@ public class V2MaterialProductionApplicationService {
             long concurrencyVersion, int printCount, String verificationStatus, List<SlideNode> slides) { }
 
     public record SlideNode(UUID slideId, String slideCode, String slideType, String sourceContextType,
-            Instant completedAt, boolean completed, boolean required, long concurrencyVersion) { }
+            Instant completedAt, boolean completed, boolean required, long concurrencyVersion, int printCount) { }
 }

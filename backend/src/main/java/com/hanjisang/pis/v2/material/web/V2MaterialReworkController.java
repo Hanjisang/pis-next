@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hanjisang.pis.v2.material.application.V2MaterialReworkApplicationService;
 import com.hanjisang.pis.v2.material.application.V2MaterialReworkApplicationService.CompleteCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialReworkApplicationService.RequestCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialReworkApplicationService.PerformCommand;
 
 @RestController
 @RequestMapping("/api/v2")
@@ -33,6 +34,13 @@ public class V2MaterialReworkController {
     public V2MaterialReworkApplicationService.ReworkResult complete(@PathVariable UUID reworkId,
             @RequestBody CompleteRequest request) {
         return service.complete(reworkId, new CompleteCommand(request.replacementSlideId()));
+    }
+
+    @PostMapping("/slides/{slideId}/rework/perform")
+    public V2MaterialReworkApplicationService.ReworkResult perform(@PathVariable UUID slideId,
+            @RequestBody Request request) {
+        return service.perform(slideId, new PerformCommand(request.reworkTypeCode(), request.reason(),
+                request.idempotencyKey()));
     }
 
     @GetMapping("/cases/{caseId}/material-reworks")

@@ -109,6 +109,16 @@ public final class Slide {
         concurrencyVersion++;
     }
 
+    public void correctCompletion() {
+        ensureActive();
+        if (this.completedAt == null) {
+            throw new IllegalStateException("玻片尚未完成，无需修正完成记录");
+        }
+        this.completedAt = null;
+        this.completedBy = null;
+        concurrencyVersion++;
+    }
+
     public void softDelete(String reason, Instant deletedAt) {
         ensureActive();
         this.deletionReason = required(reason, "切片失效原因不能为空");

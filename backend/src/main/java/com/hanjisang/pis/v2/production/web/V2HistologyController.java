@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hanjisang.pis.v2.production.application.V2HistologyApplicationService;
+import com.hanjisang.pis.v2.production.application.V2HistologyApplicationService.CompleteTraceBatchCommand;
+import com.hanjisang.pis.v2.production.application.V2HistologyApplicationService.CompleteTraceCommand;
+import com.hanjisang.pis.v2.production.application.V2HistologyApplicationService.CorrectTraceCommand;
 
 @RestController
 @RequestMapping("/api/v2/histology")
@@ -42,7 +45,40 @@ public class V2HistologyController {
         return service.recordException(slideId, phaseCode, request.exceptionCode(), request.note());
     }
 
+    @PostMapping("/traces/{targetKind}/{targetId}/complete")
+    public V2HistologyApplicationService.PhaseFact completeTrace(@PathVariable String targetKind,
+            @PathVariable UUID targetId, @RequestBody CompleteTraceRequest request) {
+        return service.completeTarget(targetKind, targetId, new CompleteTraceCommand(request.stageCode(),
+                request.equipmentReference(), request.stainCode(), request.note()));
+    }
+
+    @PostMapping("/traces/{targetKind}/complete-batch")
+    public List<V2HistologyApplicationService.PhaseFact> completeTraceBatch(@PathVariable String targetKind,
+            @RequestBody CompleteTraceBatchRequest request) {
+        return service.completeTargets(targetKind, new CompleteTraceBatchCommand(request.targetIds(),
+                request.stageCode(), request.equipmentReference(), request.stainCode(), request.note()));
+    }
+
+    @PostMapping("/traces/{factId}/resolve-exception")
+    public V2HistologyApplicationService.PhaseFact resolveException(@PathVariable UUID factId,
+            @RequestBody ResolveExceptionRequest request) {
+        return service.resolveException(factId, request.note());
+    }
+
+    @PostMapping("/traces/{factId}/correct")
+    public V2HistologyApplicationService.PhaseFact correctTrace(@PathVariable UUID factId,
+            @RequestBody CorrectTraceRequest request) {
+        return service.correctTrace(factId, new CorrectTraceCommand(request.completedAt(),
+                request.equipmentReference(), request.note(), request.reason()));
+    }
+
     public record PhaseRequest(String deviceReference, String batchReference) { }
     public record ExceptionRequest(String exceptionCode, String note) { }
     public record BatchRequest(List<UUID> slideIds) { }
+    public record CompleteTraceRequest(String stageCode, String equipmentReference, String stainCode, String note) { }
+    public record CompleteTraceBatchRequest(List<UUID> targetIds, String stageCode, String equipmentReference,
+            String stainCode, String note) { }
+    public record ResolveExceptionRequest(String note) { }
+    public record CorrectTraceRequest(java.time.Instant completedAt, String equipmentReference, String note,
+            String reason) { }
 }

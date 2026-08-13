@@ -169,14 +169,38 @@ CREATE TABLE IF NOT EXISTS pis_v2.slide (
     slide_code_active VARCHAR(128) AS (CASE WHEN deleted_at IS NULL THEN slide_code ELSE NULL END)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.material_process_fact (
-    id UUID PRIMARY KEY, case_id UUID NOT NULL, slide_id UUID NOT NULL,
+    id UUID PRIMARY KEY, case_id UUID NOT NULL, slide_id UUID, block_id UUID,
+    target_kind_code VARCHAR(16) NOT NULL,
     phase_code VARCHAR(32) NOT NULL, started_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE, operator_ref VARCHAR(128),
-    device_reference VARCHAR(256), batch_reference VARCHAR(256),
+    device_reference VARCHAR(256), equipment_id UUID, batch_reference VARCHAR(256), stain_code VARCHAR(64),
     exception_code VARCHAR(64), exception_note VARCHAR(2000),
+    exception_resolved_at TIMESTAMP WITH TIME ZONE, exception_resolved_by_ref VARCHAR(128),
+    exception_resolution_note VARCHAR(2000),
     concurrency_version BIGINT NOT NULL, organization_reference VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    UNIQUE (slide_id, phase_code)
+    target_identity UUID AS (COALESCE(block_id, slide_id)),
+    UNIQUE (target_kind_code, target_identity, phase_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.material_process_fact_correction (
+    id UUID PRIMARY KEY, process_fact_id UUID NOT NULL, prior_completed_at TIMESTAMP WITH TIME ZONE,
+    prior_operator_ref VARCHAR(128), prior_equipment_id UUID, prior_note VARCHAR(2000),
+    corrected_completed_at TIMESTAMP WITH TIME ZONE, corrected_operator_ref VARCHAR(128),
+    corrected_equipment_id UUID, corrected_note VARCHAR(2000), reason VARCHAR(2000) NOT NULL,
+    corrected_at TIMESTAMP WITH TIME ZONE NOT NULL, corrected_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.slide_code_history (
+    id UUID PRIMARY KEY, slide_id UUID NOT NULL, old_slide_code VARCHAR(128) NOT NULL,
+    new_slide_code VARCHAR(128) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL, changed_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.slide_completion_correction (
+    id UUID PRIMARY KEY, slide_id UUID NOT NULL, prior_completed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    prior_completed_by_ref VARCHAR(128) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    corrected_at TIMESTAMP WITH TIME ZONE NOT NULL, corrected_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
 );
 ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE pis_v2.block ADD IF NOT EXISTS destroyed_by_ref VARCHAR(128);
@@ -376,6 +400,10 @@ DELETE FROM pis_v2.diagnosis_template_version;
 DELETE FROM pis_v2.assignment_rule;
 DELETE FROM pis_v2.diagnosis_template;
 DELETE FROM pis_v2.material_command_idempotency;
+DELETE FROM pis_v2.material_process_fact_correction;
+DELETE FROM pis_v2.material_process_fact;
+DELETE FROM pis_v2.slide_code_history;
+DELETE FROM pis_v2.slide_completion_correction;
 DELETE FROM pis_v2.print_log;
 DELETE FROM pis_v2.slide;
 DELETE FROM pis_v2.block_verification;

@@ -22,40 +22,58 @@ public class JdbcV2ProductionWorkbenchRepository {
 
     public List<RoutineRow> findRoutine(String organizationReference) {
         return jdbc.query("""
-                SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
-                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
-                       COUNT(DISTINCT gs.specimen_id) AS specimen_count,
-                       COUNT(DISTINCT b.id) AS block_count,
-                       COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) AS required_count,
-                       COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
-                           AS completed_count,
-                       MAX(g.completed_at) AS entered_at,
-                       COALESCE((SELECT mp.operator_ref
-                                  FROM pis_v2.material_process_fact mp
-                                  JOIN pis_v2.slide latest_slide ON latest_slide.id = mp.slide_id
-                                  WHERE mp.case_id = c.id AND mp.organization_reference = ?
-                                    AND latest_slide.deleted_at IS NULL AND mp.operator_ref IS NOT NULL
-                                  ORDER BY mp.updated_at DESC, mp.id DESC
-                                  FETCH FIRST 1 ROW ONLY), '制片人员') AS current_operator
-                FROM pis_v2.pathology_case c
-                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
-                JOIN pis_v2.grossing g ON g.case_id = c.id
-                    AND g.source_type = 'INITIAL' AND g.completed_at IS NOT NULL AND g.deleted_at IS NULL
-                JOIN pis_v2.grossing_specimen gs ON gs.grossing_id = g.id AND gs.deleted_at IS NULL
-                JOIN pis_v2.block b ON b.case_id = c.id AND b.grossing_id = g.id AND b.deleted_at IS NULL
-                LEFT JOIN pis_v2.slide sl ON sl.case_id = c.id AND sl.source_context_type = 'INITIAL'
-                    AND sl.deleted_at IS NULL
-                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
-                    AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
-                        FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
-                WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
-                  AND bt.modality_code = 'TISSUE'
-                GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name,
-                         ctx.patient_reference, c.created_at
-                HAVING COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END) = 0
-                    OR COUNT(DISTINCT CASE WHEN sl.required AND sl.completed_at IS NOT NULL THEN sl.id END)
-                       < COUNT(DISTINCT CASE WHEN sl.required THEN sl.id END)
-                ORDER BY entered_at, c.id
+                SELECT routine.*
+                FROM (
+                    SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
+                           COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                           COUNT(DISTINCT gs.specimen_id) AS specimen_count,
+                           COUNT(DISTINCT b.id) AS block_count,
+                           (SELECT COALESCE(SUM(sr.copies), 0)
+                              FROM pis_v2.block required_block
+                              JOIN pis_v2.grossing required_grossing ON required_grossing.id = required_block.grossing_id
+                              JOIN pis_v2.slide_rule sr ON sr.organization_reference = c.organization_reference
+                                AND sr.business_type_id = c.business_type_id AND sr.active = TRUE
+                                AND sr.source_context_type = 'INITIAL'
+                                AND sr.trigger_code = 'ON_GROSSING_COMPLETE'
+                             WHERE required_block.case_id = c.id AND required_block.deleted_at IS NULL
+                               AND required_grossing.source_type = 'INITIAL'
+                               AND required_grossing.completed_at IS NOT NULL
+                               AND required_grossing.deleted_at IS NULL) AS required_count,
+                           (SELECT COUNT(*) FROM pis_v2.slide completed_slide
+                             JOIN pis_v2.block completed_block ON completed_block.id = completed_slide.block_id
+                             JOIN pis_v2.grossing completed_grossing ON completed_grossing.id = completed_block.grossing_id
+                             WHERE completed_slide.case_id = c.id
+                               AND completed_slide.source_context_type = 'INITIAL'
+                               AND completed_slide.required = TRUE
+                               AND completed_slide.completed_at IS NOT NULL
+                               AND completed_slide.deleted_at IS NULL
+                               AND completed_block.deleted_at IS NULL
+                               AND completed_grossing.source_type = 'INITIAL'
+                               AND completed_grossing.completed_at IS NOT NULL
+                               AND completed_grossing.deleted_at IS NULL) AS completed_count,
+                           MAX(g.completed_at) AS entered_at,
+                           COALESCE((SELECT mp.operator_ref
+                                      FROM pis_v2.material_process_fact mp
+                                      WHERE mp.case_id = c.id AND mp.organization_reference = ?
+                                        AND mp.operator_ref IS NOT NULL
+                                      ORDER BY mp.updated_at DESC, mp.id DESC
+                                      FETCH FIRST 1 ROW ONLY), '制片人员') AS current_operator
+                    FROM pis_v2.pathology_case c
+                    JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                    JOIN pis_v2.grossing g ON g.case_id = c.id
+                        AND g.source_type = 'INITIAL' AND g.completed_at IS NOT NULL AND g.deleted_at IS NULL
+                    JOIN pis_v2.grossing_specimen gs ON gs.grossing_id = g.id AND gs.deleted_at IS NULL
+                    JOIN pis_v2.block b ON b.case_id = c.id AND b.grossing_id = g.id AND b.deleted_at IS NULL
+                    LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
+                        AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
+                            FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
+                    WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                      AND bt.modality_code = 'TISSUE'
+                    GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name,
+                             ctx.patient_reference, c.created_at
+                ) routine
+                WHERE routine.completed_count < routine.required_count
+                ORDER BY routine.entered_at, routine.id
                 """, (rs, rowNum) -> routine(rs), organizationReference, organizationReference);
     }
 
@@ -184,24 +202,43 @@ public class JdbcV2ProductionWorkbenchRepository {
 
     public List<ExceptionRow> findExceptions(String organizationReference) {
         return jdbc.query("""
-                SELECT mp.id AS exception_id, mp.case_id, c.case_no, bt.business_type_code, bt.display_name,
-                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
-                       COALESCE(b.block_code, s.specimen_code, sl.slide_code, '—') AS material_code,
-                       sl.slide_code, sl.source_context_type, mp.exception_code, mp.exception_note,
-                       mp.updated_at AS occurred_at, mp.operator_ref
-                FROM pis_v2.material_process_fact mp
-                JOIN pis_v2.pathology_case c ON c.id = mp.case_id
-                JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
-                JOIN pis_v2.slide sl ON sl.id = mp.slide_id AND sl.deleted_at IS NULL
-                LEFT JOIN pis_v2.block b ON b.id = sl.block_id
-                LEFT JOIN pis_v2.specimen s ON s.id = COALESCE(sl.specimen_id, b.specimen_id)
-                LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
-                    AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
-                        FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
-                WHERE mp.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
-                  AND mp.exception_code IS NOT NULL AND mp.exception_code <> ''
-                ORDER BY mp.updated_at DESC, mp.id
-                """, (rs, rowNum) -> exception(rs), organizationReference);
+                SELECT attention.* FROM (
+                    SELECT mp.id AS exception_id, mp.case_id, c.case_no, bt.business_type_code, bt.display_name,
+                           COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                           COALESCE(target_block.block_code, source_block.block_code, sl.slide_code, '—') AS material_code,
+                           sl.slide_code, COALESCE(sl.source_context_type, 'INITIAL') AS source_context_type,
+                           mp.exception_code, mp.exception_note, mp.updated_at AS occurred_at, mp.operator_ref
+                    FROM pis_v2.material_process_fact mp
+                    JOIN pis_v2.pathology_case c ON c.id = mp.case_id
+                    JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                    LEFT JOIN pis_v2.slide sl ON sl.id = mp.slide_id AND sl.deleted_at IS NULL
+                    LEFT JOIN pis_v2.block target_block ON target_block.id = mp.block_id
+                    LEFT JOIN pis_v2.block source_block ON source_block.id = sl.block_id
+                    LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
+                        AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
+                            FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
+                    WHERE mp.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
+                      AND mp.exception_code IS NOT NULL AND mp.exception_code <> ''
+                      AND mp.exception_resolved_at IS NULL
+                    UNION ALL
+                    SELECT rw.id AS exception_id, rw.case_id, c.case_no, bt.business_type_code, bt.display_name,
+                           COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                           COALESCE(b.block_code, sl.slide_code, '—') AS material_code,
+                           sl.slide_code, sl.source_context_type, rw.rework_type_code AS exception_code,
+                           rw.reason AS exception_note, rw.requested_at AS occurred_at, rw.requested_by_ref AS operator_ref
+                    FROM pis_v2.material_rework rw
+                    JOIN pis_v2.pathology_case c ON c.id = rw.case_id
+                    JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
+                    JOIN pis_v2.slide sl ON sl.id = rw.original_slide_id
+                    LEFT JOIN pis_v2.block b ON b.id = sl.block_id
+                    LEFT JOIN pis_v2.case_context_snapshot ctx ON ctx.case_id = c.id
+                        AND ctx.snapshot_version_no = (SELECT MAX(latest.snapshot_version_no)
+                            FROM pis_v2.case_context_snapshot latest WHERE latest.case_id = c.id)
+                    WHERE rw.organization_reference = ? AND rw.status_code = 'REQUESTED'
+                      AND c.lifecycle_state_code = 'ACTIVE'
+                ) attention
+                ORDER BY attention.occurred_at DESC, attention.exception_id
+                """, (rs, rowNum) -> exception(rs), organizationReference, organizationReference);
     }
 
     private static RoutineRow routine(ResultSet rs) throws SQLException {

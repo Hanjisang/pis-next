@@ -7,16 +7,28 @@ export const histologyPhases = [
 ] as const;
 
 export type HistologyPhaseCode = (typeof histologyPhases)[number]['code'];
+export type TechnicalTraceStageCode =
+  | 'DEHYDRATION'
+  | 'EMBEDDING'
+  | 'SECTIONING'
+  | 'STAINING'
+  | 'COVERSLIPPING';
 
 export type V2HistologyPhase = {
+  factId?: string | null;
+  targetKind?: 'BLOCK' | 'SLIDE' | null;
+  targetId?: string | null;
   phaseCode: HistologyPhaseCode;
   startedAt: string | null;
   completedAt: string | null;
   operatorRef: string | null;
   deviceReference: string | null;
+  equipmentId?: string | null;
   batchReference: string | null;
+  stainCode?: string | null;
   exceptionCode: string | null;
   exceptionNote: string | null;
+  exceptionResolvedAt?: string | null;
 };
 
 export type V2HistologySlide = {
@@ -156,5 +168,42 @@ export function completeV2HistologyPhaseBatch(slideIds: string[], phaseCode: His
   return phaseRequest<V2HistologyPhase[]>(`/api/v2/histology/phases/${phaseCode}/complete-batch`, {
     method: 'POST',
     body: JSON.stringify({ slideIds }),
+  });
+}
+
+export function completeV2TechnicalTrace(input: {
+  targetKind: 'BLOCK' | 'SLIDE';
+  targetId: string;
+  stageCode: TechnicalTraceStageCode;
+  equipmentReference?: string;
+  stainCode?: string;
+  note?: string;
+}) {
+  const { targetKind, targetId, ...body } = input;
+  return phaseRequest<V2HistologyPhase>(
+    `/api/v2/histology/traces/${targetKind}/${targetId}/complete`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export function completeV2TechnicalTraceBatch(input: {
+  targetKind: 'BLOCK' | 'SLIDE';
+  targetIds: string[];
+  stageCode: TechnicalTraceStageCode;
+  equipmentReference?: string;
+  stainCode?: string;
+  note?: string;
+}) {
+  const { targetKind, ...body } = input;
+  return phaseRequest<V2HistologyPhase[]>(`/api/v2/histology/traces/${targetKind}/complete-batch`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function resolveV2ProductionException(factId: string, note: string) {
+  return phaseRequest<V2HistologyPhase>(`/api/v2/histology/traces/${factId}/resolve-exception`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
   });
 }

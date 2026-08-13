@@ -78,6 +78,18 @@ public class JdbcV2MaterialReworkRepository {
         return changed == 1 ? findById(id, organizationReference) : Optional.empty();
     }
 
+    public void resolveOpenProcessExceptions(UUID originalSlideId, String organizationReference,
+            String actorRef, Instant completedAt, String note) {
+        jdbc.update("""
+                UPDATE pis_v2.material_process_fact
+                   SET exception_resolved_at = ?, exception_resolved_by_ref = ?, exception_resolution_note = ?,
+                       updated_at = ?, concurrency_version = concurrency_version + 1
+                 WHERE slide_id = ? AND organization_reference = ? AND exception_code IS NOT NULL
+                   AND exception_resolved_at IS NULL
+                """, Timestamp.from(completedAt), actorRef, note, Timestamp.from(completedAt), originalSlideId,
+                organizationReference);
+    }
+
     private static ReworkRow row(java.sql.ResultSet rs) throws java.sql.SQLException {
         Timestamp requested = rs.getTimestamp("requested_at");
         Timestamp completed = rs.getTimestamp("completed_at");

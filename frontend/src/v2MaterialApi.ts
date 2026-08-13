@@ -33,6 +33,7 @@ export type V2SlideNode = {
   completed: boolean;
   required: boolean;
   concurrencyVersion: number;
+  printCount: number;
 };
 
 export type V2MaterialTree = {
@@ -79,6 +80,7 @@ export type V2MaterialTree = {
   initialRequiredCount: number;
   initialCompletedCount: number;
   initialProductionComplete: boolean;
+  availableActions: string[];
 };
 
 export type V2SlideResult = {
@@ -396,6 +398,69 @@ export function completeV2Slides(input: {
   return materialRequest('/slides/complete-batch', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function generateV2RequiredRoutineSlides(input: {
+  caseId: string;
+  blockIds: string[];
+  idempotencyKey: string;
+}): Promise<{ createdCount: number; slides: V2SlideResult[]; duplicate: boolean }> {
+  const { caseId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/routine-slides/generate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2ExtraRoutineSlide(input: {
+  blockId: string;
+  slideType: string;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { blockId, ...body } = input;
+  return materialRequest(`/blocks/${blockId}/routine-slides/extra`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function correctV2SlideCode(input: {
+  slideId: string;
+  newSlideCode: string;
+  reason: string;
+  expectedVersion: number;
+}): Promise<V2SlideResult> {
+  const { slideId, ...body } = input;
+  return materialRequest(`/slides/${slideId}/correct-code`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function cancelV2Slide(input: {
+  slideId: string;
+  reason: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { slideId, ...body } = input;
+  return materialRequest(`/slides/${slideId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function correctV2SlideCompletion(input: {
+  slideId: string;
+  reason: string;
+  expectedVersion: number;
+}): Promise<V2SlideResult> {
+  const { slideId, ...body } = input;
+  return materialRequest(`/slides/${slideId}/correct-completion`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export function printV2Block(input: {
   blockId: string;
   reason?: string;
@@ -423,6 +488,49 @@ export function printV2Slide(input: {
 }): Promise<{ entityId: string; duplicate: boolean; resultCode: string }> {
   const { slideId, ...body } = input;
   return materialRequest(`/slides/${slideId}/print`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function printV2Slides(input: {
+  slideIds: string[];
+  reason?: string;
+  idempotencyKey: string;
+}): Promise<{ results: Array<{ entityId: string; duplicate: boolean; resultCode: string }> }> {
+  return materialRequest('/slides/print-batch', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function locateV2Material(
+  caseId: string,
+  barcode: string,
+): Promise<{
+  materialKind: 'BLOCK' | 'SLIDE';
+  materialId: string;
+  businessCode: string;
+}> {
+  return materialRequest(
+    `/cases/${caseId}/materials/locate?barcode=${encodeURIComponent(barcode)}`,
+  );
+}
+
+export function performV2ProductionRework(input: {
+  slideId: string;
+  reworkTypeCode: 'RECUT' | 'RESTAIN' | 'RESCAN';
+  reason: string;
+  idempotencyKey: string;
+}): Promise<{
+  reworkId: string;
+  originalSlideId: string;
+  replacementSlideId: string | null;
+  reworkTypeCode: string;
+  statusCode: string;
+}> {
+  const { slideId, ...body } = input;
+  return materialRequest(`/slides/${slideId}/rework/perform`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

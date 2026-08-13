@@ -23,8 +23,13 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateDirectSlideCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateExtraSlideCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectSlideCodeCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectSlideCompletionCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredSlidesCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintBlocksCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintSlidesCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.ReopenGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.SlideCompletion;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.SoftDeleteCommand;
@@ -168,6 +173,41 @@ public class V2MaterialProductionController {
         return service.completeSlides(new CompleteSlidesCommand(slides, request.idempotencyKey()));
     }
 
+    @PostMapping("/cases/{caseId}/routine-slides/generate")
+    public V2MaterialProductionApplicationService.SlideBatchGenerationResult generateRequiredSlides(
+            @PathVariable UUID caseId, @RequestBody GenerateRequiredSlidesRequest request) {
+        return service.generateRequiredSlides(caseId,
+                new GenerateRequiredSlidesCommand(request.blockIds(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/blocks/{blockId}/routine-slides/extra")
+    public V2MaterialProductionApplicationService.SlideResult createExtraSlide(@PathVariable UUID blockId,
+            @RequestBody CreateExtraSlideRequest request) {
+        return service.createExtraSlide(blockId,
+                new CreateExtraSlideCommand(request.slideType(), request.reason(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/slides/{slideId}/correct-code")
+    public V2MaterialProductionApplicationService.SlideResult correctSlideCode(@PathVariable UUID slideId,
+            @RequestBody CorrectSlideCodeRequest request) {
+        return service.correctSlideCode(slideId,
+                new CorrectSlideCodeCommand(request.newSlideCode(), request.reason(), request.expectedVersion()));
+    }
+
+    @PostMapping("/slides/{slideId}/cancel")
+    public V2MaterialProductionApplicationService.SlideResult cancelSlide(@PathVariable UUID slideId,
+            @RequestBody SoftDeleteRequest request) {
+        return service.cancelSlide(slideId,
+                new SoftDeleteCommand(request.expectedVersion(), request.reason(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/slides/{slideId}/correct-completion")
+    public V2MaterialProductionApplicationService.SlideResult correctSlideCompletion(@PathVariable UUID slideId,
+            @RequestBody CorrectSlideCompletionRequest request) {
+        return service.correctSlideCompletion(slideId,
+                new CorrectSlideCompletionCommand(request.reason(), request.expectedVersion()));
+    }
+
     @PostMapping("/blocks/{blockId}/print")
     public V2MaterialProductionApplicationService.PrintResult printBlock(@PathVariable UUID blockId,
             @RequestBody PrintRequest request) {
@@ -187,9 +227,22 @@ public class V2MaterialProductionController {
         return service.printSlide(slideId, new PrintCommand(request.reason(), request.idempotencyKey()));
     }
 
+    @PostMapping("/slides/print-batch")
+    public V2MaterialProductionApplicationService.PrintBatchResult printSlides(
+            @RequestBody PrintSlidesRequest request) {
+        return service.printSlides(new PrintSlidesCommand(request.slideIds(), request.reason(),
+                request.idempotencyKey()));
+    }
+
     @GetMapping("/cases/{caseId}/materials")
     public V2MaterialProductionApplicationService.MaterialTreeResult materialTree(@PathVariable UUID caseId) {
         return service.materialTree(caseId);
+    }
+
+    @GetMapping("/cases/{caseId}/materials/locate")
+    public V2MaterialProductionApplicationService.MaterialLocateResult locateMaterial(@PathVariable UUID caseId,
+            @RequestParam String barcode) {
+        return service.locateMaterial(caseId, barcode);
     }
 
     @GetMapping("/cases/{caseId}/grossing-workspace")
@@ -238,7 +291,17 @@ public class V2MaterialProductionController {
 
     public record CompleteSlidesRequest(List<SlideCompletionRequest> slides, String idempotencyKey) { }
 
+    public record GenerateRequiredSlidesRequest(List<UUID> blockIds, String idempotencyKey) { }
+
+    public record CreateExtraSlideRequest(String slideType, String reason, String idempotencyKey) { }
+
+    public record CorrectSlideCodeRequest(String newSlideCode, String reason, long expectedVersion) { }
+
+    public record CorrectSlideCompletionRequest(String reason, long expectedVersion) { }
+
     public record PrintRequest(String reason, String idempotencyKey) { }
 
     public record PrintBlocksRequest(List<UUID> blockIds, String reason, String idempotencyKey) { }
+
+    public record PrintSlidesRequest(List<UUID> slideIds, String reason, String idempotencyKey) { }
 }
