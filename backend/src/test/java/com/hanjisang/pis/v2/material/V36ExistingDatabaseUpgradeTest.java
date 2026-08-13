@@ -31,8 +31,8 @@ class V36ExistingDatabaseUpgradeTest {
             .withPassword(UUID.randomUUID().toString());
 
     @Test
-    void upgradesRepresentativeV35MaterialChainToV36WithoutLosingMedicalFacts() {
-        migrateTo("35");
+    void upgradesRepresentativeV36MaterialChainToV37WithoutLosingMedicalFacts() {
+        migrateTo("36");
         JdbcTemplate jdbc = jdbc();
         Seed seed = seedV35MaterialChain(jdbc);
         Map<String, Integer> before = counts(jdbc);
@@ -41,7 +41,7 @@ class V36ExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("36");
+                String.class)).isEqualTo("37");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(before.values()).allMatch(count -> count > 0);
         assertThat(jdbc.queryForObject("SELECT specimen_name FROM pis_v2.specimen WHERE id = ?", String.class,
@@ -52,6 +52,30 @@ class V36ExistingDatabaseUpgradeTest {
                 Boolean.class, seed.blockId())).isTrue();
         assertThat(jdbc.queryForObject("SELECT quantity FROM pis_v2.block WHERE id = ?", Integer.class,
                 seed.blockId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('material_process_fact_correction', 'slide_code_history',
+                                     'slide_completion_correction')
+                """, Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'pis_v2'
+                  AND table_name = 'material_process_fact'
+                  AND column_name IN ('block_id', 'target_kind_code', 'equipment_id', 'stain_code')
+                """, Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.material_process_fact
+                WHERE block_id = ? AND slide_id IS NULL AND target_kind_code = 'BLOCK'
+                  AND phase_code = 'DEHYDRATION'
+                """, Integer.class, seed.blockId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.material_process_fact
+                WHERE case_id = ? AND phase_code = 'DEHYDRATION'
+                """, Integer.class, seed.caseId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.material_process_fact
+                WHERE case_id = ? AND slide_id IS NOT NULL AND target_kind_code = 'SLIDE'
+                  AND phase_code = 'DEHYDRATION'
+                """, Integer.class, seed.caseId())).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2'
                   AND table_name IN ('grossing_correction_history', 'grossing_specimen_correction_history',
@@ -120,10 +144,10 @@ class V36ExistingDatabaseUpgradeTest {
                 """, caseId, businessTypeId, now);
         jdbc.update("""
                 INSERT INTO pis_v2.specimen
-                    (id, case_id, specimen_no, specimen_code, specimen_kind_code, source_kind_code,
+                    (id, case_id, specimen_no, specimen_code, specimen_name, specimen_kind_code, source_kind_code,
                      source_reference, collection_site, collection_method_code, label_code, concurrency_version,
                      organization_reference, created_at, created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, 'SP-V36-UPGRADE', 'SP-V36-UPGRADE', 'TISSUE', 'APPLICATION',
+                VALUES (?, ?, 'SP-V36-UPGRADE', 'SP-V36-UPGRADE', '升级测试部位', 'TISSUE', 'APPLICATION',
                         'APP-V36-UPGRADE', '升级测试部位', 'SURGERY', 'LBL-V36-UPGRADE', 0,
                         'LOCAL_HOSPITAL', ?, 'upgrade-test', ?, 'upgrade-test')
                 """, specimenId, caseId, now, now);
@@ -153,6 +177,27 @@ class V36ExistingDatabaseUpgradeTest {
                 VALUES (?, ?, ?, ?, 'V36-A1-HE', 'HE', 'INITIAL', ?, 'ROUTINE-HE', 1, TRUE,
                         ?, 'technician', 1, 'LOCAL_HOSPITAL', ?, 'upgrade-test', ?, 'upgrade-test')
                 """, slideId, caseId, blockId, specimenId, grossingId, now, now, now);
+        jdbc.update("""
+                INSERT INTO pis_v2.material_process_fact
+                    (id, case_id, slide_id, phase_code, started_at, completed_at, operator_ref,
+                     concurrency_version, organization_reference, created_at, updated_at)
+                VALUES (?, ?, ?, 'DEHYDRATION', ?, ?, 'technician', 1, 'LOCAL_HOSPITAL', ?, ?)
+                """, UUID.randomUUID(), caseId, slideId, now, now, now, now);
+        UUID secondSlideId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO pis_v2.slide
+                    (id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
+                     source_context_id, rule_code, occurrence_no, required, completed_at, completed_by_ref,
+                     concurrency_version, organization_reference, created_at, created_by_ref, updated_at, updated_by_ref)
+                VALUES (?, ?, ?, ?, 'V36-A1-HE-2', 'HE', 'INITIAL', ?, 'ROUTINE-HE', 2, FALSE,
+                        ?, 'technician', 1, 'LOCAL_HOSPITAL', ?, 'upgrade-test', ?, 'upgrade-test')
+                """, secondSlideId, caseId, blockId, specimenId, grossingId, now, now, now);
+        jdbc.update("""
+                INSERT INTO pis_v2.material_process_fact
+                    (id, case_id, slide_id, phase_code, started_at, completed_at, operator_ref,
+                     concurrency_version, organization_reference, created_at, updated_at)
+                VALUES (?, ?, ?, 'DEHYDRATION', ?, ?, 'technician-2', 1, 'LOCAL_HOSPITAL', ?, ?)
+                """, UUID.randomUUID(), caseId, secondSlideId, now, now, now, now);
         jdbc.update("""
                 INSERT INTO pis_v2.diagnosis
                     (id, case_id, context_type, context_id, template_version_id, structured_data,

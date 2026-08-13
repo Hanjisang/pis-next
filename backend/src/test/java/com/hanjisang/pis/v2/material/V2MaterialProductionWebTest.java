@@ -187,7 +187,7 @@ class V2MaterialProductionWebTest {
     }
 
     @Test
-    void histologyFactsExposeFiveDerivedPhasesAndKeepExceptionsOnTheSlide() throws Exception {
+    void histologyFactsExposeFiveOptionalTracesAndPersistDehydrationOnTheBlock() throws Exception {
         String caseId = createCase("APP-PX01-HISTOLOGY");
         String specimenId = createSpecimen(caseId, "A", "specimen-px01-histology");
         String grossingId = createGrossing(caseId, "grossing-px01-histology");
@@ -196,6 +196,13 @@ class V2MaterialProductionWebTest {
         completeGrossing(grossingId, 0, "complete-px01-histology");
         String slideId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?", String.class,
                 UUID.fromString(blockId)).toString();
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.equipment
+                    (id, equipment_code, name, category_code, status_code, organization_reference,
+                     created_at, created_by_ref)
+                VALUES (?, 'SYNTH-DEHYDRATOR', '合成脱水机', 'DEHYDRATOR', 'ACTIVE', 'LOCAL_HOSPITAL',
+                        CURRENT_TIMESTAMP, 'TEST')
+                """, UUID.randomUUID());
 
         JsonNode initial = objectMapper.readTree(mockMvc.perform(
                 get("/api/v2/histology-workbench").queryParam("caseId", caseId))
@@ -222,8 +229,10 @@ class V2MaterialProductionWebTest {
         assertThat(completed.get("completedAt").isNull()).isFalse();
         assertThat(completed.get("exceptionCode").asText()).isEqualTo("染色过浅");
         assertThat(completed.get("exceptionNote").asText()).isEqualTo("synthetic exception");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.material_process_fact WHERE block_id = ?",
+                Integer.class, UUID.fromString(blockId))).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.material_process_fact WHERE slide_id = ?",
-                Integer.class, UUID.fromString(slideId))).isEqualTo(1);
+                Integer.class, UUID.fromString(slideId))).isZero();
     }
 
     @Test
@@ -298,26 +307,18 @@ class V2MaterialProductionWebTest {
         String originalSlide = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?",
                 String.class, UUID.fromString(firstBlock));
 
-        mockMvc.perform(post("/api/v2/slides/%s/rework".formatted(originalSlide))
+        JsonNode rework = objectMapper.readTree(mockMvc.perform(post("/api/v2/slides/%s/rework/perform".formatted(originalSlide))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"reworkTypeCode\":\"RE_STAIN\",\"reason\":\"synthetic quality issue\",\"idempotencyKey\":\"rework-001\"}"))
-                .andExpect(status().isOk());
-        String supplementaryGrossingId = createGrossing(caseId, "grossing-rework-002", "OTHER",
-                UUID.randomUUID().toString());
-        associateSpecimen(supplementaryGrossingId, specimenId, "associate-rework-002");
-        String secondBlock = createBlock(supplementaryGrossingId, specimenId, "A2", "block-rework-002");
-        completeGrossing(supplementaryGrossingId, 0, "complete-rework-002");
-        String replacementSlide = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.slide WHERE block_id = ?",
-                String.class, UUID.fromString(secondBlock));
-        String reworkId = jdbcTemplate.queryForObject("SELECT id FROM pis_v2.material_rework WHERE idempotency_key = ?",
-                String.class, "rework-001");
-
-        mockMvc.perform(post("/api/v2/material-reworks/%s/complete".formatted(reworkId))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"replacementSlideId\":\"%s\"}".formatted(replacementSlide)))
-                .andExpect(status().isOk());
+                .content("{\"reworkTypeCode\":\"RECUT\",\"reason\":\"synthetic quality issue\",\"idempotencyKey\":\"rework-001\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String reworkId = rework.get("reworkId").asText();
+        String replacementSlide = rework.get("replacementSlideId").asText();
         assertThat(jdbcTemplate.queryForObject("SELECT status_code FROM pis_v2.material_rework WHERE id = ?",
                 String.class, UUID.fromString(reworkId))).isEqualTo("COMPLETED");
+        assertThat(jdbcTemplate.queryForObject("SELECT block_id FROM pis_v2.slide WHERE id = ?", UUID.class,
+                UUID.fromString(replacementSlide))).isEqualTo(UUID.fromString(firstBlock));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.slide WHERE block_id = ?", Integer.class,
+                UUID.fromString(firstBlock))).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis.audit_event WHERE target_object_kind_code = 'V2-MATERIAL-REWORK'",
                 Integer.class)).isGreaterThanOrEqualTo(2);
     }
