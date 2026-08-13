@@ -16401,3 +16401,34 @@ FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转�
 | WB-CORE-010 | 全部 | 全局搜索独立 | Toolbar 搜索进入 Case Center | 队列筛选与全局搜索分离 | App/V2Home | COMPLETE |
 
 Workbench atomic totals: TOTAL=46, COMPLETE=44, PARTIAL=1, MISSING=1.
+
+## SRS-FC03C Frozen Pathology Closure Evidence Addendum
+
+本附录只记录 SRS-FC03C 对现有原子需求的实际证据，不改变未完成的通用诊断、报告设计器或真实外部接口范围。
+
+| Atomic ID | Status | Backend / DB / Frontend / Test Evidence | Gap / Boundary |
+|---|---|---|---|
+| FROZEN-001 | COMPLETE | 统一 `pathology_case` + `business_type=FROZEN`；`V2FrozenWebTest`；浏览器 F-000003 登记后进入冰冻队列 | 无平行 FrozenCase 实体 |
+| FROZEN-002 | COMPLETE | 现有 `PathologyNumberRule`；Frozen Web 与 PostgreSQL 迁移/并发测试 | 冰冻与常规编号独立 |
+| FROZEN-003 | COMPLETE | `frozen_round`、round number 唯一约束；`V2FrozenWebTest`、`FrozenPostgresConcurrencyTest` | 轮次不是 Case |
+| FROZEN-004 | COMPLETE | 多轮工作区、Round 2 创建与隔离断言；`V2FrozenWebTest` | Frozen End 后禁止新增轮次 |
+| FROZEN-005 | COMPLETE | `frozen_round_specimen`；多标本生产投影与完成前后测试 | 每个标本按规则参与 requirement |
+| FROZEN-006 | COMPLETE | 统一 `slide`，Frozen context/round/specimen 绑定；`V2FrozenWebTest` 与 `fc03c-frozen-pathology.spec.ts` 覆盖零玻片直接生成、无 Block、完成与回归 | 无 FrozenSlide 平行实体 |
+| FROZEN-007 | COMPLETE | 复用统一 DigitalSlide/材料查询边界；Case Center 保持材料血缘 | 本轮不重构 WSI Viewer |
+| FROZEN-008 | COMPLETE | 统一 `diagnosis` + `FROZEN_ROUND` context；医生工作台直接入口与回退浏览器验证 | 通用诊断模板能力不在本轮扩展 |
+| FROZEN-009 | COMPLETE | 统一 `report` 关联 Frozen Diagnosis/Round；多轮报告保留与签发回归测试 | Frozen/常规报告不互相覆盖 |
+| FROZEN-010 | COMPLETE | Round arrival time、后端 TAT 计算、刷新保持计时；工作区显示 timer/status | 阈值仍由现有 TAT policy 提供 |
+| FROZEN-011 | PARTIAL | Warning/overdue projection 已有；Frozen 工作区展示状态 | 尚未形成完整提醒/运营处置闭环 |
+| FROZEN-012 | EXTERNAL_DEPENDENCY | `ClinicalResultNotification` port、mock adapter、attempt/outbox/retry 记录与接口测试 | 真实 OR/HIS 联调未完成；Simulator 不冒充生产验证 |
+| FROZEN-013 | COMPLETE | `Frozen End` 事务、轮次前置校验、选定标本预览/复制与回滚；`V2FrozenWebTest`；`fc03c-frozen-pathology.spec.ts` 覆盖制片队列退出 | End 是事实，不改变 Case lifecycle |
+| FROZEN-014 | COMPLETE | 新 Routine Case、新 Specimen、新 PathologyNo、`frozen_source_case_id`；End 集成测试 | 不复制 Frozen diagnosis/report/material identity |
+| FROZEN-015 | COMPLETE | Routine 编号由编号规则分配；Frozen/Routine 编号独立断言 | 不复用 Frozen pathology number |
+| FROZEN-016 | COMPLETE | `pathology_case.frozen_source_case_id` partial unique index；Case Center 双向显示；PG 迁移测试 | 不建立 Generic CaseRelation |
+| FROZEN-017 | PARTIAL | Case Center 已具备 Frozen/Routine 来源信息和结果事实查询基础 | 人工冰冻/石蜡对照评价 UI 尚未在本轮闭环 |
+
+### FC03C implementation decisions
+
+- 初始轮次在 Frozen Application → Registration 完成时建立；统一 `Case`/`Specimen` 已创建后，由 Frozen 应用服务在同一事务内补建 `FrozenRound` 与 round-specimen 事实。手工 Frozen specimen 仍可在首次有效接收时创建首轮。
+- `Frozen End` 使用 Case 行锁、Frozen End 事实和 `frozen_source_case_id` 唯一索引保证幂等；Routine Case 后续取消不会允许第二次 End 生成第二个 Routine Case。
+- 真实外部 OR/HIS 通知、打印机及冰冻设备保持 `EXTERNAL_DEPENDENCY`；本轮只验证 adapter/simulator、失败记录和重试边界。
+- Playwright 1920×1080 与 1366×768：`px03c-focused-workspaces.spec.ts` 验证 Frozen Round 直接入口/计时，`fc03c-frozen-pathology.spec.ts` 验证零玻片 → 直接 Slide → 完成 → 原队列移除。
