@@ -326,26 +326,191 @@ public class V2MaterialProductionApplicationService {
         Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
                 .filter(item -> item.caseId().equals(caseId) && !item.deleted())
                 .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "标本不属于当前病例"));
-        if (repository.findActiveSlideIdByCode(caseId, command.slideCode(), actor.hospitalScope()).isPresent()) {
-            throw reject("V2-SLIDE-CODE-CONFLICT", "同一病例下切片编号已存在");
-        }
         String operation = "PIS-V2-I06-CYTOLOGY-SLIDE-CREATE";
-        String digest = digest(caseId, specimenId, command.slideCode(), command.slideType());
+        String digest = digest(caseId, specimenId, command.slideCode(), command.slideType(), command.stainCode());
         MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
         if (existing != null) {
             return SlideResult.of(findSlide(existing, actor), true);
         }
+        if (repository.findActiveSlideIdByCode(caseId, command.slideCode(), actor.hospitalScope()).isPresent()) {
+            throw reject("V2-SLIDE-CODE-CONFLICT", "同一病例下切片编号已存在");
+        }
         UUID slideId = UUID.randomUUID();
         reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
-        Slide slide = Slide.fromSpecimenContext(slideId, caseId, specimenId, command.slideCode(),
-                command.slideType(), Slide.CYTOLOGY, specimenId, "CYTOLOGY-DIRECT", 1, true);
+        Slide slide = Slide.fromSpecimenContextWithStain(slideId, caseId, specimenId, command.slideCode(),
+                command.slideType(), command.stainCode(), Slide.CYTOLOGY, specimenId, "CYTOLOGY-DIRECT", 1, true);
         Instant now = Instant.now();
-        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+        try {
+            repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("玻片编号或业务产出已存在");
+        }
         repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
         audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
                 UUID.randomUUID().toString(), "细胞直接切片已创建");
         outbox.append("V2-I06-CYTOLOGY-SLIDE-CREATED", slide.id(), "V2-SLIDE", slide.concurrencyVersion(),
                 UUID.randomUUID().toString(), digest, actor.actorId());
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
+    public SlideBatchGenerationResult generateRequiredCytologySlides(UUID caseId,
+            GenerateRequiredCytologySlidesCommand command) {
+        validate(caseId, "caseId is required");
+        validate(command.idempotencyKey(), "idempotencyKey is required");
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        Case pathologyCase = activeCase(caseId, actor);
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.supportsDirectSlides()) throw conflict("Current business type does not support direct cytology slides");
+        List<UUID> selectedIds = command.specimenIds() == null ? List.of() : command.specimenIds().stream()
+                .filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        String operation = "PIS-V2-FC03B-CYTOLOGY-SLIDE-GENERATE";
+        String digest = digest(caseId, selectedIds, command.slideType(), command.stainCode());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) {
+            return new SlideBatchGenerationResult(existing.resultCount() == null ? 0 : existing.resultCount(),
+                    List.of(), true);
+        }
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE_BATCH", caseId, actor);
+        if (!repository.lockActiveCase(caseId, actor.hospitalScope())) throw conflict("Case is cancelled or out of scope");
+        List<Specimen> specimens = registrationRepository.findActiveSpecimensByCase(caseId, actor.hospitalScope());
+        if (!selectedIds.isEmpty()) {
+            Set<UUID> allowed = specimens.stream().map(Specimen::id).collect(Collectors.toSet());
+            if (!allowed.containsAll(selectedIds)) throw conflict("Selected specimen is outside this case");
+            specimens = specimens.stream().filter(item -> selectedIds.contains(item.id())).toList();
+        }
+        if (specimens.isEmpty()) throw conflict("No active cytology specimen is available");
+        UUID businessTypeId = repository.findCaseBusinessTypeId(pathologyCase.id(), actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "Business type was not found"));
+        List<SlideRule> rules = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.CYTOLOGY,
+                "MANUAL");
+        Instant now = Instant.now();
+        List<SlideResult> created = new ArrayList<>();
+        try {
+            for (Specimen specimen : specimens) {
+                int outputSequence = 0;
+                List<SlideRule> effectiveRules = rules.isEmpty() ? java.util.Collections.singletonList(null) : rules;
+                for (SlideRule rule : effectiveRules) {
+                    int copies = rule == null ? 1 : rule.copies();
+                    for (int occurrence = 1; occurrence <= copies; occurrence++) {
+                        outputSequence++;
+                        String ruleCode = rule == null ? "CYTOLOGY-DIRECT" : rule.ruleCode();
+                        if (repository.slideOutputExistsForSpecimen(specimen.id(), Slide.CYTOLOGY, ruleCode,
+                                occurrence)) continue;
+                        String code = specimen.specimenCode() + "-" + outputSequence;
+                        String slideType = nonBlank(command.slideType(), specimen.preparationMethodCode(),
+                                rule == null ? "CYTOLOGY" : rule.slideType());
+                        String stainCode = nonBlank(command.stainCode(), rule == null ? null : rule.stainCode(), null);
+                        Slide slide = Slide.fromSpecimenContextWithStain(UUID.randomUUID(), caseId, specimen.id(), code,
+                                slideType, stainCode, Slide.CYTOLOGY, specimen.id(), ruleCode, occurrence, true);
+                        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), now);
+                        created.add(SlideResult.of(slide, false));
+                    }
+                }
+            }
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("Another technician generated the same cytology output; refresh and retry");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), created.size());
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", caseId, "V2-CASE",
+                UUID.randomUUID().toString(), "cytology slides generated=" + created.size());
+        return new SlideBatchGenerationResult(created.size(), created, false);
+    }
+
+    @Transactional
+    public SlideResult createExtraCytologySlide(UUID caseId, UUID specimenId,
+            CreateExtraCytologySlideCommand command) {
+        validate(caseId, "caseId is required");
+        validate(specimenId, "specimenId is required");
+        validate(command.reason(), "Extra slide reason is required");
+        validate(command.idempotencyKey(), "idempotencyKey is required");
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        activeCase(caseId, actor);
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.supportsDirectSlides()) throw conflict("Current business type does not support direct cytology slides");
+        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                .orElseThrow(() -> reject("V2-SOURCE-NOT-FOUND", "Specimen is outside this case"));
+        String operation = "PIS-V2-FC03B-CYTOLOGY-SLIDE-EXTRA";
+        String digest = digest(caseId, specimenId, command.slideType(), command.stainCode(), command.reason());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) return SlideResult.replayed(findSlide(existing, actor));
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", UUID.randomUUID(), actor);
+        if (!repository.lockActiveCase(caseId, actor.hospitalScope())) throw conflict("Case is cancelled");
+        int occurrence = repository.nextSpecimenSlideOccurrence(specimenId, Slide.CYTOLOGY, actor.hospitalScope());
+        String code = specimen.specimenCode() + "-X" + occurrence;
+        String slideType = nonBlank(command.slideType(), specimen.preparationMethodCode(), "CYTOLOGY");
+        Slide slide = Slide.fromSpecimenContextWithStain(existingReservedId(operation, command.idempotencyKey()),
+                caseId, specimenId, code, slideType, command.stainCode(), Slide.CYTOLOGY, specimenId,
+                "MANUAL-CYTOLOGY-EXTRA", occurrence, false);
+        try {
+            repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), Instant.now());
+        } catch (DataIntegrityViolationException exception) {
+            throw conflict("Slide code " + code + " already exists");
+        }
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), command.reason());
+        return SlideResult.of(slide, false);
+    }
+
+    @Transactional
+    public SpecimenPreparationResult updateCytologyPreparation(UUID caseId, UUID specimenId,
+            UpdateCytologyPreparationCommand command) {
+        validate(caseId, "caseId is required");
+        validate(specimenId, "specimenId is required");
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        activeCase(caseId, actor);
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.supportsDirectSlides()) throw conflict("Current case is not cytology");
+        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                .orElseThrow(() -> notFound("Specimen is outside this case"));
+        requireVersion(specimen.concurrencyVersion(), command.expectedVersion());
+        Instant now = Instant.now();
+        specimen.updatePreparationMethod(command.preparationMethodCode(), now);
+        if (!registrationRepository.updateSpecimenPreparation(specimen.id(), specimen.preparationMethodCode(),
+                actor.hospitalScope(), command.expectedVersion(), actor.actorId(), now)) {
+            throw conflict("Specimen was changed by another user; refresh and retry");
+        }
+        audit.append("PIS-V2-FC03B-CYTOLOGY-PREPARATION-UPDATE", MATERIAL_PERMISSION, actor, "ALLOWED",
+                "COMPLETED", specimenId, "V2-SPECIMEN", UUID.randomUUID().toString(),
+                specimen.preparationMethodCode() == null ? "cleared" : specimen.preparationMethodCode());
+        return new SpecimenPreparationResult(specimen.id(), specimen.preparationMethodCode(),
+                specimen.concurrencyVersion());
+    }
+
+    @Transactional
+    public SlideResult createDirectExternalCytologySlide(UUID caseId, UUID specimenId,
+            CreateDirectSlideCommand command) {
+        ActorContext actor = authorization.require(MATERIAL_PERMISSION);
+        validate(caseId, "caseId is required");
+        validate(specimenId, "specimenId is required");
+        validate(command.slideCode(), "slideCode is required");
+        validate(command.slideType(), "slideType is required");
+        validate(command.idempotencyKey(), "idempotencyKey is required");
+        activeCase(caseId, actor);
+        BusinessTypeCapability capability = capabilityService.forCase(caseId, actor.hospitalScope());
+        if (!capability.supportsDirectSlides()) throw conflict("Current case is not cytology");
+        Specimen specimen = registrationRepository.findSpecimen(specimenId, actor.hospitalScope())
+                .filter(item -> item.caseId().equals(caseId) && !item.deleted())
+                .orElseThrow(() -> notFound("Specimen is outside this case"));
+        String operation = "PIS-V2-FC03B-CYTOLOGY-EXTERNAL-SLIDE-CREATE";
+        String digest = digest(caseId, specimenId, command.slideCode(), command.slideType(), command.stainCode());
+        MaterialIdempotencyResult existing = existing(operation, command.idempotencyKey(), digest);
+        if (existing != null) return SlideResult.replayed(findSlide(existing, actor));
+        if (repository.findActiveSlideIdByCode(caseId, command.slideCode(), actor.hospitalScope()).isPresent()) {
+            throw conflict("Slide code already exists");
+        }
+        UUID slideId = UUID.randomUUID();
+        reserve(operation, command.idempotencyKey(), digest, "SLIDE", slideId, actor);
+        Slide slide = Slide.fromSpecimenContextWithStain(slideId, caseId, specimenId, command.slideCode(),
+                command.slideType(), command.stainCode(), Slide.EXTERNAL, specimenId, "EXTERNAL-CYTOLOGY", 1,
+                false);
+        repository.insertSlide(slide, actor.hospitalScope(), actor.actorId(), Instant.now());
+        repository.updateMaterialIdempotencyResult(operation, command.idempotencyKey(), 1);
+        audit.append(operation, MATERIAL_PERMISSION, actor, "ALLOWED", "COMPLETED", slide.id(), "V2-SLIDE",
+                UUID.randomUUID().toString(), "external cytology slide recorded");
         return SlideResult.of(slide, false);
     }
 
@@ -972,7 +1137,8 @@ public class V2MaterialProductionApplicationService {
             SpecimenNodeBuilder specimen = specimens.computeIfAbsent(row.specimenId(), ignored ->
                     new SpecimenNodeBuilder(row.specimenId(), row.specimenNo(), row.specimenCode(),
                             row.specimenName(), row.specimenKindCode(), row.creationSourceCode(),
-                            row.collectionSite(), row.specimenDescription(), row.sourceSpecimenCode()));
+                            row.collectionSite(), row.collectionMethodCode(), row.specimenDescription(), row.sourceSpecimenCode(),
+                            row.preparationMethodCode(), row.specimenConcurrencyVersion()));
             if (row.blockId() != null) {
                 BlockNodeBuilder block = specimen.blocks.computeIfAbsent(row.blockId(), ignored ->
                     new BlockNodeBuilder(row.blockId(), row.blockCode(), row.blockType(),
@@ -983,12 +1149,12 @@ public class V2MaterialProductionApplicationService {
                                         .map(JdbcV2MaterialRepository.BlockVerificationFact::resultCode)
                                         .orElse("UNVERIFIED")));
                 if (row.slideId() != null) {
-                    block.slides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
+                    block.slides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(), row.stainCode(),
                             row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
                             row.concurrencyVersion(), row.slidePrintCount()));
                 }
             } else if (row.slideId() != null) {
-                specimen.directSlides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(),
+                specimen.directSlides.add(new SlideNode(row.slideId(), row.slideCode(), row.slideType(), row.stainCode(),
                         row.sourceContextType(), row.completedAt(), row.completedAt() != null, row.required(),
                         row.concurrencyVersion(), row.slidePrintCount()));
             }
@@ -1016,13 +1182,28 @@ public class V2MaterialProductionApplicationService {
             required = activeInitialBlockIds.size() * perBlock;
             completed = (int) repository.findActiveSlidesByCase(caseId, actor.hospitalScope()).stream()
                     .filter(slide -> Slide.INITIAL.equals(slide.sourceContextType()) && slide.required()
-                            && activeInitialBlockIds.contains(slide.blockId()) && slide.isCompleted()).count();
+                    && activeInitialBlockIds.contains(slide.blockId()) && slide.isCompleted()).count();
+        } else if (capability.supportsDirectSlides()) {
+            UUID businessTypeId = repository.findCaseBusinessTypeId(caseId, actor.hospitalScope()).orElseThrow();
+            int perSpecimen = repository.findSlideRules(actor.hospitalScope(), businessTypeId, Slide.CYTOLOGY,
+                    "MANUAL").stream().mapToInt(SlideRule::copies).sum();
+            if (perSpecimen == 0) perSpecimen = 1;
+            required = specimenNodes.size() * perSpecimen;
+            Set<UUID> activeSpecimenIds = specimenNodes.stream().map(SpecimenNode::specimenId)
+                    .collect(Collectors.toSet());
+            completed = (int) repository.findActiveSlidesByCase(caseId, actor.hospitalScope()).stream()
+                    .filter(slide -> Slide.CYTOLOGY.equals(slide.sourceContextType()) && slide.required()
+                            && activeSpecimenIds.contains(slide.specimenId()) && slide.isCompleted()).count();
         }
         List<String> availableActions = authorization.decide(MATERIAL_PERMISSION).allowed()
-                ? List.of("GENERATE_REQUIRED_SLIDES", "CREATE_EXTRA_SLIDE", "PRINT_SLIDE", "COMPLETE_SLIDE",
-                        "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE", "SCAN_MATERIAL",
-                        "RECORD_TECHNICAL_TRACE",
-                        "RECORD_PRODUCTION_EXCEPTION", "PERFORM_REWORK")
+                ? (capability.supportsDirectSlides()
+                        ? List.of("GENERATE_CYTOLOGY_SLIDES", "CREATE_EXTRA_CYTOLOGY_SLIDE", "PRINT_SLIDE",
+                                "COMPLETE_SLIDE", "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE",
+                                "SCAN_MATERIAL", "RECORD_TECHNICAL_TRACE", "RECORD_PRODUCTION_EXCEPTION",
+                                "PERFORM_REWORK")
+                        : List.of("GENERATE_REQUIRED_SLIDES", "CREATE_EXTRA_SLIDE", "PRINT_SLIDE", "COMPLETE_SLIDE",
+                                "CORRECT_SLIDE_CODE", "CORRECT_SLIDE_COMPLETION", "CANCEL_SLIDE", "SCAN_MATERIAL",
+                                "RECORD_TECHNICAL_TRACE", "RECORD_PRODUCTION_EXCEPTION", "PERFORM_REWORK"))
                 : List.of();
         return new MaterialTreeResult(pathologyCase.id(), pathologyCase.caseNo(), pathologyCase.businessTypeCode(),
                 capability, specimenNodes, required, completed, required > 0 && required == completed,
@@ -1272,6 +1453,12 @@ public class V2MaterialProductionApplicationService {
         }
     }
 
+    private static String nonBlank(String first, String second, String fallback) {
+        if (first != null && !first.isBlank()) return first.trim();
+        if (second != null && !second.isBlank()) return second.trim();
+        return fallback;
+    }
+
     private static P15BusinessException reject(String code, String message) {
         return new P15BusinessException(code, message);
     }
@@ -1306,19 +1493,25 @@ public class V2MaterialProductionApplicationService {
     }
 
     private record SpecimenNodeBuilder(UUID id, String specimenNo, String specimenCode, String specimenName,
-            String specimenKindCode, String creationSourceCode, String collectionSite, String specimenDescription,
-            String sourceSpecimenCode,
+            String specimenKindCode, String creationSourceCode, String collectionSite, String collectionMethodCode,
+            String specimenDescription,
+            String sourceSpecimenCode, String preparationMethodCode, Long specimenConcurrencyVersion,
             Map<UUID, BlockNodeBuilder> blocks, List<SlideNode> directSlides) {
         private SpecimenNodeBuilder(UUID id, String specimenNo, String specimenCode, String specimenName,
                 String specimenKindCode, String creationSourceCode, String collectionSite,
-                String specimenDescription, String sourceSpecimenCode) {
+                String collectionMethodCode, String specimenDescription, String sourceSpecimenCode,
+                String preparationMethodCode, Long specimenConcurrencyVersion) {
             this(id, specimenNo, specimenCode, specimenName, specimenKindCode, creationSourceCode, collectionSite,
-                    specimenDescription, sourceSpecimenCode, new LinkedHashMap<>(), new ArrayList<>());
+                    collectionMethodCode, specimenDescription, sourceSpecimenCode, preparationMethodCode,
+                    specimenConcurrencyVersion,
+                    new LinkedHashMap<>(), new ArrayList<>());
         }
 
         private SpecimenNode build() {
             return new SpecimenNode(id, specimenNo, specimenCode, specimenName, specimenKindCode,
-                    creationSourceCode, collectionSite, specimenDescription, sourceSpecimenCode, null, 0,
+                    creationSourceCode, collectionSite, collectionMethodCode, specimenDescription, sourceSpecimenCode,
+                    preparationMethodCode, specimenConcurrencyVersion == null ? 0L : specimenConcurrencyVersion,
+                    null, 0,
                     blocks.values().stream().map(BlockNodeBuilder::build).toList(), directSlides);
         }
     }
@@ -1378,7 +1571,20 @@ public class V2MaterialProductionApplicationService {
 
     public record CreateBlocksCommand(List<CreateBlockItem> blocks, String idempotencyKey) { }
 
-    public record CreateDirectSlideCommand(String slideCode, String slideType, String idempotencyKey) { }
+    public record CreateDirectSlideCommand(String slideCode, String slideType, String idempotencyKey,
+            String stainCode) {
+        public CreateDirectSlideCommand(String slideCode, String slideType, String idempotencyKey) {
+            this(slideCode, slideType, idempotencyKey, null);
+        }
+    }
+
+    public record GenerateRequiredCytologySlidesCommand(List<UUID> specimenIds, String slideType,
+            String stainCode, String idempotencyKey) { }
+
+    public record CreateExtraCytologySlideCommand(String slideType, String stainCode, String reason,
+            String idempotencyKey) { }
+
+    public record UpdateCytologyPreparationCommand(String preparationMethodCode, long expectedVersion) { }
 
     public record UpdateBlockCommand(String blockCode, String blockType, String samplingDescription, String note,
             String reason, long expectedVersion, String idempotencyKey) {
@@ -1438,11 +1644,13 @@ public class V2MaterialProductionApplicationService {
         static BlockResult replayed(Block block) { return of(block, true); }
     }
 
-    public record SlideResult(UUID slideId, UUID caseId, UUID blockId, String slideCode, String slideType,
-            String sourceContextType, Instant completedAt, long concurrencyVersion, boolean duplicate) {
+    public record SlideResult(UUID slideId, UUID caseId, UUID blockId, UUID specimenId, String slideCode,
+            String slideType, String stainCode, String sourceContextType, Instant completedAt,
+            long concurrencyVersion, boolean duplicate) {
         static SlideResult of(Slide slide, boolean duplicate) {
-            return new SlideResult(slide.id(), slide.caseId(), slide.blockId(), slide.slideCode(), slide.slideType(),
-                    slide.sourceContextType(), slide.completedAt(), slide.concurrencyVersion(), duplicate);
+            return new SlideResult(slide.id(), slide.caseId(), slide.blockId(), slide.specimenId(), slide.slideCode(),
+                    slide.slideType(), slide.stainCode(), slide.sourceContextType(), slide.completedAt(),
+                    slide.concurrencyVersion(), duplicate);
         }
 
         static SlideResult replayed(Slide slide) { return of(slide, true); }
@@ -1488,12 +1696,16 @@ public class V2MaterialProductionApplicationService {
     }
 
     public record SpecimenNode(UUID specimenId, String specimenNo, String specimenCode, String specimenName,
-            String specimenKindCode, String creationSourceCode, String collectionSite, String specimenDescription,
-            String sourceSpecimenCode, String grossMaterialDescription, long grossSpecimenVersion,
+            String specimenKindCode, String creationSourceCode, String collectionSite, String collectionMethodCode,
+            String specimenDescription,
+            String sourceSpecimenCode, String preparationMethodCode, long specimenConcurrencyVersion,
+            String grossMaterialDescription, long grossSpecimenVersion,
             List<BlockNode> blocks, List<SlideNode> directSlides) {
         SpecimenNode withGrossDescription(String description, long version) {
             return new SpecimenNode(specimenId, specimenNo, specimenCode, specimenName, specimenKindCode,
-                    creationSourceCode, collectionSite, specimenDescription, sourceSpecimenCode, description,
+                    creationSourceCode, collectionSite, collectionMethodCode, specimenDescription, sourceSpecimenCode, preparationMethodCode,
+                    specimenConcurrencyVersion,
+                    description,
                     version, blocks, directSlides);
         }
     }
@@ -1501,6 +1713,8 @@ public class V2MaterialProductionApplicationService {
     public record BlockNode(UUID blockId, String blockCode, String blockType, String samplingDescription, String note,
             long concurrencyVersion, int printCount, String verificationStatus, List<SlideNode> slides) { }
 
-    public record SlideNode(UUID slideId, String slideCode, String slideType, String sourceContextType,
+    public record SlideNode(UUID slideId, String slideCode, String slideType, String stainCode, String sourceContextType,
             Instant completedAt, boolean completed, boolean required, long concurrencyVersion, int printCount) { }
+
+    public record SpecimenPreparationResult(UUID specimenId, String preparationMethodCode, long concurrencyVersion) { }
 }

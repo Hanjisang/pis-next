@@ -18,6 +18,7 @@ public final class Slide {
     private final UUID specimenId;
     private String slideCode;
     private final String slideType;
+    private final String stainCode;
     private final String sourceContextType;
     private final UUID sourceContextId;
     private final String ruleCode;
@@ -33,30 +34,36 @@ public final class Slide {
             String sourceContextType, UUID sourceContextId, String ruleCode, int occurrenceNo, boolean required,
             Instant completedAt, String completedBy, Instant deletedAt, String deletionReason,
             long concurrencyVersion) {
-        this.id = Objects.requireNonNull(id, "切片内部ID不能为空");
-        this.caseId = Objects.requireNonNull(caseId, "切片病例ID不能为空");
+        this(id, caseId, blockId, specimenId, slideCode, slideType, null, sourceContextType, sourceContextId,
+                ruleCode, occurrenceNo, required, completedAt, completedBy, deletedAt, deletionReason,
+                concurrencyVersion);
+    }
+
+    private Slide(UUID id, UUID caseId, UUID blockId, UUID specimenId, String slideCode, String slideType,
+            String stainCode, String sourceContextType, UUID sourceContextId, String ruleCode, int occurrenceNo,
+            boolean required, Instant completedAt, String completedBy, Instant deletedAt, String deletionReason,
+            long concurrencyVersion) {
+        this.id = Objects.requireNonNull(id, "Slide id is required");
+        this.caseId = Objects.requireNonNull(caseId, "Slide case is required");
         if (blockId == null && specimenId == null) {
-            throw new IllegalArgumentException("切片必须关联蜡块或标本来源");
+            throw new IllegalArgumentException("Slide must reference a block or specimen");
         }
         this.blockId = blockId;
         this.specimenId = specimenId;
-        this.slideCode = required(slideCode, "切片编号不能为空");
-        this.slideType = required(slideType, "切片类型不能为空");
-        this.sourceContextType = required(sourceContextType, "切片来源上下文不能为空");
+        this.slideCode = required(slideCode, "Slide code is required");
+        this.slideType = required(slideType, "Slide type is required");
+        this.stainCode = optional(stainCode);
+        this.sourceContextType = required(sourceContextType, "Slide source context is required");
         this.sourceContextId = sourceContextId;
-        this.ruleCode = required(ruleCode, "切片规则编码不能为空");
-        if (occurrenceNo < 1) {
-            throw new IllegalArgumentException("切片规则序号必须为正数");
-        }
+        this.ruleCode = required(ruleCode, "Slide rule code is required");
+        if (occurrenceNo < 1) throw new IllegalArgumentException("Slide occurrence must be positive");
         this.occurrenceNo = occurrenceNo;
         this.required = required;
         this.completedAt = completedAt;
         this.completedBy = optional(completedBy);
         this.deletedAt = deletedAt;
         this.deletionReason = optional(deletionReason);
-        if (concurrencyVersion < 0) {
-            throw new IllegalArgumentException("切片并发版本不能为负数");
-        }
+        if (concurrencyVersion < 0) throw new IllegalArgumentException("Slide version cannot be negative");
         this.concurrencyVersion = concurrencyVersion;
     }
 
@@ -78,6 +85,13 @@ public final class Slide {
                 ruleCode, occurrenceNo, required, null, null, null, null, 0);
     }
 
+    public static Slide fromSpecimenContextWithStain(UUID id, UUID caseId, UUID specimenId, String slideCode,
+            String slideType, String stainCode, String sourceContextType, UUID sourceContextId, String ruleCode,
+            int occurrenceNo, boolean required) {
+        return new Slide(id, caseId, null, specimenId, slideCode, slideType, stainCode, sourceContextType,
+                sourceContextId, ruleCode, occurrenceNo, required, null, null, null, null, 0);
+    }
+
     public static Slide technicalFromTarget(UUID id, UUID caseId, UUID blockId, UUID specimenId, String slideCode,
             String slideType, UUID orderItemId, String projectCode, int occurrenceNo, boolean required) {
         return new Slide(id, caseId, blockId, specimenId, slideCode, slideType, TECHNICAL_ORDER, orderItemId,
@@ -93,27 +107,32 @@ public final class Slide {
                 concurrencyVersion);
     }
 
+    public static Slide persisted(UUID id, UUID caseId, UUID blockId, UUID specimenId, String slideCode,
+            String slideType, String stainCode, String sourceContextType, UUID sourceContextId, String ruleCode,
+            int occurrenceNo, boolean required, Instant completedAt, String completedBy, Instant deletedAt,
+            String deletionReason, long concurrencyVersion) {
+        return new Slide(id, caseId, blockId, specimenId, slideCode, slideType, stainCode, sourceContextType,
+                sourceContextId, ruleCode, occurrenceNo, required, completedAt, completedBy, deletedAt,
+                deletionReason, concurrencyVersion);
+    }
+
     public void renameCode(String slideCode) {
         ensureActive();
-        this.slideCode = required(slideCode, "切片编号不能为空");
+        this.slideCode = required(slideCode, "Slide code is required");
         concurrencyVersion++;
     }
 
     public void complete(String completedBy, Instant completedAt) {
         ensureActive();
-        if (this.completedAt != null) {
-            return;
-        }
-        this.completedBy = required(completedBy, "切片完成人不能为空");
-        this.completedAt = Objects.requireNonNull(completedAt, "切片完成时间不能为空");
+        if (this.completedAt != null) return;
+        this.completedBy = required(completedBy, "Slide completer is required");
+        this.completedAt = Objects.requireNonNull(completedAt, "Slide completion time is required");
         concurrencyVersion++;
     }
 
     public void correctCompletion() {
         ensureActive();
-        if (this.completedAt == null) {
-            throw new IllegalStateException("玻片尚未完成，无需修正完成记录");
-        }
+        if (this.completedAt == null) throw new IllegalStateException("Slide is not complete");
         this.completedAt = null;
         this.completedBy = null;
         concurrencyVersion++;
@@ -121,8 +140,8 @@ public final class Slide {
 
     public void softDelete(String reason, Instant deletedAt) {
         ensureActive();
-        this.deletionReason = required(reason, "切片失效原因不能为空");
-        this.deletedAt = Objects.requireNonNull(deletedAt, "切片失效时间不能为空");
+        this.deletionReason = required(reason, "Slide cancellation reason is required");
+        this.deletedAt = Objects.requireNonNull(deletedAt, "Slide cancellation time is required");
         concurrencyVersion++;
     }
 
@@ -134,6 +153,7 @@ public final class Slide {
     public UUID specimenId() { return specimenId; }
     public String slideCode() { return slideCode; }
     public String slideType() { return slideType; }
+    public String stainCode() { return stainCode; }
     public String sourceContextType() { return sourceContextType; }
     public UUID sourceContextId() { return sourceContextId; }
     public String ruleCode() { return ruleCode; }
@@ -146,19 +166,13 @@ public final class Slide {
     public long concurrencyVersion() { return concurrencyVersion; }
 
     private void ensureActive() {
-        if (isDeleted()) {
-            throw new IllegalStateException("已失效切片不能修改");
-        }
+        if (isDeleted()) throw new IllegalStateException("A cancelled slide cannot be changed");
     }
 
     private static String required(String value, String message) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(message);
-        }
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(message);
         return value.trim();
     }
 
-    private static String optional(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
+    private static String optional(String value) { return value == null || value.isBlank() ? null : value.trim(); }
 }

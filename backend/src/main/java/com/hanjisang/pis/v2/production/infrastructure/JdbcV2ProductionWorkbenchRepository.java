@@ -77,18 +77,24 @@ public class JdbcV2ProductionWorkbenchRepository {
                 """, (rs, rowNum) -> routine(rs), organizationReference, organizationReference);
     }
 
-    public List<CytologyRow> findCytology(String organizationReference) {
+    public List<CytologyProjectionRow> findCytologyProjection(String organizationReference) {
         return jdbc.query("""
                 SELECT c.id, c.case_no, bt.business_type_code, bt.display_name,
-                       COALESCE(ctx.patient_reference, '未填写') AS patient_reference,
+                       COALESCE(ctx.patient_reference, 'UNKNOWN') AS patient_reference,
                        COUNT(DISTINCT s.id) AS specimen_count,
-                       COUNT(DISTINCT CASE WHEN EXISTS (
-                           SELECT 1 FROM pis_v2.slide direct_slide
-                           WHERE direct_slide.case_id = c.id AND direct_slide.specimen_id = s.id
-                             AND direct_slide.source_context_type = 'CYTOLOGY'
-                             AND direct_slide.required = TRUE AND direct_slide.completed_at IS NOT NULL
-                             AND direct_slide.deleted_at IS NULL
-                       ) THEN s.id END) AS completed_count,
+                       COUNT(DISTINCT s.id) * COALESCE((SELECT SUM(sr.copies)
+                           FROM pis_v2.slide_rule sr
+                           WHERE sr.organization_reference = c.organization_reference
+                             AND sr.business_type_id = c.business_type_id
+                             AND sr.source_context_type = 'CYTOLOGY'
+                             AND sr.trigger_code = 'MANUAL' AND sr.active = TRUE), 1) AS required_count,
+                       (SELECT COUNT(*) FROM pis_v2.slide direct_slide
+                        JOIN pis_v2.specimen completed_specimen ON completed_specimen.id = direct_slide.specimen_id
+                        WHERE direct_slide.case_id = c.id AND direct_slide.source_context_type = 'CYTOLOGY'
+                          AND direct_slide.required = TRUE AND direct_slide.completed_at IS NOT NULL
+                          AND direct_slide.deleted_at IS NULL AND completed_specimen.deleted_at IS NULL
+                          AND completed_specimen.case_id = c.id)
+                           AS completed_count,
                        MAX(s.created_at) AS entered_at
                 FROM pis_v2.pathology_case c
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
@@ -99,16 +105,25 @@ public class JdbcV2ProductionWorkbenchRepository {
                 WHERE c.organization_reference = ? AND c.lifecycle_state_code = 'ACTIVE'
                   AND bt.modality_code = 'CYTOLOGY'
                 GROUP BY c.id, c.case_no, bt.business_type_code, bt.display_name,
-                         ctx.patient_reference, c.created_at
-                HAVING COUNT(DISTINCT CASE WHEN EXISTS (
-                           SELECT 1 FROM pis_v2.slide direct_slide
-                           WHERE direct_slide.case_id = c.id AND direct_slide.specimen_id = s.id
-                             AND direct_slide.source_context_type = 'CYTOLOGY'
-                             AND direct_slide.required = TRUE AND direct_slide.completed_at IS NOT NULL
-                             AND direct_slide.deleted_at IS NULL
-                       ) THEN s.id END) < COUNT(DISTINCT s.id)
+                         ctx.patient_reference, c.created_at, c.organization_reference, c.business_type_id
+                HAVING (SELECT COUNT(*) FROM pis_v2.slide direct_slide
+                        JOIN pis_v2.specimen required_specimen ON required_specimen.id = direct_slide.specimen_id
+                        WHERE direct_slide.case_id = c.id AND direct_slide.source_context_type = 'CYTOLOGY'
+                          AND direct_slide.required = TRUE AND direct_slide.completed_at IS NOT NULL
+                          AND direct_slide.deleted_at IS NULL AND required_specimen.deleted_at IS NULL
+                          AND required_specimen.case_id = c.id)
+                    < COUNT(DISTINCT s.id) * COALESCE((SELECT SUM(sr.copies)
+                           FROM pis_v2.slide_rule sr
+                           WHERE sr.organization_reference = c.organization_reference
+                             AND sr.business_type_id = c.business_type_id
+                             AND sr.source_context_type = 'CYTOLOGY'
+                             AND sr.trigger_code = 'MANUAL' AND sr.active = TRUE), 1)
                 ORDER BY entered_at, c.id
-                """, (rs, rowNum) -> cytology(rs), organizationReference);
+                """, (rs, rowNum) -> new CytologyProjectionRow(rs.getObject("id", UUID.class),
+                        rs.getString("case_no"), rs.getString("business_type_code"), rs.getString("display_name"),
+                        rs.getString("patient_reference"), rs.getInt("specimen_count"),
+                        rs.getInt("required_count"), rs.getInt("completed_count"), instant(rs, "entered_at")),
+                organizationReference);
     }
 
     public List<FrozenRow> findFrozen(String organizationReference) {
@@ -249,13 +264,6 @@ public class JdbcV2ProductionWorkbenchRepository {
                 rs.getString("current_operator"));
     }
 
-    private static CytologyRow cytology(ResultSet rs) throws SQLException {
-        return new CytologyRow(rs.getObject("id", UUID.class), rs.getString("case_no"),
-                rs.getString("business_type_code"), rs.getString("display_name"),
-                rs.getString("patient_reference"), rs.getInt("specimen_count"),
-                rs.getInt("completed_count"), instant(rs, "entered_at"));
-    }
-
     private static FrozenRow frozen(ResultSet rs) throws SQLException {
         return new FrozenRow(rs.getObject("id", UUID.class), rs.getString("case_no"),
                 rs.getString("business_type_code"), rs.getString("display_name"),
@@ -299,8 +307,9 @@ public class JdbcV2ProductionWorkbenchRepository {
             String patientReference, int specimenCount, int blockCount, int requiredCount, int completedCount,
             Instant enteredAt, String currentOperator) { }
 
-    public record CytologyRow(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
-            String patientReference, int specimenCount, int completedCount, Instant enteredAt) { }
+    public record CytologyProjectionRow(UUID caseId, String pathologyNo, String businessTypeCode,
+            String businessTypeName, String patientReference, int specimenCount, int requiredCount,
+            int completedCount, Instant enteredAt) { }
 
     public record FrozenRow(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
             String patientReference, UUID roundId, int roundNo, int specimenCount, int requiredCount,

@@ -508,15 +508,24 @@ public class JdbcV2MaterialRepository {
                 """, Integer.class, blockId, sourceContextType, sourceContextId, ruleCode, occurrenceNo) > 0;
     }
 
+    public boolean slideOutputExistsForSpecimen(UUID specimenId, String sourceContextType, String ruleCode,
+            int occurrenceNo) {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.slide
+                WHERE specimen_id = ? AND source_context_type = ? AND rule_code = ? AND occurrence_no = ?
+                  AND deleted_at IS NULL
+                """, Integer.class, specimenId, sourceContextType, ruleCode, occurrenceNo) > 0;
+    }
+
     public void insertSlide(Slide slide, String organizationReference, String actorRef, Instant now) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.slide
-                    (id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
+                    (id, case_id, block_id, specimen_id, slide_code, slide_type, stain_code, source_context_type,
                      source_context_id, rule_code, occurrence_no, required, concurrency_version,
                      organization_reference, created_at, created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, slide.id(), slide.caseId(), slide.blockId(), slide.specimenId(), slide.slideCode(),
-                slide.slideType(), slide.sourceContextType(), slide.sourceContextId(), slide.ruleCode(),
+                slide.slideType(), slide.stainCode(), slide.sourceContextType(), slide.sourceContextId(), slide.ruleCode(),
                 slide.occurrenceNo(), slide.required(), slide.concurrencyVersion(), organizationReference,
                 Timestamp.from(now), actorRef, Timestamp.from(now), actorRef);
     }
@@ -530,9 +539,18 @@ public class JdbcV2MaterialRepository {
         return occurrence == null ? 1 : occurrence;
     }
 
+    public int nextSpecimenSlideOccurrence(UUID specimenId, String sourceContextType, String organizationReference) {
+        Integer occurrence = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(MAX(occurrence_no), 0) + 1
+                FROM pis_v2.slide
+                WHERE specimen_id = ? AND source_context_type = ? AND organization_reference = ?
+                """, Integer.class, specimenId, sourceContextType, organizationReference);
+        return occurrence == null ? 1 : occurrence;
+    }
+
     public Optional<Slide> findSlide(UUID slideId, String organizationReference) {
         return jdbcTemplate.query("""
-                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
+                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, stain_code, source_context_type,
                        source_context_id, rule_code, occurrence_no, required, completed_at, completed_by_ref,
                        deleted_at, deletion_reason, concurrency_version
                 FROM pis_v2.slide
@@ -542,7 +560,7 @@ public class JdbcV2MaterialRepository {
 
     public List<Slide> findActiveSlidesByBlock(UUID blockId, String organizationReference) {
         return jdbcTemplate.query("""
-                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
+                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, stain_code, source_context_type,
                        source_context_id, rule_code, occurrence_no, required, completed_at, completed_by_ref,
                        deleted_at, deletion_reason, concurrency_version
                 FROM pis_v2.slide
@@ -553,7 +571,7 @@ public class JdbcV2MaterialRepository {
 
     public List<Slide> findActiveSlidesByCase(UUID caseId, String organizationReference) {
         return jdbcTemplate.query("""
-                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, source_context_type,
+                SELECT id, case_id, block_id, specimen_id, slide_code, slide_type, stain_code, source_context_type,
                        source_context_id, rule_code, occurrence_no, required, completed_at, completed_by_ref,
                        deleted_at, deletion_reason, concurrency_version
                 FROM pis_v2.slide
@@ -718,17 +736,19 @@ public class JdbcV2MaterialRepository {
         return jdbcTemplate.query("""
                 SELECT material.specimen_id, material.specimen_no, material.specimen_code,
                        material.specimen_name, material.specimen_kind_code, material.creation_source_code,
-                       material.collection_site, material.description, material.source_specimen_code,
+                       material.collection_site, material.collection_method_code, material.description, material.source_specimen_code,
+                       material.preparation_method_code, material.specimen_concurrency_version,
                        material.gross_material_description, material.gross_specimen_version,
                        material.block_id, material.block_code, material.block_type,
                        material.sampling_description, material.block_note,
                        material.block_concurrency_version, material.block_print_count, material.slide_id,
-                       material.slide_code, material.slide_type,
+                       material.slide_code, material.slide_type, material.stain_code,
                        material.source_context_type, material.completed_at, material.completed_by_ref,
                        material.required, material.concurrency_version, material.slide_print_count
                 FROM (
                     SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_name,
-                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.description,
+                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.collection_method_code, s.description,
+                           s.preparation_method_code, s.concurrency_version AS specimen_concurrency_version,
                            source.specimen_code AS source_specimen_code,
                            CAST(NULL AS VARCHAR) AS gross_material_description,
                            CAST(NULL AS BIGINT) AS gross_specimen_version,
@@ -737,7 +757,7 @@ public class JdbcV2MaterialRepository {
                            b.concurrency_version AS block_concurrency_version,
                            (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
                              WHERE pl.entity_kind_code = 'BLOCK' AND pl.entity_id = b.id) AS block_print_count,
-                           sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
+                           sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.stain_code, sl.source_context_type,
                             sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version,
                             (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
                               WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS slide_print_count
@@ -749,7 +769,8 @@ public class JdbcV2MaterialRepository {
                     WHERE s.case_id = ? AND s.organization_reference = ? AND s.deleted_at IS NULL
                     UNION ALL
                     SELECT s.id AS specimen_id, s.specimen_no, s.specimen_code, s.specimen_name,
-                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.description,
+                           s.specimen_kind_code, s.creation_source_code, s.collection_site, s.collection_method_code, s.description,
+                           s.preparation_method_code, s.concurrency_version AS specimen_concurrency_version,
                            source.specimen_code AS source_specimen_code,
                            CAST(NULL AS VARCHAR) AS gross_material_description,
                            CAST(NULL AS BIGINT) AS gross_specimen_version,
@@ -757,7 +778,7 @@ public class JdbcV2MaterialRepository {
                            NULL AS sampling_description, NULL AS block_note,
                            NULL AS block_concurrency_version,
                            0 AS block_print_count,
-                           sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.source_context_type,
+                           sl.id AS slide_id, sl.slide_code, sl.slide_type, sl.stain_code, sl.source_context_type,
                             sl.completed_at, sl.completed_by_ref, sl.required, sl.concurrency_version,
                             (SELECT CAST(COUNT(*) AS INTEGER) FROM pis_v2.print_log pl
                               WHERE pl.entity_kind_code = 'SLIDE' AND pl.entity_id = sl.id) AS slide_print_count
@@ -772,14 +793,16 @@ public class JdbcV2MaterialRepository {
                 """, (rs, rowNum) -> new MaterialTreeRow(rs.getObject("specimen_id", UUID.class),
                 rs.getString("specimen_no"), rs.getString("specimen_code"), rs.getString("specimen_name"),
                 rs.getString("specimen_kind_code"), rs.getString("creation_source_code"),
-                rs.getString("collection_site"), rs.getString("description"),
-                rs.getString("source_specimen_code"), rs.getString("gross_material_description"),
+                rs.getString("collection_site"), rs.getString("collection_method_code"), rs.getString("description"),
+                rs.getString("source_specimen_code"), rs.getString("preparation_method_code"),
+                rs.getObject("specimen_concurrency_version", Long.class),
+                rs.getString("gross_material_description"),
                 rs.getObject("gross_specimen_version", Long.class),
                 rs.getObject("block_id", UUID.class), rs.getString("block_code"), rs.getString("block_type"),
                 rs.getString("sampling_description"), rs.getString("block_note"),
                 rs.getObject("block_concurrency_version", Long.class), rs.getObject("block_print_count", Integer.class),
                 rs.getObject("slide_id", UUID.class),
-                rs.getString("slide_code"), rs.getString("slide_type"),
+                rs.getString("slide_code"), rs.getString("slide_type"), rs.getString("stain_code"),
                 rs.getString("source_context_type"), instant(rs, "completed_at"), rs.getString("completed_by_ref"),
                 rs.getObject("required", Boolean.class), rs.getLong("concurrency_version"),
                 rs.getInt("slide_print_count")), caseId,
@@ -838,11 +861,13 @@ public class JdbcV2MaterialRepository {
             Integer resultCount) { }
 
     public record MaterialTreeRow(UUID specimenId, String specimenNo, String specimenCode, String specimenName,
-            String specimenKindCode, String creationSourceCode, String collectionSite, String specimenDescription,
-            String sourceSpecimenCode, String grossMaterialDescription, Long grossSpecimenVersion,
+            String specimenKindCode, String creationSourceCode, String collectionSite, String collectionMethodCode,
+            String specimenDescription,
+            String sourceSpecimenCode, String preparationMethodCode, Long specimenConcurrencyVersion,
+            String grossMaterialDescription, Long grossSpecimenVersion,
             UUID blockId, String blockCode, String blockType, String samplingDescription, String blockNote,
             Long blockConcurrencyVersion, Integer blockPrintCount, UUID slideId,
-            String slideCode, String slideType,
+            String slideCode, String slideType, String stainCode,
             String sourceContextType, Instant completedAt, String completedByRef, Boolean required,
             long concurrencyVersion, int slidePrintCount) { }
 
@@ -888,7 +913,8 @@ public class JdbcV2MaterialRepository {
     private Slide toSlide(java.sql.ResultSet rs) throws java.sql.SQLException {
         return Slide.persisted(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class),
                 rs.getObject("block_id", UUID.class), rs.getObject("specimen_id", UUID.class),
-                rs.getString("slide_code"), rs.getString("slide_type"), rs.getString("source_context_type"),
+                rs.getString("slide_code"), rs.getString("slide_type"), rs.getString("stain_code"),
+                rs.getString("source_context_type"),
                 rs.getObject("source_context_id", UUID.class), rs.getString("rule_code"), rs.getInt("occurrence_no"),
                 rs.getBoolean("required"), instant(rs, "completed_at"), rs.getString("completed_by_ref"),
                 instant(rs, "deleted_at"), rs.getString("deletion_reason"), rs.getLong("concurrency_version"));

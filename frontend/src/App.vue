@@ -19,6 +19,7 @@ import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2ReportCenter from './components/V2ReportCenter.vue';
 import V2SlideProductionWorkbench from './components/V2SlideProductionWorkbench.vue';
 import V2RoutineProductionWorkspace from './components/V2RoutineProductionWorkspace.vue';
+import V2CytologyProductionWorkspace from './components/V2CytologyProductionWorkspace.vue';
 import V2SystemAdminHub from './components/V2SystemAdminHub.vue';
 import V2TechnicalWorkbench from './components/V2TechnicalWorkbench.vue';
 import {
@@ -332,6 +333,17 @@ onUnmounted(() => {
         <V2RoutineProductionWorkspace
           v-else-if="
             route.name === 'production' && route.queue === 'ROUTINE_PRODUCTION' && route.caseId
+          "
+          v-model:case-id="routeCaseId"
+          :auth-user="authUser"
+          :origin="route.origin"
+          :queue="route.queue"
+          :return-to="route.returnTo"
+          @navigate="navigate"
+        />
+        <V2CytologyProductionWorkspace
+          v-else-if="
+            route.name === 'production' && route.queue === 'CYTOLOGY_PRODUCTION' && route.caseId
           "
           v-model:case-id="routeCaseId"
           :auth-user="authUser"

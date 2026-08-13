@@ -18,7 +18,7 @@ import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository;
-import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository.CytologyRow;
+import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository.CytologyProjectionRow;
 import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository.ExceptionRow;
 import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository.FrozenRow;
 import com.hanjisang.pis.v2.production.infrastructure.JdbcV2ProductionWorkbenchRepository.RoutineRow;
@@ -57,7 +57,7 @@ public class V2ProductionWorkbenchApplicationService {
         List<ProductionItem> routine = materialAccess.allowed() ? repository.findRoutine(actor.hospitalScope()).stream()
                 .map(row -> routineItem(row, now)).toList() : List.of();
         List<ProductionItem> cytology = materialAccess.allowed()
-                ? repository.findCytology(actor.hospitalScope()).stream().map(row -> cytologyItem(row, now)).toList()
+                ? repository.findCytologyProjection(actor.hospitalScope()).stream().map(row -> cytologyProjectionItem(row, now)).toList()
                 : List.of();
         boolean productionFrozenAccess = frozenAccess.allowed()
                 && (materialAccess.allowed() || technicalAccess.allowed());
@@ -100,11 +100,12 @@ public class V2ProductionWorkbenchApplicationService {
                         "REPRINT", "RECORD_EXCEPTION"), null, null, null, null, null, now);
     }
 
-    private static ProductionItem cytologyItem(CytologyRow row, Instant now) {
+    private static ProductionItem cytologyProjectionItem(CytologyProjectionRow row, Instant now) {
         return item("CYTOLOGY", row.caseId(), row.pathologyNo(), row.patientReference(), row.businessTypeCode(),
-                row.businessTypeName(), row.specimenCount() + " 个标本", "直接玻片 " + row.completedCount() + "/"
-                        + row.specimenCount() + " 个标本已完成", row.specimenCount(), row.completedCount(),
-                row.enteredAt(), "制片人员", workspaceLink(row.caseId(), "production", null, null),
+                row.businessTypeName(), row.specimenCount() + " 个标本",
+                "直接玻片 " + row.completedCount() + "/" + row.requiredCount() + " 张已完成",
+                row.requiredCount(), row.completedCount(), row.enteredAt(), "CYTOLOGY_TECHNICIAN",
+                workspaceLink(row.caseId(), "production", null, "CYTOLOGY_PRODUCTION"),
                 Set.of("OPEN", "CREATE_SLIDE", "PRINT", "COMPLETE", "SCAN", "RECORD_EXCEPTION"), null, null,
                 null, null, null, now);
     }
@@ -170,7 +171,11 @@ public class V2ProductionWorkbenchApplicationService {
             link.append("?focusId=").append(focusId);
             hasQuery = true;
         }
-        if (roundId != null) link.append(hasQuery ? "&roundId=" : "?roundId=").append(roundId);
+        if (roundId instanceof String queueCode) {
+            link.append(hasQuery ? "&queue=" : "?queue=").append(queueCode);
+        } else if (roundId != null) {
+            link.append(hasQuery ? "&roundId=" : "?roundId=").append(roundId);
+        }
         return link.toString();
     }
 

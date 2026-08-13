@@ -27,6 +27,7 @@ public final class Specimen {
     private String sourceReference;
     private String collectionSite;
     private String collectionMethodCode;
+    private String preparationMethodCode;
     private String lateralityCode;
     private BigDecimal quantityValue;
     private String quantityUnitCode;
@@ -41,7 +42,7 @@ public final class Specimen {
 
     private Specimen(UUID id, UUID caseId, String specimenNo, String specimenCode, String specimenName,
             String specimenKindCode, String creationSourceCode, String sourceKindCode, String sourceReference,
-            String collectionSite, String collectionMethodCode, String lateralityCode, BigDecimal quantityValue,
+            String collectionSite, String collectionMethodCode, String preparationMethodCode, String lateralityCode, BigDecimal quantityValue,
             String quantityUnitCode, String description, Instant removedAt, Instant fixedAt, Instant receivedAt,
             String labelCode, Instant deletedAt, String deletionReason, long concurrencyVersion) {
         this.id = Objects.requireNonNull(id, "Specimen id is required");
@@ -58,6 +59,7 @@ public final class Specimen {
         this.sourceReference = required(sourceReference, "Specimen source reference is required");
         this.collectionSite = optional(collectionSite);
         this.collectionMethodCode = optional(collectionMethodCode);
+        this.preparationMethodCode = optional(preparationMethodCode);
         this.lateralityCode = optional(lateralityCode);
         this.quantityValue = validQuantity(quantityValue);
         this.quantityUnitCode = quantityValue == null ? optional(quantityUnitCode)
@@ -89,7 +91,7 @@ public final class Specimen {
             String description, Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode) {
         String defaultName = collectionSite == null || collectionSite.isBlank() ? specimenKindCode : collectionSite;
         return registerWithSource(id, caseId, specimenNo, specimenCode, defaultName, specimenKindCode, REGISTRATION,
-                sourceKindCode, sourceReference, collectionSite, collectionMethodCode, lateralityCode, quantityValue,
+                sourceKindCode, sourceReference, collectionSite, collectionMethodCode, null, lateralityCode, quantityValue,
                 quantityUnitCode, description, removedAt, fixedAt, receivedAt, labelCode);
     }
 
@@ -98,9 +100,20 @@ public final class Specimen {
             String sourceReference, String collectionSite, String collectionMethodCode, String lateralityCode,
             BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
             Instant fixedAt, Instant receivedAt, String labelCode) {
+        return registerWithSource(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode,
+                creationSourceCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode, null,
+                lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                labelCode);
+    }
+
+    public static Specimen registerWithSource(UUID id, UUID caseId, String specimenNo, String specimenCode,
+            String specimenName, String specimenKindCode, String creationSourceCode, String sourceKindCode,
+            String sourceReference, String collectionSite, String collectionMethodCode, String preparationMethodCode,
+            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode) {
         return new Specimen(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode,
                 creationSourceCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode,
-                lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                preparationMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
                 labelCode, null, null, 0);
     }
 
@@ -110,9 +123,21 @@ public final class Specimen {
             BigDecimal quantityValue, String quantityUnitCode, String description, Instant removedAt,
             Instant fixedAt, Instant receivedAt, String labelCode, Instant deletedAt, String deletionReason,
             long concurrencyVersion) {
+        return persisted(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode, creationSourceCode,
+                sourceKindCode, sourceReference, collectionSite, collectionMethodCode, null, lateralityCode,
+                quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt, labelCode, deletedAt,
+                deletionReason, concurrencyVersion);
+    }
+
+    public static Specimen persisted(UUID id, UUID caseId, String specimenNo, String specimenCode,
+            String specimenName, String specimenKindCode, String creationSourceCode, String sourceKindCode,
+            String sourceReference, String collectionSite, String collectionMethodCode, String preparationMethodCode,
+            String lateralityCode, BigDecimal quantityValue, String quantityUnitCode, String description,
+            Instant removedAt, Instant fixedAt, Instant receivedAt, String labelCode, Instant deletedAt,
+            String deletionReason, long concurrencyVersion) {
         return new Specimen(id, caseId, specimenNo, specimenCode, specimenName, specimenKindCode,
                 creationSourceCode, sourceKindCode, sourceReference, collectionSite, collectionMethodCode,
-                lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
+                preparationMethodCode, lateralityCode, quantityValue, quantityUnitCode, description, removedAt, fixedAt, receivedAt,
                 labelCode, deletedAt, deletionReason, concurrencyVersion);
     }
 
@@ -158,6 +183,13 @@ public final class Specimen {
         concurrencyVersion++;
     }
 
+    public void updatePreparationMethod(String preparationMethodCode, Instant updatedAt) {
+        ensureNotDeleted();
+        this.preparationMethodCode = optional(preparationMethodCode);
+        Objects.requireNonNull(updatedAt, "Specimen update time is required");
+        concurrencyVersion++;
+    }
+
     public void softDelete(String reason, Instant deletedAt) {
         ensureNotDeleted();
         this.deletionReason = required(reason, "Specimen deletion reason is required");
@@ -177,6 +209,7 @@ public final class Specimen {
     public String sourceReference() { return sourceReference; }
     public String collectionSite() { return collectionSite; }
     public String collectionMethodCode() { return collectionMethodCode; }
+    public String preparationMethodCode() { return preparationMethodCode; }
     public String lateralityCode() { return lateralityCode; }
     public BigDecimal quantityValue() { return quantityValue; }
     public String quantityUnitCode() { return quantityUnitCode; }

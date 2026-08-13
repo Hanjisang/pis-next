@@ -11,8 +11,10 @@ export type TechnicalTraceStageCode =
   | 'DEHYDRATION'
   | 'EMBEDDING'
   | 'SECTIONING'
+  | 'PREPARATION'
   | 'STAINING'
-  | 'COVERSLIPPING';
+  | 'COVERSLIPPING'
+  | 'MOUNTING';
 
 export type V2HistologyPhase = {
   factId?: string | null;
@@ -144,7 +146,7 @@ export function completeV2HistologyPhase(slideId: string, phaseCode: HistologyPh
 
 export function recordV2HistologyException(input: {
   slideId: string;
-  phaseCode: HistologyPhaseCode;
+  phaseCode: TechnicalTraceStageCode;
   exceptionCode: string;
   note: string;
 }) {

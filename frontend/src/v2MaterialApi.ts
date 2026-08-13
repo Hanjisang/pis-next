@@ -28,6 +28,7 @@ export type V2SlideNode = {
   slideId: string;
   slideCode: string;
   slideType: string;
+  stainCode?: string | null;
   sourceContextType: string;
   completedAt: string | null;
   completed: boolean;
@@ -60,7 +61,10 @@ export type V2MaterialTree = {
     specimenKindCode: string;
     creationSourceCode: string;
     collectionSite: string | null;
+    collectionMethodCode?: string | null;
     specimenDescription: string | null;
+    preparationMethodCode?: string | null;
+    specimenConcurrencyVersion?: number;
     sourceSpecimenCode: string | null;
     grossMaterialDescription: string | null;
     grossSpecimenVersion: number;
@@ -87,8 +91,10 @@ export type V2SlideResult = {
   slideId: string;
   caseId: string;
   blockId: string | null;
+  specimenId?: string | null;
   slideCode: string;
   slideType: string;
+  stainCode?: string | null;
   sourceContextType: string;
   completedAt: string | null;
   concurrencyVersion: number;
@@ -290,10 +296,72 @@ export function createV2DirectCytologySlide(input: {
   specimenId: string;
   slideCode: string;
   slideType: string;
+  stainCode?: string;
   idempotencyKey: string;
 }): Promise<V2SlideResult> {
   const { caseId, specimenId, ...body } = input;
   return materialRequest(`/cases/${caseId}/specimens/${specimenId}/slides`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function generateV2RequiredCytologySlides(input: {
+  caseId: string;
+  specimenIds?: string[];
+  slideType?: string;
+  stainCode?: string;
+  idempotencyKey: string;
+}): Promise<{ createdCount: number; slides: V2SlideResult[]; duplicate: boolean }> {
+  const { caseId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/cytology-slides/generate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2ExtraCytologySlide(input: {
+  caseId: string;
+  specimenId: string;
+  slideType?: string;
+  stainCode?: string;
+  reason: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { caseId, specimenId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/specimens/${specimenId}/cytology-slides/extra`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateV2CytologyPreparation(input: {
+  caseId: string;
+  specimenId: string;
+  preparationMethodCode?: string;
+  expectedVersion: number;
+}): Promise<{
+  specimenId: string;
+  preparationMethodCode: string | null;
+  concurrencyVersion: number;
+}> {
+  const { caseId, specimenId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/specimens/${specimenId}/cytology-preparation`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createV2ExternalCytologySlide(input: {
+  caseId: string;
+  specimenId: string;
+  slideCode: string;
+  slideType: string;
+  stainCode?: string;
+  idempotencyKey: string;
+}): Promise<V2SlideResult> {
+  const { caseId, specimenId, ...body } = input;
+  return materialRequest(`/cases/${caseId}/specimens/${specimenId}/external-cytology-slides`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -519,7 +587,7 @@ export function locateV2Material(
 
 export function performV2ProductionRework(input: {
   slideId: string;
-  reworkTypeCode: 'RECUT' | 'RESTAIN' | 'RESCAN';
+  reworkTypeCode: 'RECUT' | 'REPREPARATION' | 'RESTAIN' | 'RESCAN';
   reason: string;
   idempotencyKey: string;
 }): Promise<{

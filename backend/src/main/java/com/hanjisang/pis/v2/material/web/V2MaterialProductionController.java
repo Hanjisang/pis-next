@@ -23,10 +23,12 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateDirectSlideCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateExtraCytologySlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CreateExtraSlideCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectSlideCodeCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.CorrectSlideCompletionCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredSlidesCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.GenerateRequiredCytologySlidesCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintBlocksCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.PrintSlidesCommand;
@@ -36,6 +38,7 @@ import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplication
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateBlockCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateGrossingCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateGrossingSpecimenCommand;
+import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.UpdateCytologyPreparationCommand;
 import com.hanjisang.pis.v2.material.application.V2MaterialProductionApplicationService.VerifyBlockCommand;
 
 @RestController
@@ -126,7 +129,38 @@ public class V2MaterialProductionController {
     public V2MaterialProductionApplicationService.SlideResult createDirectCytologySlide(
             @PathVariable UUID caseId, @PathVariable UUID specimenId, @RequestBody CreateDirectSlideRequest request) {
         return service.createDirectCytologySlide(caseId, specimenId,
-                new CreateDirectSlideCommand(request.slideCode(), request.slideType(), request.idempotencyKey()));
+                new CreateDirectSlideCommand(request.slideCode(), request.slideType(), request.idempotencyKey(),
+                        request.stainCode()));
+    }
+
+    @PostMapping("/cases/{caseId}/cytology-slides/generate")
+    public V2MaterialProductionApplicationService.SlideBatchGenerationResult generateCytologySlides(
+            @PathVariable UUID caseId, @RequestBody GenerateCytologySlidesRequest request) {
+        return service.generateRequiredCytologySlides(caseId, new GenerateRequiredCytologySlidesCommand(
+                request.specimenIds(), request.slideType(), request.stainCode(), request.idempotencyKey()));
+    }
+
+    @PostMapping("/cases/{caseId}/specimens/{specimenId}/cytology-slides/extra")
+    public V2MaterialProductionApplicationService.SlideResult createExtraCytologySlide(
+            @PathVariable UUID caseId, @PathVariable UUID specimenId, @RequestBody CreateExtraCytologySlideRequest request) {
+        return service.createExtraCytologySlide(caseId, specimenId, new CreateExtraCytologySlideCommand(
+                request.slideType(), request.stainCode(), request.reason(), request.idempotencyKey()));
+    }
+
+    @PutMapping("/cases/{caseId}/specimens/{specimenId}/cytology-preparation")
+    public V2MaterialProductionApplicationService.SpecimenPreparationResult updateCytologyPreparation(
+            @PathVariable UUID caseId, @PathVariable UUID specimenId,
+            @RequestBody UpdateCytologyPreparationRequest request) {
+        return service.updateCytologyPreparation(caseId, specimenId,
+                new UpdateCytologyPreparationCommand(request.preparationMethodCode(), request.expectedVersion()));
+    }
+
+    @PostMapping("/cases/{caseId}/specimens/{specimenId}/external-cytology-slides")
+    public V2MaterialProductionApplicationService.SlideResult createExternalCytologySlide(
+            @PathVariable UUID caseId, @PathVariable UUID specimenId, @RequestBody CreateDirectSlideRequest request) {
+        return service.createDirectExternalCytologySlide(caseId, specimenId,
+                new CreateDirectSlideCommand(request.slideCode(), request.slideType(), request.idempotencyKey(),
+                        request.stainCode()));
     }
 
     @PostMapping("/cases/{caseId}/external-blocks/{blockId}/slides")
@@ -273,7 +307,16 @@ public class V2MaterialProductionController {
 
     public record CreateBlocksRequest(List<CreateBlockItemRequest> blocks, String idempotencyKey) { }
 
-    public record CreateDirectSlideRequest(String slideCode, String slideType, String idempotencyKey) { }
+    public record CreateDirectSlideRequest(String slideCode, String slideType, String idempotencyKey,
+            String stainCode) { }
+
+    public record GenerateCytologySlidesRequest(List<UUID> specimenIds, String slideType, String stainCode,
+            String idempotencyKey) { }
+
+    public record CreateExtraCytologySlideRequest(String slideType, String stainCode, String reason,
+            String idempotencyKey) { }
+
+    public record UpdateCytologyPreparationRequest(String preparationMethodCode, long expectedVersion) { }
 
     public record UpdateBlockRequest(String blockCode, String blockType, String samplingDescription, String note,
             String reason, long expectedVersion, String idempotencyKey) { }

@@ -70,14 +70,16 @@ public class V2MaterialReworkApplicationService {
         if ("COMPLETED".equals(row.statusCode())) return result(row, true);
         Slide original = materials.findSlide(row.originalSlideId(), actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-SLIDE-NOT-FOUND", "原玻片不存在或不在当前数据范围"));
-        boolean physicalReplacement = List.of("RECUT", "REMAKE").contains(row.reworkTypeCode());
+        boolean physicalReplacement = List.of("RECUT", "REMAKE", "REPREPARATION").contains(row.reworkTypeCode());
         Slide replacement = null;
         if (physicalReplacement) {
             require(command.replacementSlideId(), "重新制作必须关联新玻片");
             replacement = materials.findSlide(command.replacementSlideId(), actor.hospitalScope())
                     .orElseThrow(() -> reject("V2-SLIDE-NOT-FOUND", "替代玻片不存在或不在当前数据范围"));
-            if (!replacement.caseId().equals(row.caseId()) || replacement.isDeleted()
-                    || !java.util.Objects.equals(replacement.blockId(), original.blockId())) {
+            boolean sameLineage = original.blockId() != null
+                    ? java.util.Objects.equals(replacement.blockId(), original.blockId())
+                    : java.util.Objects.equals(replacement.specimenId(), original.specimenId());
+            if (!replacement.caseId().equals(row.caseId()) || replacement.isDeleted() || !sameLineage) {
                 throw reject("V2-REWORK-SLIDE-MISMATCH", "替代玻片必须来自原玻片同一病例和材块");
             }
             if (replacement.id().equals(row.originalSlideId())) {
@@ -111,11 +113,16 @@ public class V2MaterialReworkApplicationService {
                 new RequestCommand(type, command.reason(), command.idempotencyKey() + "/request"));
         if ("COMPLETED".equals(requested.statusCode())) return requested;
         UUID replacementId = null;
-        if (List.of("RECUT", "REMAKE").contains(type)) {
+        if (List.of("RECUT", "REMAKE", "REPREPARATION").contains(type)) {
             ActorContext actor = authorization.require(MATERIAL_PERMISSION);
             Slide original = materials.findSlide(slideId, actor.hospitalScope())
                     .orElseThrow(() -> reject("V2-SLIDE-NOT-FOUND", "原玻片不存在或不在当前数据范围"));
-            if (original.blockId() == null) {
+            if (original.blockId() == null && original.specimenId() != null) {
+                replacementId = production.createExtraCytologySlide(original.caseId(), original.specimenId(),
+                        new V2MaterialProductionApplicationService.CreateExtraCytologySlideCommand(
+                                original.slideType(), original.stainCode(), command.reason(),
+                                command.idempotencyKey() + "/slide")).slideId();
+            } else if (original.blockId() == null) {
                 throw reject("V2-REWORK-SOURCE-INVALID", "重新切片必须来自材块");
             }
             replacementId = production.createExtraSlide(original.blockId(),
@@ -151,7 +158,8 @@ public class V2MaterialReworkApplicationService {
             case "RE_CUT" -> "RECUT";
             case "RE_STAIN" -> "RESTAIN";
             case "RE_SCAN" -> "RESCAN";
-            case "RECUT", "RESTAIN", "RESCAN", "REMAKE" -> normalized;
+            case "RECUT", "RESTAIN", "RESCAN", "REMAKE", "REPREPARATION" -> normalized;
+            case "RE_PREPARATION" -> "REPREPARATION";
             default -> throw reject("V2-REWORK-TYPE-INVALID", "返工类型不受支持");
         };
     }

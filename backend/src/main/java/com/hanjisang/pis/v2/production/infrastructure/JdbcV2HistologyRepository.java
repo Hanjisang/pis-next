@@ -17,7 +17,7 @@ import org.springframework.stereotype.Repository;
 public class JdbcV2HistologyRepository {
 
     private static final List<String> STAGES = List.of(
-            "DEHYDRATION", "EMBEDDING", "SECTIONING", "STAINING", "COVERSLIPPING");
+            "DEHYDRATION", "EMBEDDING", "SECTIONING", "PREPARATION", "STAINING", "COVERSLIPPING");
     private final JdbcTemplate jdbc;
 
     public JdbcV2HistologyRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
@@ -98,8 +98,10 @@ public class JdbcV2HistologyRepository {
                     JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                     LEFT JOIN pis_v2.block b ON b.id = sl.block_id
                     WHERE sl.id = ? AND sl.organization_reference = ? AND sl.deleted_at IS NULL
-                      AND c.lifecycle_state_code = 'ACTIVE' AND bt.modality_code = 'TISSUE'
-                      AND sl.source_context_type = 'INITIAL' AND b.deleted_at IS NULL
+                      AND c.lifecycle_state_code = 'ACTIVE'
+                      AND ((bt.modality_code = 'TISSUE' AND sl.source_context_type = 'INITIAL')
+                        OR (bt.modality_code = 'CYTOLOGY' AND sl.source_context_type = 'CYTOLOGY'))
+                      AND b.deleted_at IS NULL
                     """, rs -> rs.next() ? Optional.of(new TargetScope("SLIDE", rs.getObject("target_id", UUID.class),
                     rs.getObject("case_id", UUID.class), rs.getString("display_code"))) : Optional.empty(),
                     targetId, organizationReference);
