@@ -1,6 +1,6 @@
 # SRS V1.4 → PIS V2 Atomic Coverage Baseline
 
-原子基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。FC02A 闭环基线：`bcdf9b83c6d6feeb5e6cdb87602fd9948662aa57`。FC02B 实际起始基线：`5efd315935c16a86044673dfa3b4fc7bcbbd0f79`。
+原子基线：`7efacb4c4d575e37481f42d16e49b457f7f0f845`。生成日期：2026-08-12。FC02A 闭环基线：`bcdf9b83c6d6feeb5e6cdb87602fd9948662aa57`。FC02B 实际起始基线：`5efd315935c16a86044673dfa3b4fc7bcbbd0f79`。FC03A 实际起始基线：`09f763241cc029ccde781024695d305b3692dc1c`。
 
 ## 1. 口径
 
@@ -8,8 +8,8 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 348 |
-| PARTIAL | 143 |
+| COMPLETE | 351 |
+| PARTIAL | 140 |
 | MISSING | 218 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
@@ -18,6 +18,7 @@
 FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连续链：33 条由 PARTIAL 转为 COMPLETE，TOTAL 不变。产品内 Patient/Print Port 与 Simulator 已形成可替换、可测试闭环；真实医院 HIS 与真实打印硬件仍由独立 EXTERNAL_DEPENDENCY 原子项承担，本文不宣称生产联调完成。
 
 FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTIAL 转为 COMPLETE；`GROSS-006`、`GROSS-008`、`GROSS-009`、`GROSS-010` 由 MISSING 转为 COMPLETE；`GROSS-007` 在产品内 Port、Simulator、失败语义与审计闭环后转为 EXTERNAL_DEPENDENCY，明确保留真实拍摄台硬件联调缺口。TOTAL 不变。
+FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、`SLIDE-015` 由 PARTIAL 转为 COMPLETE。统一 Slide、可选技术记录、物理返工、编号历史、软失效、打印、权限和数据隔离已形成闭环；自动脱水机、染色机、封片机等真实设备联调仍由既有 DEVICE/INT 外部依赖项承载。`QC-004` 仍为 PARTIAL，当前异常与返工事实不冒充完整玻片质控闭环。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -2059,13 +2060,13 @@ FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTI
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 F14 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md F14 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md F14 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md F14 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md F14 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 PROD-014 独立立项、实现和验收。
+- Backend Evidence: `V2MaterialReworkApplicationService`、`V2MaterialReworkController` 实现 RECUT/RESTAIN/RESCAN 的物理语义，原玻片始终保留，RECUT 自动创建统一 Slide 替代物。
+- DB Evidence: `material_rework` 保存原玻片、替代玻片、原因、操作者与完成事实；`V37__routine_histology_production_closure.sql` 允许不产生新物理玻片的 RESTAIN/RESCAN 正确完成。
+- Frontend Evidence: `V2RoutineProductionWorkspace.vue` 的次级“异常与物理返工”区域提供异常登记及重切、重染、重扫入口。
+- Test Evidence: `TechnicalTraceAndReworkTest`、`V2MaterialProductionWebTest` 与 FC03A Playwright 覆盖原件保留、重切血缘以及重染/重扫不新增物理玻片。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；数字切片扫描设备联调仍按独立 WSI/DEVICE 外部依赖统计。
+- V2 Decision: 返工是材料事实，不建立 ExceptionWorkflow；RECUT 产生新 Slide，RESTAIN/RESCAN 不默认产生新物理 Slide。
 
 ### PROD-015 — 技术人员
 
@@ -2631,13 +2632,13 @@ FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTI
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 G13 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G13 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G13 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G13 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G13 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 SLIDE-013 独立立项、实现和验收。
+- Backend Evidence: `V2MaterialProductionApplicationService.cancelSlide` 仅允许授权软失效，并在 DigitalSlide、技术医嘱、归档或借阅依赖存在时拒绝操作。
+- DB Evidence: 统一 `slide.deleted_at/deleted_by_ref/deletion_reason` 保存失效事实；既有外键与 `V37` 历史表保留完整材料身份。
+- Frontend Evidence: `V2RoutineProductionWorkspace.vue` 提供原因必填的“设为失效”次级危险操作，不提供物理删除。
+- Test Evidence: `SlideLifecycleTest` 覆盖无下游依赖软失效与 DigitalSlide 依赖保护；权限与数据范围由 `RoutineProductionPermissionAndDataScopeTest` 覆盖。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口。
+- V2 Decision: 误生成玻片采用审计化软失效；任何已有下游医学证据的玻片都不可物理删除。
 
 ### SLIDE-014 — Slide completion
 
@@ -2675,13 +2676,13 @@ FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTI
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 G15 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G15 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G15 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G15 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md G15 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 SLIDE-015 独立立项、实现和验收。
+- Backend Evidence: `correctSlideCode` 与 `correctSlideCompletion` 在保持 SlideId、CaseId 和 Block 血缘不变的前提下执行授权修正并审计。
+- DB Evidence: `V37__routine_histology_production_closure.sql` 新增 `slide_code_history` 与 `slide_completion_correction`，当前有效编号仍受 Case 内活跃唯一约束保护。
+- Frontend Evidence: `V2RoutineProductionWorkspace.vue` 提供编号更正与完成事实修正，均要求原因并使用后端 availableActions。
+- Test Evidence: `SlideLifecycleTest` 覆盖身份不变、编号历史、完成修正历史与重复编号保护；PostgreSQL 集成测试验证唯一约束。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口。
+- V2 Decision: 修正更新统一 Slide 的当前有效事实并追加历史，不通过新建平行 Slide 或覆盖历史实现。
 
 ### SLIDE-016 — Slide archive
 
