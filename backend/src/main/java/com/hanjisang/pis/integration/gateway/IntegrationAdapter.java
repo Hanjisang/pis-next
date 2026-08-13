@@ -10,6 +10,10 @@ public interface IntegrationAdapter {
 
     AdapterResult exchange(IntegrationEnvelope envelope);
 
+    default AdapterResult exchange(IntegrationEnvelope envelope, int attemptNo) {
+        return exchange(envelope);
+    }
+
     default boolean supports(IntegrationCapability capability) {
         return capabilities().contains(capability);
     }

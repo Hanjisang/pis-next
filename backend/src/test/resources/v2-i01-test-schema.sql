@@ -691,6 +691,12 @@ CREATE TABLE IF NOT EXISTS pis_v2.frozen_end_specimen (
     created_by_ref VARCHAR(128) NOT NULL, UNIQUE (frozen_end_id, frozen_specimen_id),
     UNIQUE (routine_specimen_id)
 );
+CREATE TABLE IF NOT EXISTS pis_v2.frozen_tat_alert_action (
+    id UUID PRIMARY KEY, frozen_round_id UUID NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    tat_status_code VARCHAR(16) NOT NULL, action_code VARCHAR(32) NOT NULL, note VARCHAR(1000),
+    acted_at TIMESTAMP WITH TIME ZONE NOT NULL, acted_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (frozen_round_id, organization_reference, tat_status_code, action_code)
+);
 MERGE INTO pis_v2.qc_rule
     (id, rule_code, rule_name, metric_code, warning_threshold, overdue_threshold, active, created_at, created_by_ref)
 KEY (rule_code) VALUES

@@ -72,6 +72,69 @@ class FrozenPostgresConcurrencyTest {
                 Integer.class, frozenCaseId)).isEqualTo(1);
     }
 
+    @Test
+    void concurrentNotificationClaimsAllowOnlyOneSender() throws Exception {
+        UUID messageId = seedRetryableNotification();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var futures = List.of(
+                    executor.submit(() -> claimNotification(messageId, ready, start, "sender-a")),
+                    executor.submit(() -> claimNotification(messageId, ready, start, "sender-b")));
+            ready.await();
+            start.countDown();
+            int successes = futures.get(0).get() + futures.get(1).get();
+            assertThat(successes).isEqualTo(1);
+        }
+        assertThat(jdbc().queryForObject("SELECT status_code FROM pis_v2.integration_message_log WHERE id = ?",
+                String.class, messageId)).isEqualTo("SENDING");
+    }
+
+    private int claimNotification(UUID messageId, CountDownLatch ready, CountDownLatch start, String actor)
+            throws Exception {
+        try (Connection connection = connection();
+                PreparedStatement statement = connection.prepareStatement("""
+                        UPDATE pis_v2.integration_message_log
+                           SET status_code = 'SENDING', updated_at = CURRENT_TIMESTAMP
+                         WHERE id = ? AND retry_count = 1 AND status_code IN ('PENDING', 'RETRY_PENDING')
+                        """)) {
+            connection.setAutoCommit(false);
+            ready.countDown();
+            start.await();
+            statement.setObject(1, messageId);
+            int updated = statement.executeUpdate();
+            connection.commit();
+            return updated;
+        } catch (Exception conflict) {
+            return 0;
+        }
+    }
+
+    private UUID seedRetryableNotification() {
+        UUID messageId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now();
+        try (Connection connection = connection();
+                PreparedStatement statement = connection.prepareStatement("""
+                        INSERT INTO pis_v2.integration_message_log
+                            (id, hospital_profile_code, direction_code, source_system_code, target_system_code,
+                             message_id, capability_code, business_key, request_reference, request_digest,
+                             status_code, retry_count, max_retries, created_at, updated_at)
+                        VALUES (?, 'LOCAL_HOSPITAL', 'OUTBOUND', 'PIS', 'OR_HIS', ?,
+                                'CLINICAL_RESULT_NOTIFICATION', ?, 'mock://retry', 'synthetic-digest',
+                                'RETRY_PENDING', 1, 3, ?, ?)
+                        """)) {
+            statement.setObject(1, messageId);
+            statement.setString(2, "FROZEN-REPORT:" + UUID.randomUUID());
+            statement.setString(3, "FROZEN_ROUND:" + UUID.randomUUID());
+            statement.setObject(4, now);
+            statement.setObject(5, now);
+            statement.executeUpdate();
+            return messageId;
+        } catch (Exception failure) {
+            throw new IllegalStateException("无法建立通知并发测试数据", failure);
+        }
+    }
+
     private int insertRound(UUID caseId, CountDownLatch ready, CountDownLatch start, String actor) {
         OffsetDateTime now = OffsetDateTime.now();
         try (Connection connection = connection()) {

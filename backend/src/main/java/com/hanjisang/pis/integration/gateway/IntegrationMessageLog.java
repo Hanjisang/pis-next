@@ -19,6 +19,7 @@ public record IntegrationMessageLog(
 
     public enum Status {
         PENDING,
+        SENDING,
         SUCCEEDED,
         RETRY_PENDING,
         DEAD_LETTER

@@ -256,16 +256,143 @@ public class JdbcV2FrozenRoundRepository {
 
     public Optional<Notification> latestNotification(UUID roundId, String organizationReference) {
         return jdbc.query("""
-                SELECT id, status_code, retry_count, last_attempt_at, error_code, error_message
-                  FROM pis_v2.integration_message_log
-                 WHERE hospital_profile_code = ? AND capability_code = 'CLINICAL_RESULT_NOTIFICATION'
-                   AND business_key = ?
-                 ORDER BY created_at DESC, id DESC
+                SELECT m.id, m.status_code, m.retry_count, m.last_attempt_at, m.error_code, m.error_message,
+                       m.target_system_code, m.created_at, r.id AS report_id, r.report_no, r.status_code AS report_status
+                  FROM pis_v2.integration_message_log m
+                  JOIN pis_v2.report r ON m.message_id = 'FROZEN-REPORT:' || CAST(r.id AS VARCHAR)
+                 WHERE m.hospital_profile_code = ? AND m.capability_code = 'CLINICAL_RESULT_NOTIFICATION'
+                   AND m.business_key = ? AND r.organization_reference = ?
+                 ORDER BY r.signed_at DESC, m.created_at DESC, m.id DESC
                  LIMIT 1
                 """, rs -> rs.next() ? Optional.of(new Notification(rs.getObject("id", UUID.class),
                 rs.getString("status_code"), rs.getInt("retry_count"), instant(rs, "last_attempt_at"),
-                rs.getString("error_code"), rs.getString("error_message"))) : Optional.empty(), organizationReference,
-                "FROZEN_ROUND:" + roundId);
+                rs.getString("error_code"), rs.getString("error_message"), rs.getObject("report_id", UUID.class),
+                rs.getString("report_no"), rs.getString("report_status"), rs.getString("target_system_code"),
+                rs.getTimestamp("created_at").toInstant())) : Optional.empty(), organizationReference,
+                "FROZEN_ROUND:" + roundId, organizationReference);
+    }
+
+    public String currentReportStatus(UUID roundId, String organizationReference) {
+        return jdbc.query("""
+                SELECT r.status_code
+                  FROM pis_v2.frozen_round fr
+                  JOIN pis_v2.diagnosis d ON d.context_type = 'FROZEN_ROUND' AND d.context_id = fr.id
+                       AND d.organization_reference = fr.organization_reference
+                  LEFT JOIN pis_v2.report r ON r.id = (
+                       SELECT rr.id FROM pis_v2.report rr
+                        WHERE rr.diagnosis_id = d.id AND rr.organization_reference = fr.organization_reference
+                        ORDER BY rr.signed_at DESC, rr.id DESC LIMIT 1)
+                 WHERE fr.id = ? AND fr.organization_reference = ?
+                """, rs -> {
+                    if (!rs.next()) return "NOT_DIAGNOSED";
+                    String status = rs.getString(1);
+                    return status == null ? "NOT_SIGNED" : status;
+                }, roundId, organizationReference);
+    }
+
+    public Optional<TatAlertAction> findTatAlertAction(UUID roundId, String organizationReference, String status) {
+        return jdbc.query("""
+                SELECT acted_at, acted_by_ref, note
+                  FROM pis_v2.frozen_tat_alert_action
+                 WHERE frozen_round_id = ? AND organization_reference = ?
+                   AND tat_status_code = ? AND action_code = 'ACKNOWLEDGED'
+                """, rs -> rs.next() ? Optional.of(new TatAlertAction(rs.getTimestamp("acted_at").toInstant(),
+                rs.getString("acted_by_ref"), rs.getString("note"))) : Optional.empty(), roundId,
+                organizationReference, status);
+    }
+
+    public void acknowledgeTatAlert(UUID roundId, String organizationReference, String status, String note,
+            String actorRef, Instant now) {
+        jdbc.update("""
+                MERGE INTO pis_v2.frozen_tat_alert_action AS target
+                USING (VALUES (?, ?, ?, ?, 'ACKNOWLEDGED', ?, ?, ?)) AS source
+                    (id, frozen_round_id, organization_reference, tat_status_code, action_code, note,
+                     acted_at, acted_by_ref)
+                   ON target.frozen_round_id = source.frozen_round_id
+                  AND target.organization_reference = source.organization_reference
+                  AND target.tat_status_code = source.tat_status_code
+                  AND target.action_code = source.action_code
+                WHEN NOT MATCHED THEN INSERT
+                    (id, frozen_round_id, organization_reference, tat_status_code, action_code, note,
+                     acted_at, acted_by_ref)
+                VALUES (source.id, source.frozen_round_id, source.organization_reference, source.tat_status_code,
+                        source.action_code, source.note, source.acted_at, source.acted_by_ref)
+                """, UUID.randomUUID(), roundId, organizationReference, status, note, Timestamp.from(now), actorRef);
+    }
+
+    public List<RoundComparisonRow> findRoundComparisons(UUID frozenCaseId, String organizationReference) {
+        return jdbc.query("""
+                SELECT fr.id AS round_id, fr.round_no, fr.arrival_time, fr.diagnosis_signed_time,
+                       d.id AS diagnosis_id, CAST(r.diagnosis_snapshot AS VARCHAR) AS diagnosis_snapshot,
+                       r.id AS report_id, r.report_no, r.status_code AS report_status,
+                       r.signed_at, r.signed_by_ref
+                  FROM pis_v2.frozen_round fr
+                  JOIN pis_v2.pathology_case c ON c.id = fr.case_id
+                  LEFT JOIN pis_v2.diagnosis d ON d.context_type = 'FROZEN_ROUND' AND d.context_id = fr.id
+                       AND d.organization_reference = c.organization_reference
+                  LEFT JOIN pis_v2.report r ON r.id = (
+                       SELECT rr.id FROM pis_v2.report rr
+                        WHERE rr.diagnosis_id = d.id AND rr.organization_reference = c.organization_reference
+                          AND rr.status_code = 'EFFECTIVE'
+                        ORDER BY rr.signed_at DESC, rr.id DESC LIMIT 1)
+                 WHERE fr.case_id = ? AND c.organization_reference = ?
+                 ORDER BY fr.round_no
+                """, (rs, rowNum) -> new RoundComparisonRow(rs.getObject("round_id", UUID.class),
+                rs.getInt("round_no"), rs.getTimestamp("arrival_time").toInstant(),
+                instant(rs, "diagnosis_signed_time"), rs.getObject("diagnosis_id", UUID.class),
+                rs.getString("diagnosis_snapshot"), rs.getObject("report_id", UUID.class), rs.getString("report_no"),
+                reportState(rs.getString("report_status"), rs.getObject("diagnosis_id", UUID.class),
+                        organizationReference), instant(rs, "signed_at"), rs.getString("signed_by_ref")),
+                frozenCaseId, organizationReference);
+    }
+
+    public Optional<RoutineComparisonRow> findRoutineComparison(UUID routineCaseId, String organizationReference) {
+        return jdbc.query("""
+                SELECT c.id AS case_id, c.case_no AS pathology_no, d.id AS diagnosis_id,
+                       CAST(r.diagnosis_snapshot AS VARCHAR) AS diagnosis_snapshot,
+                       r.id AS report_id, r.report_no, r.status_code AS report_status,
+                       r.signed_at, r.signed_by_ref
+                  FROM pis_v2.pathology_case c
+                  LEFT JOIN pis_v2.diagnosis d ON d.case_id = c.id AND d.context_type = 'CASE'
+                       AND d.context_id = c.id AND d.organization_reference = c.organization_reference
+                  LEFT JOIN pis_v2.report r ON r.id = (
+                       SELECT rr.id FROM pis_v2.report rr
+                        WHERE rr.diagnosis_id = d.id AND rr.organization_reference = c.organization_reference
+                          AND rr.status_code = 'EFFECTIVE'
+                        ORDER BY rr.signed_at DESC, rr.id DESC LIMIT 1)
+                 WHERE c.id = ? AND c.organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new RoutineComparisonRow(rs.getObject("case_id", UUID.class),
+                rs.getString("pathology_no"), rs.getObject("diagnosis_id", UUID.class),
+                rs.getString("diagnosis_snapshot"), rs.getObject("report_id", UUID.class), rs.getString("report_no"),
+                reportState(rs.getString("report_status"), rs.getObject("diagnosis_id", UUID.class),
+                        organizationReference), instant(rs, "signed_at"), rs.getString("signed_by_ref")))
+                : Optional.empty(), routineCaseId, organizationReference);
+    }
+
+    public String specimenSummary(UUID roundId) {
+        List<String> values = jdbc.query("""
+                SELECT sp.specimen_code, sp.specimen_name, sp.collection_site
+                  FROM pis_v2.frozen_round_specimen frs
+                  JOIN pis_v2.specimen sp ON sp.id = frs.specimen_id AND sp.deleted_at IS NULL
+                 WHERE frs.frozen_round_id = ?
+                 ORDER BY frs.sequence_no
+                """, (rs, rowNum) -> {
+                    String description = rs.getString("specimen_name");
+                    if (description == null || description.isBlank()) description = rs.getString("collection_site");
+                    return rs.getString("specimen_code") + (description == null || description.isBlank()
+                            ? "" : " · " + description);
+                }, roundId);
+        return String.join("；", values);
+    }
+
+    private String reportState(String effectiveStatus, UUID diagnosisId, String organizationReference) {
+        if (effectiveStatus != null) return effectiveStatus;
+        if (diagnosisId == null) return "NOT_DIAGNOSED";
+        Integer withdrawn = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.report
+                 WHERE diagnosis_id = ? AND organization_reference = ? AND status_code = 'WITHDRAWN'
+                """, Integer.class, diagnosisId, organizationReference);
+        return withdrawn != null && withdrawn > 0 ? "WITHDRAWN" : "NOT_SIGNED";
     }
 
     private String select() {
@@ -300,7 +427,17 @@ public class JdbcV2FrozenRoundRepository {
     public record TatPolicy(BigDecimal warningHours, BigDecimal overdueHours) { }
 
     public record Notification(UUID messageLogId, String statusCode, int retryCount, Instant lastAttemptAt,
-            String errorCode, String errorMessage) { }
+            String errorCode, String errorMessage, UUID reportId, String reportNo, String reportStatus,
+            String target, Instant createdAt) { }
+
+    public record TatAlertAction(Instant actedAt, String actedBy, String note) { }
+
+    public record RoundComparisonRow(UUID roundId, int roundNo, Instant arrivalTime, Instant diagnosisSignedTime,
+            UUID diagnosisId, String diagnosisSnapshot, UUID reportId, String reportNo, String reportStatus,
+            Instant signedAt, String signedBy) { }
+
+    public record RoutineComparisonRow(UUID caseId, String pathologyNo, UUID diagnosisId, String diagnosisSnapshot,
+            UUID reportId, String reportNo, String reportStatus, Instant signedAt, String signedBy) { }
 
     public record FrozenEnd(UUID id, UUID frozenCaseId, UUID routineCaseId, String idempotencyKey, Instant endedAt,
             String endedBy) { }

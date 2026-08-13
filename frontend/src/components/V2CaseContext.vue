@@ -20,6 +20,7 @@ import {
 } from '../v2WorkspaceApi';
 import V2DiagnosisWorkspace from './V2DiagnosisWorkspace.vue';
 import V2FrozenWorkspace from './V2FrozenWorkspace.vue';
+import V2FrozenRoutineComparison from './V2FrozenRoutineComparison.vue';
 import V2GrossingWorkbench from './V2GrossingWorkbench.vue';
 import V2SlideProductionWorkbench from './V2SlideProductionWorkbench.vue';
 import V2TechnicalWorkbench from './V2TechnicalWorkbench.vue';
@@ -48,6 +49,7 @@ const actionReason = ref('');
 const correctedPathologyNo = ref('');
 const actionSubmitting = ref(false);
 const moreActions = ref<HTMLDetailsElement | null>(null);
+const comparisonOpen = ref(false);
 
 const focusedKinds = new Set([
   'diagnosis',
@@ -142,6 +144,11 @@ function openFocus(kind: string) {
 
 function returnToOrigin() {
   emit('navigate', safeLocalPath(props.returnTo) || '/v2/workbench');
+}
+
+function openRelatedCase(caseId?: string | null, frozen = false) {
+  if (!caseId) return;
+  emit('navigate', frozen ? `/v2/frozen/${caseId}?origin=case` : `/v2/cases/${caseId}?origin=case`);
 }
 
 function openAction(panel: 'CORRECT_NUMBER' | 'CANCEL_CASE') {
@@ -335,13 +342,35 @@ watch(
             v-if="header.frozenSourcePathologyNo || header.routineTargetPathologyNo"
             class="case-lineage-hint"
           >
-            <span v-if="header.frozenSourcePathologyNo"
-              >来源冰冻病例：{{ header.frozenSourcePathologyNo }}</span
+            <button
+              v-if="header.frozenSourcePathologyNo"
+              class="text-button"
+              type="button"
+              @click="openRelatedCase(header.frozenSourceCaseId, true)"
             >
-            <span v-if="header.routineTargetPathologyNo"
-              >冰剩常规病例：{{ header.routineTargetPathologyNo }}</span
+              来源冰冻：{{ header.frozenSourcePathologyNo }}
+            </button>
+            <button
+              v-if="header.routineTargetPathologyNo"
+              class="text-button"
+              type="button"
+              @click="openRelatedCase(header.routineTargetCaseId)"
             >
+              冰剩常规：{{ header.routineTargetPathologyNo }}
+            </button>
           </p>
+          <button
+            v-if="
+              (header.frozenSourcePathologyNo || header.routineTargetPathologyNo) &&
+              can('P14-PERM-019') &&
+              can('P14-PERM-048')
+            "
+            class="text-button"
+            type="button"
+            @click="comparisonOpen = true"
+          >
+            查看冰冻/石蜡对照
+          </button>
         </div>
         <div class="case-overview-actions">
           <button
@@ -709,6 +738,11 @@ watch(
           <p v-else class="muted">当前没有最近动态。</p>
         </section>
       </main>
+      <V2FrozenRoutineComparison
+        :case-id="props.caseId"
+        :open="comparisonOpen"
+        @close="comparisonOpen = false"
+      />
     </template>
   </section>
 </template>

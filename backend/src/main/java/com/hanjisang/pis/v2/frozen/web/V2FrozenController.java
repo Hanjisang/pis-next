@@ -65,10 +65,27 @@ public class V2FrozenController {
         return service.retryNotification(roundId);
     }
 
+    @GetMapping("/frozen/rounds/{roundId}/notification")
+    public V2FrozenApplicationService.NotificationHistory notificationHistory(@PathVariable UUID roundId) {
+        return service.notificationHistory(roundId);
+    }
+
+    @PostMapping("/frozen/rounds/{roundId}/tat-alert/acknowledge")
+    public V2FrozenApplicationService.TatAlertResult acknowledgeTatAlert(@PathVariable UUID roundId,
+            @RequestBody TatAlertRequest request) {
+        return service.acknowledgeTatAlert(roundId, request.note());
+    }
+
+    @GetMapping("/frozen/cases/{caseId}/routine-comparison")
+    public V2FrozenApplicationService.ComparisonResult comparison(@PathVariable UUID caseId) {
+        return service.comparison(caseId);
+    }
+
     public record OpenRoundRequest(java.time.Instant arrivalTime, String idempotencyKey, Boolean createNew) { }
     public record RegisterSpecimenRequest(String specimenCode, String specimenKindCode, String collectionSite,
             String collectionMethodCode, String labelCode, String idempotencyKey) { }
     public record IdempotencyRequest(String idempotencyKey) { }
     public record FinishRequest(String idempotencyKey, java.util.List<UUID> specimenIds) { }
     public record CancelRoundRequest(String reason, String idempotencyKey) { }
+    public record TatAlertRequest(String note) { }
 }

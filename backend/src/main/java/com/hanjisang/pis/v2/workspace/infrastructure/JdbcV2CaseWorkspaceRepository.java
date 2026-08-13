@@ -34,11 +34,15 @@ public class JdbcV2CaseWorkspaceRepository {
                         WHERE snapshot.case_id = c.id ORDER BY snapshot.snapshot_version_no DESC LIMIT 1) AS patient_reference,
                        (SELECT snapshot.visit_reference FROM pis_v2.case_context_snapshot snapshot
                         WHERE snapshot.case_id = c.id ORDER BY snapshot.snapshot_version_no DESC LIMIT 1) AS visit_reference
-                       ,(SELECT source.case_no FROM pis_v2.pathology_case source
-                         WHERE source.id = c.frozen_source_case_id) AS frozen_source_pathology_no
-                       ,(SELECT target.case_no FROM pis_v2.pathology_case target
-                         WHERE target.frozen_source_case_id = c.id ORDER BY target.created_at LIMIT 1)
-                         AS routine_target_pathology_no
+                        ,(SELECT source.case_no FROM pis_v2.pathology_case source
+                          WHERE source.id = c.frozen_source_case_id) AS frozen_source_pathology_no
+                        ,c.frozen_source_case_id AS frozen_source_case_id
+                        ,(SELECT target.case_no FROM pis_v2.pathology_case target
+                          WHERE target.frozen_source_case_id = c.id ORDER BY target.created_at LIMIT 1)
+                          AS routine_target_pathology_no
+                        ,(SELECT target.id FROM pis_v2.pathology_case target
+                          WHERE target.frozen_source_case_id = c.id ORDER BY target.created_at LIMIT 1)
+                          AS routine_target_case_id
                 FROM pis_v2.pathology_case c
                 JOIN pis_v2.business_type bt ON bt.id = c.business_type_id
                 WHERE c.id = ? AND c.organization_reference = ?
@@ -225,7 +229,8 @@ public class JdbcV2CaseWorkspaceRepository {
                 rs.getString("lifecycle_state_code"), rs.getString("application_item_code"),
                 rs.getString("source_system_code"), rs.getString("external_application_id"),
                 rs.getString("patient_reference"), rs.getString("visit_reference"), instant(rs, "created_at"),
-                rs.getString("frozen_source_pathology_no"), rs.getString("routine_target_pathology_no"));
+                rs.getObject("frozen_source_case_id", UUID.class), rs.getString("frozen_source_pathology_no"),
+                rs.getObject("routine_target_case_id", UUID.class), rs.getString("routine_target_pathology_no"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
@@ -235,8 +240,8 @@ public class JdbcV2CaseWorkspaceRepository {
 
     public record CaseHeaderRow(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
             String lifecycle, String applicationItemCode, String sourceSystemCode, String applicationNo,
-            String patientReference, String visitReference, Instant createdAt, String frozenSourcePathologyNo,
-            String routineTargetPathologyNo) { }
+            String patientReference, String visitReference, Instant createdAt, UUID frozenSourceCaseId,
+            String frozenSourcePathologyNo, UUID routineTargetCaseId, String routineTargetPathologyNo) { }
 
     public record FrozenRoundRow(UUID roundId, int roundNo, String statusCode, Instant arrivalTime,
             Instant diagnosisSignedTime, int specimenCount, int slideCount, int completedSlideCount,

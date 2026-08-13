@@ -226,7 +226,7 @@ public class JdbcV2ApplicationRepository {
                 JOIN pis_v2.pathology_application a ON a.id = p.application_id
                 LEFT JOIN pis_v2.pathology_application_item i ON i.id = p.application_item_id
                 WHERE p.application_id = ? AND a.organization_reference = ?
-                ORDER BY p.requested_at, i.sequence_no, p.id
+                ORDER BY p.print_version, p.requested_at, i.sequence_no, p.id
                 """, (rs, rowNum) -> new BarcodePrintRow(rs.getObject("id", UUID.class),
                 rs.getObject("application_item_id", UUID.class), rs.getString("barcode_value"),
                 rs.getInt("print_version"), rs.getString("operation_code"), rs.getInt("copies"),

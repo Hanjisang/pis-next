@@ -17,6 +17,8 @@ import {
   type V2SlideNode,
 } from '../v2MaterialApi';
 import { operationsRequest, type FrozenWorkspace } from '../v2OperationsApi';
+import type { FrozenNotificationHistory } from '../v2OperationsApi';
+import V2FrozenRoutineComparison from './V2FrozenRoutineComparison.vue';
 
 const props = defineProps<{
   caseId?: string;
@@ -44,6 +46,9 @@ const error = ref('');
 const notice = ref('');
 const endDialogOpen = ref(false);
 const endSpecimenIds = ref<string[]>([]);
+const notificationHistory = ref<FrozenNotificationHistory | null>(null);
+const notificationHistoryOpen = ref(false);
+const comparisonOpen = ref(false);
 const clock = ref(Date.now());
 
 const canManageRounds = computed(() => hasPermission('P14-PERM-019'));
@@ -88,13 +93,26 @@ const selectedRoundFinished = computed(() =>
 const canCreateNextRound = computed(() =>
   Boolean(selectedRoundFinished.value && !workspace.value?.ended && canManageRounds.value),
 );
-const canEnd = computed(() =>
+const endBlockingReasons = computed(() =>
+  activeRounds.value.flatMap((round) => {
+    if (round.status !== 'SIGNED') return [`第${round.roundNo}轮尚未完成冰冻诊断或报告签发`];
+    if (round.reportStatus === 'WITHDRAWN')
+      return [`第${round.roundNo}轮冰冻报告已撤回，当前无有效报告`];
+    if (round.reportStatus !== 'EFFECTIVE') return [`第${round.roundNo}轮尚未形成有效冰冻报告`];
+    return [];
+  }),
+);
+const notificationFailed = computed(
+  () =>
+    selectedRound.value?.notificationStatus === 'FAILED' ||
+    selectedRound.value?.notificationStatus === 'RETRY_PENDING',
+);
+const canRetryNotification = computed(() =>
   Boolean(
-    canEndFrozen.value &&
-      workspace.value &&
-      !workspace.value.ended &&
-      activeRounds.value.length > 0 &&
-      activeRounds.value.every((round) => round.status === 'SIGNED'),
+    canManageRounds.value &&
+      notificationFailed.value &&
+      selectedRound.value?.diagnosisSignedTime &&
+      selectedRound.value.reportStatus === 'EFFECTIVE',
   ),
 );
 
@@ -153,6 +171,30 @@ function tatLabel(status?: string) {
   return status === 'OVERDUE' ? '已超时' : status === 'WARNING' ? '临近时限' : '正常';
 }
 
+function notificationStatusLabel(status?: string | null) {
+  if (status === 'SUCCEEDED') return '发送成功';
+  if (status === 'FAILED' || status === 'RETRY_PENDING') return '术中结果发送失败';
+  if (status === 'SENDING') return '正在发送';
+  return status ? '待发送' : '尚未发送';
+}
+
+function attemptResultLabel(status: string) {
+  return status === 'SUCCEEDED' ? '成功' : '失败';
+}
+
+function formatNotificationTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('zh-CN', {
+        hour12: false,
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+}
+
 async function load() {
   if (!props.caseId) return;
   loading.value = true;
@@ -171,9 +213,9 @@ async function load() {
       ) ?? loadedWorkspace.rounds.at(-1);
     selectedRoundId.value = nextRound?.roundId ?? '';
     selectedSpecimenId.value = nextRound?.specimens[0]?.specimenId ?? '';
-    if (nextRound) {
-      endSpecimenIds.value = nextRound.specimens.map((specimen) => specimen.specimenId);
-    }
+    endSpecimenIds.value = loadedWorkspace.rounds
+      .filter((round) => round.status !== 'CANCELLED')
+      .flatMap((round) => round.specimens.map((specimen) => specimen.specimenId));
   } catch (requestError) {
     workspace.value = null;
     caseSummary.value = null;
@@ -359,6 +401,40 @@ function retryNotification() {
     notice.value = '通知已重新发送';
   });
 }
+
+function acknowledgeTatAlert() {
+  if (!selectedRound.value) return;
+  void submit(async () => {
+    await operationsRequest(
+      `/frozen/rounds/${selectedRound.value!.roundId}/tat-alert/acknowledge`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ note: '工作区确认已知悉' }),
+      },
+    );
+    await load();
+    notice.value = '超时提醒已确认，处置记录已保留';
+  });
+}
+
+async function openNotificationHistory() {
+  if (!selectedRound.value) return;
+  await submit(async () => {
+    notificationHistory.value = await operationsRequest<FrozenNotificationHistory>(
+      `/frozen/rounds/${selectedRound.value!.roundId}/notification`,
+    );
+    notificationHistoryOpen.value = true;
+  });
+}
+
+function openComparison() {
+  comparisonOpen.value = true;
+}
+
+function openRoutineCase() {
+  if (!workspace.value?.routineCaseId) return;
+  emit('navigate', contextualPath(`/v2/cases/${workspace.value.routineCaseId}`));
+}
 </script>
 
 <template>
@@ -392,6 +468,21 @@ function retryNotification() {
           <span :class="['tat-status', selectedRound?.tatStatus?.toLowerCase()]">{{
             tatLabel(selectedRound?.tatStatus)
           }}</span>
+          <button
+            v-if="
+              selectedRound &&
+              ['WARNING', 'OVERDUE'].includes(selectedRound.tatStatus ?? '') &&
+              !selectedRound.tatAlertAcknowledged &&
+              canManageRounds
+            "
+            class="text-button"
+            type="button"
+            :disabled="submitting"
+            @click="acknowledgeTatAlert"
+          >
+            确认已知悉
+          </button>
+          <span v-else-if="selectedRound?.tatAlertAcknowledged" class="muted">提醒已确认</span>
         </div>
         <button
           class="secondary-button"
@@ -460,13 +551,22 @@ function retryNotification() {
               打印标签
             </button>
             <button
-              v-if="selectedRound.notificationStatus === 'FAILED'"
+              v-if="canRetryNotification"
               class="secondary-button"
               type="button"
               :disabled="submitting"
               @click="retryNotification"
             >
-              重试通知
+              重新发送
+            </button>
+            <button
+              v-if="selectedRound.notificationMessageLogId"
+              class="text-button"
+              type="button"
+              :disabled="submitting"
+              @click="openNotificationHistory"
+            >
+              发送记录
             </button>
           </div>
         </div>
@@ -590,12 +690,19 @@ function retryNotification() {
                 确认取消
               </button>
             </div>
-            <p v-if="selectedRound.notificationStatus" class="muted">
-              通知状态：{{ selectedRound.notificationStatus
-              }}{{
-                selectedRound.cancellationReason ? ` · ${selectedRound.cancellationReason}` : ''
-              }}
-            </p>
+            <div v-if="selectedRound.notificationStatus" class="notification-summary">
+              <strong v-if="selectedRound.reportStatus === 'WITHDRAWN'">报告已撤回</strong>
+              <strong v-else>{{
+                notificationStatusLabel(selectedRound.notificationStatus)
+              }}</strong>
+              <span>模拟发送</span>
+              <span v-if="selectedRound.notificationAttempts?.length">
+                已记录 {{ selectedRound.notificationAttempts.length }} 次
+              </span>
+              <span v-if="selectedRound.notificationAttempts?.at(-1)?.errorMessage" class="muted">
+                {{ selectedRound.notificationAttempts.at(-1)?.errorMessage }}
+              </span>
+            </div>
           </div>
         </details>
       </section>
@@ -626,7 +733,23 @@ function retryNotification() {
           >已转常规：{{ workspace.routinePathologyNo }}</span
         >
         <button
-          v-if="canEnd"
+          v-if="workspace.routineCaseId"
+          class="secondary-button"
+          type="button"
+          @click="openRoutineCase"
+        >
+          查看常规病例
+        </button>
+        <button
+          v-if="workspace.routineCaseId"
+          class="secondary-button"
+          type="button"
+          @click="openComparison"
+        >
+          查看冰冻/石蜡对照
+        </button>
+        <button
+          v-if="canEndFrozen && workspace && !workspace.ended && activeRounds.length"
           class="primary-button"
           type="button"
           :disabled="submitting"
@@ -650,8 +773,8 @@ function retryNotification() {
         >
           <h2 id="frozen-end-title">结束冰冻并转常规</h2>
           <p>
-            将结束冰冻，创建 1
-            个新的常规病例、新的常规病理号和新的常规标本。请选择需要转入常规的有效标本。
+            Frozen 病理号：{{ workspace.pathologyNo }} · 有效轮次：{{ activeRounds.length }} ·
+            常规业务类型：组织病理。 默认选中 {{ endSpecimenIds.length }} 个待转常规标本。
           </p>
           <label v-for="round in activeRounds" :key="round.roundId" class="end-round-group">
             <strong>第 {{ round.roundNo }} 轮</strong>
@@ -665,20 +788,73 @@ function retryNotification() {
               {{ specimen.specimenName || specimen.collectionSite || '未填写部位' }}
             </span>
           </label>
+          <p v-if="endBlockingReasons.length" class="feedback error" role="alert">
+            {{ endBlockingReasons.join('；') }}
+          </p>
           <div class="dialog-actions">
             <button class="secondary-button" type="button" @click="endDialogOpen = false">
-              返回</button
+              取消</button
             ><button
               class="primary-button"
               type="button"
-              :disabled="submitting || !endSpecimenIds.length"
+              :disabled="submitting || !endSpecimenIds.length || endBlockingReasons.length > 0"
               @click="finishFrozen"
             >
-              确认结束
+              确认结束冰冻
             </button>
+          </div>
+          <p class="end-confirm-summary">
+            将创建 1 个常规病例 · 将转入 {{ endSpecimenIds.length }} 个标本 · 将生成新的常规病理号
+          </p>
+        </section>
+      </div>
+
+      <div
+        v-if="notificationHistoryOpen && notificationHistory"
+        class="modal-backdrop"
+        @click.self="notificationHistoryOpen = false"
+      >
+        <section
+          class="confirm-dialog notification-history-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notification-history-title"
+        >
+          <header class="panel-title-row">
+            <div>
+              <p class="section-kicker">模拟发送</p>
+              <h2 id="notification-history-title">发送记录</h2>
+            </div>
+            <button class="text-button" type="button" @click="notificationHistoryOpen = false">
+              关闭
+            </button>
+          </header>
+          <p class="muted">
+            报告 {{ notificationHistory.reportNo }} · 目标 {{ notificationHistory.target }}
+          </p>
+          <div class="notification-attempt-list">
+            <div
+              v-for="attempt in notificationHistory.attempts"
+              :key="attempt.attemptId"
+              class="notification-attempt-row"
+            >
+              <strong>第 {{ attempt.attemptNo }} 次</strong>
+              <span>{{ formatNotificationTime(attempt.attemptedAt) }}</span>
+              <span
+                :class="['status-pill', attempt.resultCode === 'SUCCEEDED' ? 'success' : 'warning']"
+              >
+                {{ attemptResultLabel(attempt.resultCode) }}
+              </span>
+              <span v-if="attempt.errorMessage" class="muted">{{ attempt.errorMessage }}</span>
+            </div>
           </div>
         </section>
       </div>
+      <V2FrozenRoutineComparison
+        :case-id="workspace.frozenCaseId"
+        :open="comparisonOpen"
+        @close="comparisonOpen = false"
+      />
     </template>
   </section>
 </template>
@@ -884,6 +1060,38 @@ function retryNotification() {
   padding: 10px;
   border: 1px solid #e4e8ee;
   border-radius: 5px;
+}
+.end-confirm-summary,
+.notification-summary {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+}
+.notification-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+.notification-history-dialog {
+  width: min(660px, 100%);
+}
+.notification-attempt-list {
+  display: grid;
+  gap: 8px;
+}
+.notification-attempt-row {
+  display: grid;
+  grid-template-columns: 80px 150px 70px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border-bottom: 1px solid #e4e8ee;
+}
+@media (max-width: 680px) {
+  .notification-attempt-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .end-specimen-option {
   display: block;

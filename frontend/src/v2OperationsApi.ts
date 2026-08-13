@@ -27,12 +27,58 @@ export type FrozenWorkspace = {
     cancellationReason?: string | null;
     elapsedMinutes?: number;
     tatStatus?: 'NORMAL' | 'WARNING' | 'OVERDUE' | string;
+    tatAlertAcknowledged: boolean;
     notificationStatus?: string | null;
     notificationMessageLogId?: string | null;
+    notificationAttempts: NotificationAttempt[];
+    reportStatus: string;
   }>;
   routineCaseId?: string;
   routinePathologyNo?: string | null;
   ended?: boolean;
+};
+
+export type NotificationAttempt = {
+  attemptId: string;
+  attemptNo: number;
+  attemptedAt: string;
+  resultCode: 'SUCCEEDED' | 'FAILED' | string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+export type FrozenNotificationHistory = {
+  reportId: string;
+  reportNo: string;
+  reportStatus: string;
+  target: string;
+  channel: string;
+  statusCode: string;
+  lastAttemptAt?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  attempts: NotificationAttempt[];
+};
+
+export type FrozenRoutineComparison = {
+  frozenCaseId: string;
+  frozenPathologyNo: string;
+  routineCaseId: string;
+  routinePathologyNo: string;
+  frozenRounds: Array<{
+    roundId: string;
+    roundNo: number;
+    specimenSummary: string;
+    diagnosisText: string;
+    reportStatus: string;
+    signedAt?: string | null;
+    doctor?: string | null;
+    tatMinutes: number;
+  }>;
+  routineDiagnosis: string;
+  routineReportStatus: string;
+  routineSignedAt?: string | null;
+  routineDoctor?: string | null;
 };
 
 export type DigitalSlide = {

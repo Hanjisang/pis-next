@@ -184,7 +184,9 @@ export type V2CaseHeader = {
   patientReference: string;
   visitReference: string | null;
   createdAt: string;
+  frozenSourceCaseId?: string | null;
   frozenSourcePathologyNo?: string | null;
+  routineTargetCaseId?: string | null;
   routineTargetPathologyNo?: string | null;
 };
 

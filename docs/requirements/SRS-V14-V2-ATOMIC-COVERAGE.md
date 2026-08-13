@@ -8,8 +8,8 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 353 |
-| PARTIAL | 138 |
+| COMPLETE | 355 |
+| PARTIAL | 136 |
 | MISSING | 218 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
@@ -20,6 +20,7 @@ FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连�
 FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTIAL 转为 COMPLETE；`GROSS-006`、`GROSS-008`、`GROSS-009`、`GROSS-010` 由 MISSING 转为 COMPLETE；`GROSS-007` 在产品内 Port、Simulator、失败语义与审计闭环后转为 EXTERNAL_DEPENDENCY，明确保留真实拍摄台硬件联调缺口。TOTAL 不变。
 FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、`SLIDE-015` 由 PARTIAL 转为 COMPLETE。统一 Slide、可选技术记录、物理返工、编号历史、软失效、打印、权限和数据隔离已形成闭环；自动脱水机、染色机、封片机等真实设备联调仍由既有 DEVICE/INT 外部依赖项承载。`QC-004` 仍为 PARTIAL，当前异常与返工事实不冒充完整玻片质控闭环。TOTAL 不变。
 FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转为 COMPLETE。统一 Case/Specimen/Slide 支持零玻片进入队列、多标本规则投影、直接 Specimen → Slide、制片方式审计、打印/重打和 PostgreSQL 并发唯一性；液基制片仪、细胞染色机、封片机及扫码硬件真实联调仍保持 EXTERNAL_DEPENDENCY。TBS、细胞诊断模板和细胞报告不在本轮关闭范围。TOTAL 不变。
+FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 COMPLETE；`FROZEN-012` 保持 EXTERNAL_DEPENDENCY。通知失败/重试仅验证 Simulator、不可变 attempt history、权限和报告身份边界，不宣称真实 OR/HIS 联调完成；Frozen/常规对照仅并列展示事实，不自动判定医学一致性。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -4133,9 +4134,9 @@ FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转�
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K11 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K11 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 FROZEN-011 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前证据覆盖提醒阈值投影、工作区可见状态、确认已知悉操作、刷新保持和不可变处置事实；真实运营平台联动不属于本原子能力。
+- V2 Decision: FC03C1 使用 FrozenRound TAT policy 和独立 `frozen_tat_alert_action` 事实完成超时提醒与确认闭环，不以通知中心或通用 WorkItem 替代业务事实。
 
 ### FROZEN-012 — 术中报告发送
 
@@ -4265,9 +4266,9 @@ FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转�
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K17 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K17 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md K17 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 FROZEN-017 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前证据覆盖 Frozen 各轮正式诊断、Routine 最终有效报告、Routine 未诊断和撤回语义、双向入口、权限/数据范围及人工查看；本能力不包含自动医学一致性判定或人工评价枚举。
+- V2 Decision: FC03C1 通过 `frozen_source_case_id` 查询关系并由单一 comparison query 返回事实；不创建 Generic CaseRelation，不使用字符串比较或模型自动判定医学一致性。
 
 ### DX-001 — 医生工作台
 
@@ -16418,17 +16419,26 @@ Workbench atomic totals: TOTAL=46, COMPLETE=44, PARTIAL=1, MISSING=1.
 | FROZEN-008 | COMPLETE | 统一 `diagnosis` + `FROZEN_ROUND` context；医生工作台直接入口与回退浏览器验证 | 通用诊断模板能力不在本轮扩展 |
 | FROZEN-009 | COMPLETE | 统一 `report` 关联 Frozen Diagnosis/Round；多轮报告保留与签发回归测试 | Frozen/常规报告不互相覆盖 |
 | FROZEN-010 | COMPLETE | Round arrival time、后端 TAT 计算、刷新保持计时；工作区显示 timer/status | 阈值仍由现有 TAT policy 提供 |
-| FROZEN-011 | PARTIAL | Warning/overdue projection 已有；Frozen 工作区展示状态 | 尚未形成完整提醒/运营处置闭环 |
+| FROZEN-011 | COMPLETE | `V2FrozenApplicationService.acknowledgeTatAlert`、`V43__frozen_tat_alert_actions.sql`、Frozen 工作区的超时状态/确认操作；`V2FrozenWebTest.overdueFrozenRoundAcknowledgementCreatesAnImmutableActionFact` 验证 OVERDUE 和不可变处置事实 | 真实运营平台联动不在本任务范围 |
 | FROZEN-012 | EXTERNAL_DEPENDENCY | `ClinicalResultNotification` port、mock adapter、attempt/outbox/retry 记录与接口测试 | 真实 OR/HIS 联调未完成；Simulator 不冒充生产验证 |
 | FROZEN-013 | COMPLETE | `Frozen End` 事务、轮次前置校验、选定标本预览/复制与回滚；`V2FrozenWebTest`；`fc03c-frozen-pathology.spec.ts` 覆盖制片队列退出 | End 是事实，不改变 Case lifecycle |
 | FROZEN-014 | COMPLETE | 新 Routine Case、新 Specimen、新 PathologyNo、`frozen_source_case_id`；End 集成测试 | 不复制 Frozen diagnosis/report/material identity |
 | FROZEN-015 | COMPLETE | Routine 编号由编号规则分配；Frozen/Routine 编号独立断言 | 不复用 Frozen pathology number |
 | FROZEN-016 | COMPLETE | `pathology_case.frozen_source_case_id` partial unique index；Case Center 双向显示；PG 迁移测试 | 不建立 Generic CaseRelation |
-| FROZEN-017 | PARTIAL | Case Center 已具备 Frozen/Routine 来源信息和结果事实查询基础 | 人工冰冻/石蜡对照评价 UI 尚未在本轮闭环 |
+| FROZEN-017 | COMPLETE | `V2FrozenApplicationService.comparison` 与 `/frozen/cases/{caseId}/routine-comparison`；`V2FrozenRoutineComparison.vue`、Case Center 双向入口；`V2FrozenWebTest` 多轮/未诊断/快照测试及 `fc03c1-closure.spec.ts` 1920/1366 真实浏览器闭环覆盖 Frozen 各轮、Routine 最终诊断、撤回/未诊断语义和人工事实展示 | 不自动判定医学一致性；不新增人工 QC 评价枚举 |
 
 ### FC03C implementation decisions
 
 - 初始轮次在 Frozen Application → Registration 完成时建立；统一 `Case`/`Specimen` 已创建后，由 Frozen 应用服务在同一事务内补建 `FrozenRound` 与 round-specimen 事实。手工 Frozen specimen 仍可在首次有效接收时创建首轮。
 - `Frozen End` 使用 Case 行锁、Frozen End 事实和 `frozen_source_case_id` 唯一索引保证幂等；Routine Case 后续取消不会允许第二次 End 生成第二个 Routine Case。
 - 真实外部 OR/HIS 通知、打印机及冰冻设备保持 `EXTERNAL_DEPENDENCY`；本轮只验证 adapter/simulator、失败记录和重试边界。
-- Playwright 1920×1080 与 1366×768：`px03c-focused-workspaces.spec.ts` 验证 Frozen Round 直接入口/计时，`fc03c-frozen-pathology.spec.ts` 验证零玻片 → 直接 Slide → 完成 → 原队列移除。
+- Playwright 1920×1080 与 1366×768：`fc03c1-closure.spec.ts` 验证通知首次失败/重新发送/历史持久化、多轮未完成阻断、End 取消与选择性标本转常规、双向导航、重复 End 幂等，以及 Routine 诊断前后两侧对照；现有 `px03c-focused-workspaces.spec.ts` 和 `fc03c-frozen-pathology.spec.ts` 回归覆盖 Frozen Round 入口/计时和零玻片 → 直接 Slide → 完成 → 原队列移除。
+
+### FC03C1 status transitions
+
+仅本任务发生的原子状态转换：
+
+```text
+FROZEN-011 PARTIAL→COMPLETE
+FROZEN-017 PARTIAL→COMPLETE
+```

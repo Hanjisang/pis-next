@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ArrayList;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,7 @@ class IntegrationGatewayTest {
     private static final class InMemoryLogStore implements IntegrationMessageLogStore {
 
         private final Map<UUID, IntegrationMessageLog> messages = new LinkedHashMap<>();
+        private final Map<UUID, List<IntegrationAttempt>> attempts = new LinkedHashMap<>();
 
         @Override
         public Optional<IntegrationMessageLog> findByMessageIdentity(IntegrationEnvelope envelope) {
@@ -91,6 +93,24 @@ class IntegrationGatewayTest {
         @Override
         public Optional<IntegrationMessageLog> findById(UUID id) {
             return Optional.ofNullable(messages.get(id));
+        }
+
+        @Override
+        public Optional<IntegrationMessageLog> claimAttempt(UUID id, int expectedRetryCount, Instant now) {
+            IntegrationMessageLog current = messages.get(id);
+            if (current == null || current.status() != Status.PENDING
+                    && current.status() != Status.RETRY_PENDING
+                    || current.retryCount() != expectedRetryCount) return Optional.empty();
+            IntegrationMessageLog claimed = new IntegrationMessageLog(current.id(), current.envelope(), Status.SENDING,
+                    current.responseSummary(), current.errorCode(), current.errorMessage(), current.retryCount(),
+                    current.maxRetries(), current.nextRetryAt(), current.lastAttemptAt(), current.createdAt(), now);
+            messages.put(id, claimed);
+            return Optional.of(claimed);
+        }
+
+        @Override
+        public List<IntegrationAttempt> findAttempts(UUID messageLogId) {
+            return List.copyOf(attempts.getOrDefault(messageLogId, List.of()));
         }
 
         @Override
@@ -112,6 +132,10 @@ class IntegrationGatewayTest {
                     current.maxRetries(), status == Status.RETRY_PENDING ? completedAt.plusSeconds(60) : null,
                     completedAt, current.createdAt(), completedAt);
             messages.put(updated.id(), updated);
+            attempts.computeIfAbsent(current.id(), ignored -> new ArrayList<>()).add(new IntegrationAttempt(
+                    UUID.randomUUID(), current.id(), retries, adapterCode, startedAt, completedAt,
+                    result.succeeded() ? "SUCCEEDED" : "FAILED", result.responseSummary(), result.errorCode(),
+                    result.errorMessage(), result.retryable()));
             return updated;
         }
 

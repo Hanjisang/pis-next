@@ -15,7 +15,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** Verifies that the published Frozen facts survive the FC03C migrations through V41. */
+/** Verifies that the published Frozen facts survive the FC03C migrations through V43. */
 @Testcontainers
 class V39FrozenExistingDatabaseUpgradeTest {
 
@@ -36,7 +36,7 @@ class V39FrozenExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("41");
+                String.class)).isEqualTo("43");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT round_no FROM pis_v2.frozen_round WHERE id = ?", Integer.class,
                 fixture.roundId())).isEqualTo(1);
@@ -56,6 +56,14 @@ class V39FrozenExistingDatabaseUpgradeTest {
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM pg_indexes
                 WHERE schemaname = 'pis_v2' AND indexname = 'uq_v2_frozen_round_specimen_global'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pg_indexes
+                WHERE schemaname = 'pis_v2' AND indexname = 'idx_v2_integration_retry_claim'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'pis_v2' AND table_name = 'frozen_tat_alert_action'
                 """, Integer.class)).isEqualTo(1);
     }
 

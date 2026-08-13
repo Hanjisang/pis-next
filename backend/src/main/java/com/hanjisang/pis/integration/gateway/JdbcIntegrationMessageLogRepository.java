@@ -6,6 +6,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,6 +38,32 @@ public class JdbcIntegrationMessageLogRepository implements IntegrationMessageLo
     @Override
     public Optional<IntegrationMessageLog> findById(UUID id) {
         return queryOne("SELECT * FROM pis_v2.integration_message_log WHERE id = ?", id);
+    }
+
+    @Override
+    public Optional<IntegrationMessageLog> claimAttempt(UUID id, int expectedRetryCount, Instant now) {
+        int updated = jdbc.update("""
+                UPDATE pis_v2.integration_message_log
+                   SET status_code = 'SENDING', updated_at = ?
+                 WHERE id = ? AND retry_count = ? AND status_code IN ('PENDING', 'RETRY_PENDING')
+                """, Timestamp.from(now), id, expectedRetryCount);
+        return updated == 1 ? findById(id) : Optional.empty();
+    }
+
+    @Override
+    public List<IntegrationAttempt> findAttempts(UUID messageLogId) {
+        return jdbc.query("""
+                SELECT id, message_log_id, attempt_no, adapter_code, started_at, completed_at,
+                       result_code, response_summary, error_code, error_message, retryable
+                  FROM pis_v2.integration_attempt
+                 WHERE message_log_id = ?
+                 ORDER BY attempt_no
+                """, (rs, rowNum) -> new IntegrationAttempt(rs.getObject("id", UUID.class),
+                rs.getObject("message_log_id", UUID.class), rs.getInt("attempt_no"),
+                rs.getString("adapter_code"), rs.getTimestamp("started_at").toInstant(),
+                rs.getTimestamp("completed_at").toInstant(), rs.getString("result_code"),
+                rs.getString("response_summary"), rs.getString("error_code"),
+                rs.getString("error_message"), rs.getBoolean("retryable")), messageLogId);
     }
 
     @Override

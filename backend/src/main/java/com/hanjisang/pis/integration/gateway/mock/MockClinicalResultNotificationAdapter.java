@@ -24,4 +24,12 @@ public class MockClinicalResultNotificationAdapter implements IntegrationAdapter
     public AdapterResult exchange(IntegrationEnvelope envelope) {
         return MockIntegrationResponse.respond(envelope, "SIMULATED_NOTIFICATION_ACCEPTED");
     }
+
+    @Override
+    public AdapterResult exchange(IntegrationEnvelope envelope, int attemptNo) {
+        if (envelope.requestReference().startsWith("mock://fail-once") && attemptNo == 1) {
+            return AdapterResult.failure(true, "SIMULATED_TARGET_UNAVAILABLE", "模拟接收端暂时不可用");
+        }
+        return AdapterResult.success("SIMULATED_NOTIFICATION_ACCEPTED");
+    }
 }

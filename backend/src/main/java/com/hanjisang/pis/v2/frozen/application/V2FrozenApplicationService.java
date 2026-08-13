@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.integration.gateway.IntegrationCapability;
 import com.hanjisang.pis.integration.gateway.IntegrationGatewayApplicationService;
@@ -46,6 +47,7 @@ public class V2FrozenApplicationService {
     private static final String FROZEN_ROUND_CANCEL_PERMISSION = "P14-PERM-020";
     private static final String FROZEN_END_PERMISSION = "P14-PERM-021";
     private static final String DIAGNOSIS_PERMISSION = "P14-PERM-034";
+    private static final String QUERY_PERMISSION = "P14-PERM-048";
 
     private final JdbcV2FrozenRoundRepository repository;
     private final JdbcV2RegistrationRepository registrationRepository;
@@ -54,6 +56,7 @@ public class V2FrozenApplicationService {
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
     private final IntegrationGatewayApplicationService integration;
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     public V2FrozenApplicationService(JdbcV2FrozenRoundRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2DiagnosisRepository diagnosisRepository,
@@ -233,12 +236,17 @@ public class V2FrozenApplicationService {
                     .filter(Objects::nonNull).toList();
             FrozenWorkspace.TatView tat = tat(round, Instant.now());
             Notification notification = repository.latestNotification(round.id(), actor.hospitalScope()).orElse(null);
+            boolean alertAcknowledged = repository.findTatAlertAction(round.id(), actor.hospitalScope(), tat.status())
+                    .isPresent();
+            String reportStatus = repository.currentReportStatus(round.id(), actor.hospitalScope());
             return new RoundView(round.id(), round.roundNo(), round.status(), specimens, production.totalRequired(),
                     production.completedRequired(), production.complete(), diagnosisId, round.arrivalTime(),
                     round.registeredAt(), round.grossingStartTime(), round.slideCompletedTime(),
                     round.diagnosisSignedTime(), round.cancelledAt(), round.cancellationReason(), tat.elapsedMinutes(),
-                    tat.status(), notification == null ? null : notification.statusCode(),
-                    notification == null ? null : notification.messageLogId());
+                    tat.status(), alertAcknowledged,
+                    notification == null ? null : notification.statusCode(),
+                    notification == null ? null : notification.messageLogId(),
+                    notification == null ? List.of() : notificationAttempts(notification), reportStatus);
         }).toList();
         JdbcV2FrozenRoundRepository.FrozenEnd end = repository.findEnd(caseId, actor.hospitalScope()).orElse(null);
         String routinePathologyNo = end == null ? null
@@ -267,6 +275,12 @@ public class V2FrozenApplicationService {
                 .orElse(null);
         if (blocked != null) {
             throw reject("V2-FROZEN-END-BLOCKED", "第" + blocked.roundNo() + "轮尚未完成冰冻诊断或报告签发");
+        }
+        FrozenRound withoutEffectiveReport = activeRounds.stream()
+                .filter(round -> !"EFFECTIVE".equals(repository.currentReportStatus(round.id(), actor.hospitalScope())))
+                .findFirst().orElse(null);
+        if (withoutEffectiveReport != null) {
+            throw reject("V2-FROZEN-END-BLOCKED", "第" + withoutEffectiveReport.roundNo() + "轮没有当前有效冰冻报告");
         }
 
         List<UUID> selectedSpecimens = selectedSpecimens(command.specimenIds(), activeRounds, actor);
@@ -302,7 +316,8 @@ public class V2FrozenApplicationService {
                     source.specimenName(), source.specimenKindCode(), Specimen.FROZEN_REMAINDER, "FROZEN_SPECIMEN",
                     source.id().toString(), source.collectionSite(), source.collectionMethodCode(),
                     source.preparationMethodCode(), source.lateralityCode(), source.quantityValue(), source.quantityUnitCode(),
-                    source.description(), source.removedAt(), source.fixedAt(), source.receivedAt(), source.labelCode());
+                    source.description(), source.removedAt(), source.fixedAt(), source.receivedAt(),
+                    routineNo + "-SPECIMEN-LABEL-" + sequence);
             registrationRepository.insertSpecimen(routineSpecimen, actor.hospitalScope(), actor.actorId(), now);
             UUID roundId = repository.findRoundIdBySpecimen(source.id(), actor.hospitalScope()).orElseThrow();
             repository.insertEndSpecimen(end.id(), source.id(), routineSpecimenId, roundId,
@@ -333,19 +348,96 @@ public class V2FrozenApplicationService {
         String digest = reportId + ":" + reportNo + ":" + round.id();
         integration.dispatch("MOCK_FROZEN_NOTIFICATION", new IntegrationRequestDto(organizationReference, "OUTBOUND",
                 "PIS", "OR_HIS", "FROZEN-REPORT:" + reportId, IntegrationCapability.CLINICAL_RESULT_NOTIFICATION.name(),
-                "FROZEN_ROUND:" + round.id(), "frozen-notification://" + reportId, digest, signedAt));
+                "FROZEN_ROUND:" + round.id(), "mock://fail-once/frozen-notification/" + reportId, digest, signedAt));
     }
 
     @Transactional
     public NotificationResult retryNotification(UUID roundId) {
-        ActorContext actor = authorization.require(FROZEN_ROUND_CANCEL_PERMISSION);
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
         FrozenRound round = repository.find(roundId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-FROZEN-ROUND-NOT-FOUND", "冰冻轮次不存在"));
         Notification notification = repository.latestNotification(round.id(), actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-FROZEN-NOTIFICATION-NOT-FOUND", "当前轮次没有可重试通知"));
-        var result = integration.retry(notification.messageLogId(), "MOCK_FROZEN_NOTIFICATION");
+        if (!"EFFECTIVE".equals(notification.reportStatus())) {
+            throw reject("V2-FROZEN-NOTIFICATION-REPORT-NOT-EFFECTIVE", "当前通知对应的报告已撤回，不能重试");
+        }
+        if ("SUCCEEDED".equals(notification.statusCode())) {
+            throw new P15BusinessException("V2-FROZEN-NOTIFICATION-ALREADY-DELIVERED", "术中结果已发送成功", 409);
+        }
+        if ("SENDING".equals(notification.statusCode())) {
+            throw new P15BusinessException("V2-FROZEN-NOTIFICATION-IN-PROGRESS", "术中结果正在发送", 409);
+        }
+        IntegrationGatewayApplicationService.DispatchResult result;
+        try {
+            result = integration.retry(notification.messageLogId(), "MOCK_FROZEN_NOTIFICATION");
+        } catch (IntegrationGatewayApplicationService.DeliveryInProgressException exception) {
+            throw new P15BusinessException("V2-FROZEN-NOTIFICATION-IN-PROGRESS", "术中结果正在发送", 409);
+        }
         return new NotificationResult(result.messageLogId(), result.statusCode(), result.retryCount(),
                 result.errorCode(), result.errorMessage());
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationHistory notificationHistory(UUID roundId) {
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        FrozenRound round = repository.find(roundId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-ROUND-NOT-FOUND", "冰冻轮次不存在"));
+        Notification notification = repository.latestNotification(round.id(), actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-NOTIFICATION-NOT-FOUND", "当前轮次没有术中结果发送记录"));
+        return new NotificationHistory(notification.reportId(), notification.reportNo(), notification.reportStatus(),
+                notification.target(), "模拟发送", notification.statusCode(), notification.lastAttemptAt(),
+                notification.errorCode(), notification.errorMessage(), notificationAttempts(notification));
+    }
+
+    @Transactional
+    public TatAlertResult acknowledgeTatAlert(UUID roundId, String note) {
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        FrozenRound round = repository.find(roundId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-ROUND-NOT-FOUND", "冰冻轮次不存在"));
+        FrozenWorkspace.TatView result = tat(round, Instant.now());
+        if (!"WARNING".equals(result.status()) && !"OVERDUE".equals(result.status())) {
+            throw new P15BusinessException("V2-FROZEN-TAT-NOT-ALERT", "当前轮次尚未达到提醒阈值", 409);
+        }
+        repository.acknowledgeTatAlert(roundId, actor.hospitalScope(), result.status(), note, actor.actorId(),
+                Instant.now());
+        return new TatAlertResult(roundId, result.status(), true);
+    }
+
+    @Transactional(readOnly = true)
+    public ComparisonResult comparison(UUID caseId) {
+        ActorContext actor = authorization.require(FROZEN_PERMISSION);
+        authorization.require(QUERY_PERMISSION);
+        Case selected = registrationRepository.findCase(caseId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-CASE-NOT-FOUND", "病例不存在或不在当前数据范围"));
+        UUID frozenCaseId;
+        UUID routineCaseId;
+        if (FROZEN.equals(selected.businessTypeCode())) {
+            frozenCaseId = selected.id();
+            JdbcV2FrozenRoundRepository.FrozenEnd end = repository.findEnd(selected.id(), actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-FROZEN-COMPARISON-NOT-AVAILABLE", "当前冰冻病例尚未转入常规"));
+            routineCaseId = end.routineCaseId();
+        } else {
+            routineCaseId = selected.id();
+            frozenCaseId = selected.frozenSourceCaseId();
+            if (frozenCaseId == null) {
+                throw reject("V2-FROZEN-COMPARISON-NOT-AVAILABLE", "当前常规病例没有来源冰冻病例");
+            }
+            registrationRepository.findCase(frozenCaseId, actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-FROZEN-COMPARISON-SCOPE", "来源冰冻病例不在当前数据范围"));
+        }
+        Case frozenCase = registrationRepository.findCase(frozenCaseId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-COMPARISON-SCOPE", "来源冰冻病例不在当前数据范围"));
+        Case routineCase = registrationRepository.findCase(routineCaseId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-COMPARISON-SCOPE", "常规病例不在当前数据范围"));
+        List<ComparisonRound> rounds = repository.findRoundComparisons(frozenCaseId, actor.hospitalScope()).stream()
+                .map(row -> new ComparisonRound(row.roundId(), row.roundNo(), repository.specimenSummary(row.roundId()),
+                        comparisonDiagnosis(row.diagnosisSnapshot(), row.reportStatus(), true), row.reportStatus(), row.signedAt(),
+                        row.signedBy(), comparisonTat(row.arrivalTime(), row.signedAt()))).toList();
+        var routine = repository.findRoutineComparison(routineCaseId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-FROZEN-COMPARISON-SCOPE", "常规病例不在当前数据范围"));
+        return new ComparisonResult(frozenCase.id(), frozenCase.caseNo(), routineCase.id(), routine.pathologyNo(), rounds,
+                comparisonDiagnosis(routine.diagnosisSnapshot(), routine.reportStatus(), false), routine.reportStatus(),
+                routine.signedAt(), routine.signedBy());
     }
 
     public void markReportSigned(UUID diagnosisId, String organizationReference) {
@@ -396,6 +488,35 @@ public class V2FrozenApplicationService {
         String status = hours.compareTo(policy.overdueHours()) >= 0 ? "OVERDUE"
                 : hours.compareTo(policy.warningHours()) >= 0 ? "WARNING" : "NORMAL";
         return new FrozenWorkspace.TatView(elapsedMinutes, status, policy.warningHours(), policy.overdueHours());
+    }
+
+    private List<NotificationAttempt> notificationAttempts(Notification notification) {
+        return integration.attempts(notification.messageLogId()).stream().map(item -> new NotificationAttempt(
+                item.attemptId(), item.attemptNo(), item.startedAt(), item.resultCode(), item.errorCode(),
+                item.errorMessage())).toList();
+    }
+
+    private String comparisonDiagnosis(String diagnosisSnapshot, String reportStatus, boolean frozen) {
+        if ("WITHDRAWN".equals(reportStatus)) {
+            return frozen ? "冰冻报告已撤回，当前无有效正式报告" : "常规报告已撤回，当前无有效正式报告";
+        }
+        if (!"EFFECTIVE".equals(reportStatus)) {
+            return frozen ? "冰冻诊断尚未形成有效正式报告" : "常规病理尚未完成诊断";
+        }
+        try {
+            String text = objectMapper.readTree(diagnosisSnapshot).path("diagnosisText").asText();
+            return value(text, frozen ? "冰冻正式报告未记录诊断文字" : "常规正式报告未记录诊断文字");
+        } catch (Exception ignored) {
+            return frozen ? "冰冻正式报告诊断快照无法读取" : "常规正式报告诊断快照无法读取";
+        }
+    }
+
+    private static String value(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static long comparisonTat(Instant arrival, Instant signedAt) {
+        return Math.max(0, Duration.between(arrival, signedAt == null ? Instant.now() : signedAt).toMinutes());
     }
 
     private void lockCase(UUID caseId, ActorContext actor) {
@@ -472,11 +593,28 @@ public class V2FrozenApplicationService {
     public record NotificationResult(UUID messageLogId, String statusCode, int retryCount, String errorCode,
             String errorMessage) { }
 
+    public record NotificationAttempt(UUID attemptId, int attemptNo, Instant attemptedAt, String resultCode,
+            String errorCode, String errorMessage) { }
+
+    public record NotificationHistory(UUID reportId, String reportNo, String reportStatus, String target,
+            String channel, String statusCode, Instant lastAttemptAt, String errorCode, String errorMessage,
+            List<NotificationAttempt> attempts) { }
+
+    public record TatAlertResult(UUID roundId, String statusCode, boolean acknowledged) { }
+
+    public record ComparisonRound(UUID roundId, int roundNo, String specimenSummary, String diagnosisText,
+            String reportStatus, Instant signedAt, String doctor, long tatMinutes) { }
+
+    public record ComparisonResult(UUID frozenCaseId, String frozenPathologyNo, UUID routineCaseId,
+            String routinePathologyNo, List<ComparisonRound> frozenRounds, String routineDiagnosis,
+            String routineReportStatus, Instant routineSignedAt, String routineDoctor) { }
+
     public record RoundView(UUID roundId, int roundNo, String status, List<RoundSpecimenView> specimens,
             int totalRequiredSlides, int completedRequiredSlides, boolean productionComplete, UUID diagnosisId,
             Instant arrivalTime, Instant registeredAt, Instant grossingStartTime, Instant slideCompletedTime,
             Instant diagnosisSignedTime, Instant cancelledAt, String cancellationReason, long elapsedMinutes,
-            String tatStatus, String notificationStatus, UUID notificationMessageLogId) { }
+            String tatStatus, boolean tatAlertAcknowledged, String notificationStatus, UUID notificationMessageLogId,
+            List<NotificationAttempt> notificationAttempts, String reportStatus) { }
 
     public record RoundSpecimenView(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,
             String collectionSite, String specimenName) { }

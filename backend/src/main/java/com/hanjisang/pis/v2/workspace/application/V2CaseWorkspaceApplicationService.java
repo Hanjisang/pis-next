@@ -54,8 +54,8 @@ public class V2CaseWorkspaceApplicationService {
     private CaseHeader header(CaseHeaderRow row) {
         return new CaseHeader(row.caseId(), row.pathologyNo(), row.businessTypeCode(), row.businessTypeName(),
                 row.lifecycle(), row.applicationItemCode(), row.sourceSystemCode(), row.applicationNo(),
-                row.patientReference(), row.visitReference(), row.createdAt(), row.frozenSourcePathologyNo(),
-                row.routineTargetPathologyNo());
+                row.patientReference(), row.visitReference(), row.createdAt(), row.frozenSourceCaseId(),
+                row.frozenSourcePathologyNo(), row.routineTargetCaseId(), row.routineTargetPathologyNo());
     }
 
     private MaterialTree materialTree(UUID caseId, CaseHeaderRow header, List<MaterialTreeRow> rows) {
@@ -285,8 +285,8 @@ public class V2CaseWorkspaceApplicationService {
 
     public record CaseHeader(UUID caseId, String pathologyNo, String businessTypeCode, String businessTypeName,
             String lifecycle, String applicationItemCode, String sourceSystemCode, String applicationNo,
-            String patientReference, String visitReference, Instant createdAt, String frozenSourcePathologyNo,
-            String routineTargetPathologyNo) { }
+            String patientReference, String visitReference, Instant createdAt, UUID frozenSourceCaseId,
+            String frozenSourcePathologyNo, UUID routineTargetCaseId, String routineTargetPathologyNo) { }
 
     public record MaterialTree(UUID caseId, String pathologyNo, String businessTypeCode, List<Specimen> specimens) { }
     public record Specimen(UUID specimenId, String specimenNo, String specimenCode, String specimenKindCode,

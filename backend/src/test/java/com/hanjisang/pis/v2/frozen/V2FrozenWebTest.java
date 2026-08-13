@@ -113,6 +113,30 @@ class V2FrozenWebTest {
                 .content("{\"idempotencyKey\":\"frozen-sign-out-1\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(report.get("reportNo").asText()).startsWith("R");
+        String firstReportId = report.get("reportId").asText();
+        assertThat(report.get("status").asText()).isEqualTo("EFFECTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report WHERE id = ? AND status_code = 'EFFECTIVE'",
+                Integer.class, UUID.fromString(firstReportId))).isEqualTo(1);
+        JsonNode failedDelivery = json(mockMvc.perform(get("/api/v2/frozen/rounds/%s/notification".formatted(roundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(failedDelivery.get("reportId").asText()).isEqualTo(firstReportId);
+        assertThat(failedDelivery.get("statusCode").asText()).isEqualTo("RETRY_PENDING");
+        assertThat(failedDelivery.get("attempts")).hasSize(1);
+        assertThat(failedDelivery.at("/attempts/0/resultCode").asText()).isEqualTo("FAILED");
+        int reportCountBeforeRetry = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report WHERE diagnosis_id = ?",
+                Integer.class, UUID.fromString(diagnosisId));
+        JsonNode retry = json(mockMvc.perform(post("/api/v2/frozen/rounds/%s/notification/retry".formatted(roundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(retry.get("statusCode").asText()).isEqualTo("SUCCEEDED");
+        JsonNode delivered = json(mockMvc.perform(get("/api/v2/frozen/rounds/%s/notification".formatted(roundId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(delivered.get("attempts")).hasSize(2);
+        assertThat(delivered.at("/attempts/0/resultCode").asText()).isEqualTo("FAILED");
+        assertThat(delivered.at("/attempts/1/resultCode").asText()).isEqualTo("SUCCEEDED");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report WHERE diagnosis_id = ?",
+                Integer.class, UUID.fromString(diagnosisId))).isEqualTo(reportCountBeforeRetry);
+        mockMvc.perform(post("/api/v2/frozen/rounds/%s/notification/retry".formatted(roundId)))
+                .andExpect(status().isConflict());
 
         JsonNode secondRound = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -144,6 +168,16 @@ class V2FrozenWebTest {
                 .content("{\"idempotencyKey\":\"frozen-end-1\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         UUID routineCaseId = UUID.fromString(ended.get("routineCaseId").asText());
+        JsonNode comparison = json(mockMvc.perform(
+                get("/api/v2/frozen/cases/%s/routine-comparison".formatted(routineCaseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(comparison.get("frozenRounds")).hasSize(2);
+        assertThat(comparison.at("/frozenRounds/0/diagnosisText").asText())
+                .isEqualTo("synthetic frozen diagnosis");
+        assertThat(comparison.at("/frozenRounds/1/diagnosisText").asText())
+                .isEqualTo("synthetic frozen diagnosis");
+        assertThat(comparison.get("routineDiagnosis").asText()).isEqualTo("常规病理尚未完成诊断");
+        assertThat(comparison.toString()).doesNotContain("CONSISTENT").doesNotContain("INCONSISTENT");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.frozen_end WHERE frozen_case_id = ?",
                 Integer.class, UUID.fromString(caseId))).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT frozen_source_case_id FROM pis_v2.pathology_case WHERE id = ?",
@@ -154,6 +188,16 @@ class V2FrozenWebTest {
                 Integer.class, UUID.fromString(caseId))).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.specimen WHERE case_id = ?",
                 Integer.class, routineCaseId)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.frozen_end_specimen m
+                JOIN pis_v2.specimen fs ON fs.id = m.frozen_specimen_id
+                JOIN pis_v2.specimen rs ON rs.id = m.routine_specimen_id
+                WHERE m.frozen_end_id = (SELECT id FROM pis_v2.frozen_end WHERE frozen_case_id = ?)
+                  AND fs.label_code = rs.label_code
+                """, Integer.class, UUID.fromString(caseId))).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(DISTINCT label_code) FROM pis_v2.specimen WHERE case_id = ?
+                """, Integer.class, routineCaseId)).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM pis_v2.frozen_end_specimen m
                 JOIN pis_v2.specimen fs ON fs.id = m.frozen_specimen_id
@@ -414,6 +458,81 @@ class V2FrozenWebTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"too late\",\"idempotencyKey\":\"signed-round-cancel\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void withdrawnFrozenReportCannotBeRetried() throws Exception {
+        String caseId = createFrozenCase();
+        JsonNode created = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenCode":"WITHDRAWN-REPORT","specimenKindCode":"TISSUE","collectionSite":"synthetic",
+                         "collectionMethodCode":"FROZEN","idempotencyKey":"withdrawn-report-specimen"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String roundId = created.get("roundId").asText();
+        String specimenId = created.get("specimenIds").get(0).asText();
+        String reportId = completeFrozenRound(caseId, roundId, specimenId, "WITHDRAWN-REPORT-BLOCK", "withdrawn")
+                .get("reportId").asText();
+
+        mockMvc.perform(post("/api/v2/reports/%s/withdraw".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"synthetic correction\",\"idempotencyKey\":\"withdraw-report\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v2/frozen/rounds/%s/notification/retry".formatted(roundId)))
+                .andExpect(status().isUnprocessableContent());
+    }
+
+    @Test
+    void overdueFrozenRoundAcknowledgementCreatesAnImmutableActionFact() throws Exception {
+        String caseId = createFrozenCase();
+        JsonNode opened = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/rounds".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"tat-round\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String roundId = opened.get("roundId").asText();
+        jdbcTemplate.update("UPDATE pis_v2.frozen_round SET arrival_time = DATEADD('HOUR', -3, CURRENT_TIMESTAMP) WHERE id = ?",
+                UUID.fromString(roundId));
+
+        JsonNode workspace = json(mockMvc.perform(get("/api/v2/frozen/cases/%s/workspace".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(workspace.at("/rounds/0/tatStatus").asText()).isEqualTo("OVERDUE");
+        mockMvc.perform(post("/api/v2/frozen/rounds/%s/tat-alert/acknowledge".formatted(roundId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\":\"synthetic operator acknowledgement\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.frozen_tat_alert_action
+                 WHERE frozen_round_id = ? AND tat_status_code = 'OVERDUE' AND action_code = 'ACKNOWLEDGED'
+                """, Integer.class, UUID.fromString(roundId))).isEqualTo(1);
+    }
+
+    @Test
+    void comparisonUsesEffectiveReportSnapshotAfterEditableDiagnosisChanges() throws Exception {
+        String caseId = createFrozenCase();
+        JsonNode created = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/specimens".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"specimenCode":"SNAPSHOT-ROUND","specimenKindCode":"TISSUE","collectionSite":"synthetic",
+                         "collectionMethodCode":"FROZEN","idempotencyKey":"snapshot-specimen"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String roundId = created.get("roundId").asText();
+        String specimenId = created.get("specimenIds").get(0).asText();
+        completeFrozenRound(caseId, roundId, specimenId, "SNAPSHOT-BLOCK", "snapshot");
+        jdbcTemplate.update("UPDATE pis_v2.diagnosis SET diagnosis_text = 'synthetic editable diagnosis after sign-out' WHERE context_id = ?",
+                UUID.fromString(roundId));
+
+        JsonNode ended = json(mockMvc.perform(post("/api/v2/frozen/cases/%s/finish".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"snapshot-end\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        JsonNode comparison = json(mockMvc.perform(get("/api/v2/frozen/cases/%s/routine-comparison".formatted(ended.get("routineCaseId").asText())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(comparison.at("/frozenRounds/0/diagnosisText").asText())
+                .isEqualTo("synthetic frozen diagnosis");
     }
 
     private JsonNode complete(String diagnosisId, String path, String nextRole, String key) throws Exception {
