@@ -4,6 +4,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -65,8 +66,10 @@ public class JdbcV2TechnicalOrderRepository {
             boolean enabledOnly) {
         String enabledClause = enabledOnly ? " AND enabled = TRUE" : "";
         return jdbcTemplate.query("""
-                SELECT id, organization_reference, business_type_id, project_code, project_name, enabled,
+                SELECT id, organization_reference, business_type_id, project_code, project_name,
+                       capability_code, output_type_code, enabled,
                        allowed_target_types, produces_slide, produces_block, produces_structured_result,
+                       requires_result, device_type_code, consumable_required,
                        default_slide_type, CAST(parameters_schema AS VARCHAR) AS parameters_schema,
                        CAST(result_schema AS VARCHAR) AS result_schema, CAST(fee_mapping AS VARCHAR) AS fee_mapping,
                        CAST(display_configuration AS VARCHAR) AS display_configuration,
@@ -80,8 +83,10 @@ public class JdbcV2TechnicalOrderRepository {
     public List<TechnicalProject> findAllProjects(String organizationReference, boolean enabledOnly) {
         String enabledClause = enabledOnly ? " AND enabled = TRUE" : "";
         return jdbcTemplate.query("""
-                SELECT id, organization_reference, business_type_id, project_code, project_name, enabled,
+                SELECT id, organization_reference, business_type_id, project_code, project_name,
+                       capability_code, output_type_code, enabled,
                        allowed_target_types, produces_slide, produces_block, produces_structured_result,
+                       requires_result, device_type_code, consumable_required,
                        default_slide_type, CAST(parameters_schema AS VARCHAR) AS parameters_schema,
                        CAST(result_schema AS VARCHAR) AS result_schema, CAST(fee_mapping AS VARCHAR) AS fee_mapping,
                        CAST(display_configuration AS VARCHAR) AS display_configuration,
@@ -93,8 +98,10 @@ public class JdbcV2TechnicalOrderRepository {
 
     public Optional<TechnicalProject> findProject(UUID projectId, String organizationReference) {
         return jdbcTemplate.query("""
-                SELECT id, organization_reference, business_type_id, project_code, project_name, enabled,
+                SELECT id, organization_reference, business_type_id, project_code, project_name,
+                       capability_code, output_type_code, enabled,
                        allowed_target_types, produces_slide, produces_block, produces_structured_result,
+                       requires_result, device_type_code, consumable_required,
                        default_slide_type, CAST(parameters_schema AS VARCHAR) AS parameters_schema,
                        CAST(result_schema AS VARCHAR) AS result_schema, CAST(fee_mapping AS VARCHAR) AS fee_mapping,
                        CAST(display_configuration AS VARCHAR) AS display_configuration,
@@ -106,15 +113,19 @@ public class JdbcV2TechnicalOrderRepository {
     public void insertProject(TechnicalProject project, Instant now, String actorRef) {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.technical_project
-                    (id, organization_reference, business_type_id, project_code, project_name, enabled,
+                    (id, organization_reference, business_type_id, project_code, project_name,
+                     capability_code, output_type_code, enabled,
                      allowed_target_types, produces_slide, produces_block, produces_structured_result,
+                     requires_result, device_type_code, consumable_required,
                      default_slide_type, parameters_schema, result_schema, fee_mapping, display_configuration,
                      required_before_sign_out_default, configuration_version, created_at, created_by_ref,
                      updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, project.id(), project.organizationReference(), project.businessTypeId(), project.code(),
-                project.name(), project.enabled(), project.allowedTargetTypesCode(), project.producesSlide(),
-                project.producesBlock(), project.producesStructuredResult(), project.defaultSlideType(),
+                project.name(), project.capabilityCode(), project.outputTypeCode(), project.enabled(),
+                project.allowedTargetTypesCode(), project.producesSlide(), project.producesBlock(),
+                project.producesStructuredResult(), project.requiresResult(), project.deviceTypeCode(),
+                project.consumableRequired(), project.defaultSlideType(),
                 json(project.parametersSchema()), json(project.resultSchema()), json(project.feeMapping()),
                 json(project.displayConfiguration()), project.requiredBeforeSignOutDefault(),
                 project.configurationVersion(), Timestamp.from(now), actorRef, Timestamp.from(now), actorRef);
@@ -224,6 +235,109 @@ public class JdbcV2TechnicalOrderRepository {
                 ON CONFLICT DO NOTHING
                 """.formatted(outputColumn), outputId, itemId, targetId, kind.name(), producedId, occurrenceNo,
                 Timestamp.from(now), actorRef) == 1;
+    }
+
+    public void insertDeviceAttempt(UUID id, UUID itemId, String deviceTypeCode, String adapterCode,
+            String requestReference, String statusCode, int retryCount, String errorCode, String errorMessage,
+            Instant requestedAt, Instant completedAt, String organizationReference) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.technical_order_device_attempt
+                    (id, item_id, device_type_code, adapter_code, request_reference, status_code, retry_count,
+                     error_code, error_message, requested_at, completed_at, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
+                """, id, itemId, deviceTypeCode, adapterCode, requestReference, statusCode, retryCount,
+                errorCode, errorMessage, Timestamp.from(requestedAt), timestamp(completedAt), organizationReference);
+    }
+
+    public void insertQualityEvaluation(UUID id, UUID itemId, UUID technicalOutputId, UUID outputId, String resultCode,
+            BigDecimal score,
+            String note, Instant evaluatedAt, String evaluatedByRef, String organizationReference) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.technical_order_quality_evaluation
+                    (id, item_id, technical_output_id, output_id, result_code, score, note, evaluated_at, evaluated_by_ref,
+                     organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, itemId, technicalOutputId, outputId, resultCode, score, note, Timestamp.from(evaluatedAt),
+                evaluatedByRef, organizationReference);
+    }
+
+    public void upsertFeeStatus(UUID itemId, String statusCode, String externalReference, String failureReason,
+            Instant updatedAt, String updatedByRef, String organizationReference) {
+        int updated = jdbcTemplate.update("""
+                UPDATE pis_v2.technical_order_fee_status
+                   SET status_code = ?, external_reference = ?, failure_reason = ?, updated_at = ?, updated_by_ref = ?
+                 WHERE item_id = ? AND organization_reference = ?
+                """, statusCode, externalReference, failureReason, Timestamp.from(updatedAt), updatedByRef, itemId,
+                organizationReference);
+        if (updated == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO pis_v2.technical_order_fee_status
+                        (id, item_id, status_code, external_reference, failure_reason, updated_at, updated_by_ref,
+                         organization_reference)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, UUID.randomUUID(), itemId, statusCode, externalReference, failureReason,
+                    Timestamp.from(updatedAt), updatedByRef, organizationReference);
+        }
+    }
+
+    public Optional<LabelPrintSnapshot> findLabelPrint(UUID printId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, item_id, output_id, print_version, result_code, failure_reason
+                FROM pis_v2.technical_order_label_print
+                WHERE id = ? AND organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new LabelPrintSnapshot(rs.getObject("id", UUID.class),
+                rs.getObject("item_id", UUID.class), rs.getObject("output_id", UUID.class),
+                rs.getInt("print_version"), rs.getString("result_code"), rs.getString("failure_reason")))
+                : Optional.empty(), printId, organizationReference);
+    }
+
+    public boolean consumableBatchInScope(UUID batchId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.consumable_batch
+                WHERE id = ? AND organization_reference = ?
+                """, Integer.class, batchId, organizationReference);
+        return count != null && count == 1;
+    }
+
+    public void insertConsumption(UUID id, UUID itemId, UUID batchId, BigDecimal quantity, String unitCode,
+            String reason, Instant occurredAt, String actorRef, String organizationReference) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.consumable_transaction
+                    (id, batch_id, direction_code, quantity, reason, source_reference, operator_reference,
+                     occurred_at, organization_reference)
+                VALUES (?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), batchId, quantity, reason, "TECHNICAL_ITEM:" + itemId, actorRef,
+                Timestamp.from(occurredAt), organizationReference);
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.technical_order_consumption
+                    (id, item_id, consumable_batch_id, quantity, unit_code, reason, occurred_at, occurred_by_ref,
+                     organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, itemId, batchId, quantity, unitCode, reason, Timestamp.from(occurredAt), actorRef,
+                organizationReference);
+    }
+
+    public int nextLabelPrintVersion(UUID itemId, UUID outputId, String organizationReference) {
+        Integer version = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(MAX(print_version), 0) + 1
+                FROM pis_v2.technical_order_label_print
+                WHERE item_id = ? AND output_id = ? AND organization_reference = ?
+                """, Integer.class, itemId, outputId, organizationReference);
+        return version == null ? 1 : version;
+    }
+
+    public void insertLabelPrint(UUID id, UUID itemId, UUID technicalOutputId, UUID outputId, String outputKind,
+            int printVersion,
+            String labelCode, String resultCode, String failureReason, Instant printedAt, String printedByRef,
+            String organizationReference) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.technical_order_label_print
+                    (id, item_id, technical_output_id, output_id, output_kind, print_version, label_code, result_code, failure_reason,
+                     printed_at, printed_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, itemId, technicalOutputId, outputId, outputKind, printVersion, labelCode, resultCode,
+                failureReason, Timestamp.from(printedAt), printedByRef, organizationReference);
     }
 
     public Optional<TechnicalOrderItemResult> findResult(UUID itemId, String organizationReference) {
@@ -339,7 +453,9 @@ public class JdbcV2TechnicalOrderRepository {
                 SELECT i.id, i.order_id, i.technical_project_id, i.project_code_snapshot, i.project_name_snapshot,
                        i.project_configuration_version, i.quantity, CAST(i.parameters AS VARCHAR) AS parameters,
                        i.note, i.concurrency_version, p.enabled, p.business_type_id,
+                       p.capability_code, p.output_type_code,
                        p.allowed_target_types, p.produces_slide, p.produces_block, p.produces_structured_result,
+                       p.requires_result, p.device_type_code, p.consumable_required,
                        p.default_slide_type, CAST(p.parameters_schema AS VARCHAR) AS parameters_schema,
                        CAST(p.result_schema AS VARCHAR) AS result_schema, CAST(p.fee_mapping AS VARCHAR) AS fee_mapping,
                        CAST(p.display_configuration AS VARCHAR) AS display_configuration,
@@ -359,8 +475,11 @@ public class JdbcV2TechnicalOrderRepository {
         TechnicalProject project = TechnicalProject.create(rs.getObject("technical_project_id", UUID.class),
                 organizationReference, rs.getObject("business_type_id", UUID.class),
                 rs.getString("project_code_snapshot"), rs.getString("project_name_snapshot"),
-                rs.getBoolean("enabled"), rs.getString("allowed_target_types"), rs.getBoolean("produces_slide"),
+                rs.getString("capability_code"), rs.getString("output_type_code"), rs.getBoolean("enabled"),
+                rs.getString("allowed_target_types"), rs.getBoolean("produces_slide"),
                 rs.getBoolean("produces_block"), rs.getBoolean("produces_structured_result"),
+                rs.getBoolean("requires_result"), rs.getString("device_type_code"),
+                rs.getBoolean("consumable_required"),
                 rs.getString("default_slide_type"), rs.getString("parameters_schema"), rs.getString("result_schema"),
                 rs.getString("fee_mapping"), rs.getString("display_configuration"),
                 rs.getBoolean("required_before_sign_out_default"), rs.getInt("project_configuration_version"));
@@ -413,7 +532,7 @@ public class JdbcV2TechnicalOrderRepository {
                         .allMatch(output -> outputCompleted(output.outputId()));
         boolean blockComplete = !project.producesBlock() || outputs.stream()
                 .filter(output -> output.kind() == TechnicalOutputType.BLOCK).count() >= expected;
-        boolean resultComplete = !project.producesStructuredResult() || result != null;
+        boolean resultComplete = !project.requiresResult() || result != null;
         return slideComplete && blockComplete && resultComplete;
     }
 
@@ -427,7 +546,7 @@ public class JdbcV2TechnicalOrderRepository {
         if (project.producesBlock()) {
             count += (int) outputs.stream().filter(output -> output.kind() == TechnicalOutputType.BLOCK).count();
         }
-        if (project.producesStructuredResult() && result != null) count++;
+        if (project.requiresResult() && result != null) count++;
         return count;
     }
 
@@ -453,9 +572,11 @@ public class JdbcV2TechnicalOrderRepository {
     private TechnicalProject toProject(ResultSet rs) throws SQLException {
         return TechnicalProject.create(rs.getObject("id", UUID.class), rs.getString("organization_reference"),
                 rs.getObject("business_type_id", UUID.class), rs.getString("project_code"),
-                rs.getString("project_name"), rs.getBoolean("enabled"), rs.getString("allowed_target_types"),
-                rs.getBoolean("produces_slide"), rs.getBoolean("produces_block"),
-                rs.getBoolean("produces_structured_result"), rs.getString("default_slide_type"),
+                rs.getString("project_name"), rs.getString("capability_code"), rs.getString("output_type_code"),
+                rs.getBoolean("enabled"), rs.getString("allowed_target_types"), rs.getBoolean("produces_slide"),
+                rs.getBoolean("produces_block"), rs.getBoolean("produces_structured_result"),
+                rs.getBoolean("requires_result"), rs.getString("device_type_code"),
+                rs.getBoolean("consumable_required"), rs.getString("default_slide_type"),
                 rs.getString("parameters_schema"), rs.getString("result_schema"), rs.getString("fee_mapping"),
                 rs.getString("display_configuration"), rs.getBoolean("required_before_sign_out_default"),
                 rs.getInt("configuration_version"));
@@ -494,5 +615,7 @@ public class JdbcV2TechnicalOrderRepository {
             TechnicalOrderItemResult result, int expectedCount, int completedCount, TechnicalItemStatus status) { }
     public record TargetSnapshot(TechnicalOrderTarget target) { }
     public record OutputSnapshot(UUID id, UUID targetId, TechnicalOutputType kind, UUID outputId, int occurrenceNo) { }
+    public record LabelPrintSnapshot(UUID id, UUID itemId, UUID outputId, int printVersion, String resultCode,
+            String failureReason) { }
     public enum TechnicalItemStatus { PENDING, EXECUTING, COMPLETED }
 }

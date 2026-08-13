@@ -129,11 +129,16 @@ export type V2TechnicalProject = {
   businessTypeId: string;
   projectCode: string;
   projectName: string;
+  capabilityCode: string;
+  outputTypeCode: string;
   enabled: boolean;
   allowedTargetTypes: string[];
   producesSlide: boolean;
   producesBlock: boolean;
   producesStructuredResult: boolean;
+  requiresResult: boolean;
+  deviceTypeCode?: string;
+  consumableRequired: boolean;
   defaultSlideType?: string;
   parametersSchema?: string;
   resultSchema?: string;
@@ -163,6 +168,11 @@ export type V2TechnicalItem = {
   projectId: string;
   projectCode: string;
   projectName: string;
+  capabilityCode: string;
+  outputTypeCode: string;
+  requiresResult: boolean;
+  deviceTypeCode?: string;
+  consumableRequired: boolean;
   quantity: number;
   status: 'PENDING' | 'EXECUTING' | 'COMPLETED';
   expectedCount: number;
@@ -329,11 +339,16 @@ export function createV2TechnicalProject(input: {
   businessTypeId: string;
   projectCode: string;
   projectName: string;
+  capabilityCode: string;
+  outputTypeCode: string;
   enabled: boolean;
   allowedTargetTypes: string;
   producesSlide: boolean;
   producesBlock: boolean;
   producesStructuredResult: boolean;
+  requiresResult: boolean;
+  deviceTypeCode?: string;
+  consumableRequired: boolean;
   defaultSlideType?: string;
   parametersSchema?: string;
   resultSchema?: string;
@@ -406,6 +421,60 @@ export function acknowledgeV2TechnicalResult(itemId: string) {
     acknowledgedBy: string;
     acknowledgedAt: string;
   }>(`/technical-order-items/${itemId}/acknowledge`, { method: 'POST' });
+}
+
+export function evaluateV2TechnicalQuality(input: {
+  itemId: string;
+  outputId?: string;
+  resultCode: 'PASS' | 'WARNING' | 'FAIL';
+  score?: number;
+  note?: string;
+}) {
+  const { itemId, ...body } = input;
+  return diagnosisRequest(`/technical-order-items/${itemId}/quality`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateV2TechnicalFeeStatus(input: {
+  itemId: string;
+  statusCode: 'NOT_SENT' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  externalReference?: string;
+  failureReason?: string;
+}) {
+  const { itemId, ...body } = input;
+  return diagnosisRequest(`/technical-order-items/${itemId}/fee-status`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function recordV2TechnicalConsumption(input: {
+  itemId: string;
+  consumableBatchId: string;
+  quantity: number;
+  unitCode: string;
+  reason: string;
+}) {
+  const { itemId, ...body } = input;
+  return diagnosisRequest(`/technical-order-items/${itemId}/consumption`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function printV2TechnicalLabel(input: {
+  itemId: string;
+  outputId: string;
+  reason?: string;
+  idempotencyKey: string;
+}) {
+  const { itemId, ...body } = input;
+  return diagnosisRequest(`/technical-order-items/${itemId}/label`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export function claimV2Diagnosis(caseId: string, idempotencyKey: string) {

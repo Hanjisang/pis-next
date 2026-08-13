@@ -8,12 +8,14 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 355 |
-| PARTIAL | 136 |
-| MISSING | 218 |
+| COMPLETE | 314 |
+| PARTIAL | 132 |
+| MISSING | 217 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
-| **TOTAL** | **788** |
+| **TOTAL** | **742** |
+
+2026-08-14 校准：以上统计按本文件当前 `###` 原子记录的 `Status` 字段重新计算；FC03C/FC03C1 的实施说明小节不计入原子总数。
 
 FC02A 仅更新 Application、Registration、Case cancellation 与 APP-SEND 连续链：33 条由 PARTIAL 转为 COMPLETE，TOTAL 不变。产品内 Patient/Print Port 与 Simulator 已形成可替换、可测试闭环；真实医院 HIS 与真实打印硬件仍由独立 EXTERNAL_DEPENDENCY 原子项承担，本文不宣称生产联调完成。
 
@@ -3294,13 +3296,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 I01 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I01 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I01 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I01 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I01 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 IHC-001 独立立项、实现和验收。
+- Backend Evidence: `V2TechnicalOrderApplicationService`、`V2TechnicalOrderController` 与 `JdbcV2TechnicalOrderRepository` 提供 IHC 项目配置、目标校验、技术产出和执行状态。
+- DB Evidence: `V44__technical_order_capabilities_and_support_facts.sql` 保存 capability/output/device/consumable 配置；技术产出仍通过既有 Block/Slide 外键链保存。
+- Frontend Evidence: `V2TechnicalWorkbench.vue` 与 `v2DiagnosisApi.ts` 提供 IHC 技术医嘱执行、玻片完成、质控和标签操作入口。
+- Test Evidence: `V2TechnicalOrderWebTest` 覆盖 IHC 项目配置、跨病例目标拒绝、正式技术玻片和支持事实；前端工作台单测通过。
+- Status: COMPLETE
+- Gap: 产品内 IHC 技术项目闭环已验证；真实染色设备联调仍由 IHC-007 的外部依赖状态承担。
+- V2 Decision: IHC 项目通过 capability/output 配置驱动，不新增通用 Task/Workflow 实体；设备调用只写不可变尝试事实。
 
 ### IHC-002 — Special Stain 项目
 
@@ -3492,13 +3494,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 I10 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I10 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I10 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I10 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I10 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 IHC-010 独立立项、实现和验收。
+- Backend Evidence: `POST /api/v2/technical-order-items/{itemId}/quality` 经 `V2TechnicalOrderApplicationService.evaluateQuality` 写入独立质量评价事实并审计。
+- DB Evidence: `technical_order_quality_evaluation` 保存 item/output、结果、评分、说明和评价人，不覆盖原始技术产出。
+- Frontend Evidence: `V2TechnicalWorkbench.vue` 在每个蜡块/玻片产物旁提供“质控通过”入口。
+- Test Evidence: `V2TechnicalOrderWebTest.technicalSupportFactsKeepDeviceQualityFeeConsumptionAndLabelHistorySeparate` 覆盖 PASS 评价和落库。
+- Status: COMPLETE
+- Gap: 产品内质量评价闭环已验证；完整质控表字段和统计口径属于 IHC-011/IHC-013，未在本原子项中冒充完成。
+- V2 Decision: 质量评价是独立追加事实，不能修改或删除原始技术产出。
 
 ### IHC-011 — 质控表
 
@@ -3646,13 +3648,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 I17 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I17 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I17 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I17 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md I17 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 IHC-017 独立立项、实现和验收。
+- Backend Evidence: `POST /api/v2/technical-order-items/{itemId}/fee-status` 经 `V2TechnicalOrderApplicationService.updateFeeStatus` 记录费用侧通道状态。
+- DB Evidence: `technical_order_fee_status` 对每个技术项目保存当前状态、外部引用和失败原因；费用状态不参与核心产出完成判定。
+- Frontend Evidence: `V2TechnicalWorkbench.vue` 提供“记录费用已登记”入口，并明确费用失败不阻断技术产出。
+- Test Evidence: `V2TechnicalOrderWebTest.technicalSupportFactsKeepDeviceQualityFeeConsumptionAndLabelHistorySeparate` 覆盖 FAILED 状态落库且技术医嘱仍可继续。
+- Status: COMPLETE
+- Gap: 产品内费用状态侧通道已闭环；真实计费系统对账与外部回执仍属于接口外部依赖。
+- V2 Decision: 费用是 side-channel，不得反向阻塞核心病理产物或替代技术医嘱状态。
 
 ### CYTO-001 — 独立 BusinessType
 

@@ -18,6 +18,10 @@ import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationSer
 import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.CreateTechnicalOrderCommand;
 import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.EnterResultCommand;
 import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.TargetCommand;
+import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.TechnicalConsumptionCommand;
+import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.TechnicalFeeStatusCommand;
+import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.TechnicalLabelPrintCommand;
+import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService.TechnicalQualityCommand;
 import com.hanjisang.pis.v2.technical.domain.TechnicalTargetType;
 
 @RestController
@@ -39,9 +43,11 @@ public class V2TechnicalOrderController {
     @PostMapping("/technical-projects")
     public V2TechnicalOrderApplicationService.ProjectResult createProject(@RequestBody CreateProjectRequest request) {
         return service.createProject(new CreateProjectCommand(request.businessTypeId(), request.projectCode(),
-                request.projectName(), request.enabled(), request.allowedTargetTypes(), request.producesSlide(),
-                request.producesBlock(), request.producesStructuredResult(), request.defaultSlideType(),
-                request.parametersSchema(), request.resultSchema(), request.feeMapping(), request.displayConfiguration(),
+                request.projectName(), request.capabilityCode(), request.outputTypeCode(), request.enabled(),
+                request.allowedTargetTypes(), request.producesSlide(), request.producesBlock(),
+                request.producesStructuredResult(), request.requiresResult(), request.deviceTypeCode(),
+                request.consumableRequired(), request.defaultSlideType(), request.parametersSchema(),
+                request.resultSchema(), request.feeMapping(), request.displayConfiguration(),
                 request.requiredBeforeSignOutDefault(), request.configurationVersion()));
     }
 
@@ -92,15 +98,45 @@ public class V2TechnicalOrderController {
         return service.acknowledgeResult(itemId);
     }
 
+    @PostMapping("/technical-order-items/{itemId}/quality")
+    public V2TechnicalOrderApplicationService.TechnicalQualityResult quality(@PathVariable UUID itemId,
+            @RequestBody QualityRequest request) {
+        return service.evaluateQuality(itemId, new TechnicalQualityCommand(request.outputId(), request.resultCode(),
+                request.score(), request.note()));
+    }
+
+    @PostMapping("/technical-order-items/{itemId}/fee-status")
+    public V2TechnicalOrderApplicationService.TechnicalFeeStatusResult feeStatus(@PathVariable UUID itemId,
+            @RequestBody FeeStatusRequest request) {
+        return service.updateFeeStatus(itemId, new TechnicalFeeStatusCommand(request.statusCode(),
+                request.externalReference(), request.failureReason()));
+    }
+
+    @PostMapping("/technical-order-items/{itemId}/consumption")
+    public V2TechnicalOrderApplicationService.TechnicalConsumptionResult consumption(@PathVariable UUID itemId,
+            @RequestBody ConsumptionRequest request) {
+        return service.recordConsumption(itemId, new TechnicalConsumptionCommand(request.consumableBatchId(),
+                request.quantity(), request.unitCode(), request.reason()));
+    }
+
+    @PostMapping("/technical-order-items/{itemId}/label")
+    public V2TechnicalOrderApplicationService.TechnicalLabelPrintResult label(@PathVariable UUID itemId,
+            @RequestBody LabelRequest request) {
+        return service.printLabel(itemId, new TechnicalLabelPrintCommand(request.outputId(), request.reason(),
+                request.idempotencyKey()));
+    }
+
     @GetMapping("/technical-workbench")
     public V2TechnicalOrderApplicationService.WorkbenchResult workbench() {
         return service.workbench();
     }
 
-    public record CreateProjectRequest(UUID businessTypeId, String projectCode, String projectName, boolean enabled,
-            String allowedTargetTypes, boolean producesSlide, boolean producesBlock, boolean producesStructuredResult,
-            String defaultSlideType, String parametersSchema, String resultSchema, String feeMapping,
-            String displayConfiguration, boolean requiredBeforeSignOutDefault, int configurationVersion) { }
+    public record CreateProjectRequest(UUID businessTypeId, String projectCode, String projectName,
+            String capabilityCode, String outputTypeCode, boolean enabled, String allowedTargetTypes,
+            boolean producesSlide, boolean producesBlock, boolean producesStructuredResult, boolean requiresResult,
+            String deviceTypeCode, boolean consumableRequired, String defaultSlideType, String parametersSchema,
+            String resultSchema, String feeMapping, String displayConfiguration,
+            boolean requiredBeforeSignOutDefault, int configurationVersion) { }
 
     public record CreateOrderRequest(UUID diagnosisId, Boolean requiredBeforeSignOut, List<ItemRequest> items,
             String idempotencyKey) { }
@@ -110,4 +146,9 @@ public class V2TechnicalOrderController {
     public record IdempotencyRequest(String idempotencyKey) { }
     public record CancelRequest(long expectedVersion, String reason, String idempotencyKey) { }
     public record ResultRequest(String resultData, long expectedVersion, String idempotencyKey) { }
+    public record QualityRequest(UUID outputId, String resultCode, java.math.BigDecimal score, String note) { }
+    public record FeeStatusRequest(String statusCode, String externalReference, String failureReason) { }
+    public record ConsumptionRequest(UUID consumableBatchId, java.math.BigDecimal quantity, String unitCode,
+            String reason) { }
+    public record LabelRequest(UUID outputId, String reason, String idempotencyKey) { }
 }

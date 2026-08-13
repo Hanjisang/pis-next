@@ -287,9 +287,13 @@ CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_command_idempotency (
 );
 CREATE TABLE IF NOT EXISTS pis_v2.technical_project (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
-    project_code VARCHAR(128) NOT NULL, project_name VARCHAR(256) NOT NULL, enabled BOOLEAN NOT NULL,
+    project_code VARCHAR(128) NOT NULL, project_name VARCHAR(256) NOT NULL,
+    capability_code VARCHAR(64) NOT NULL DEFAULT 'OTHER_TECHNICAL',
+    output_type_code VARCHAR(32) NOT NULL DEFAULT 'SLIDE', enabled BOOLEAN NOT NULL,
     allowed_target_types VARCHAR(512) NOT NULL, produces_slide BOOLEAN NOT NULL, produces_block BOOLEAN NOT NULL,
-    produces_structured_result BOOLEAN NOT NULL, default_slide_type VARCHAR(64), parameters_schema VARCHAR(20000),
+    produces_structured_result BOOLEAN NOT NULL, requires_result BOOLEAN NOT NULL DEFAULT FALSE,
+    device_type_code VARCHAR(64), consumable_required BOOLEAN NOT NULL DEFAULT FALSE,
+    default_slide_type VARCHAR(64), parameters_schema VARCHAR(20000),
     result_schema VARCHAR(20000), fee_mapping VARCHAR(20000), display_configuration VARCHAR(20000),
     required_before_sign_out_default BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
@@ -456,23 +460,23 @@ VALUES ('00000000-0000-0000-0000-00000000b021', '00000000-0000-0000-0000-0000000
         '{"components":[{"type":"TEXTAREA","code":"diagnosisText"}],"version":1}', 'PUBLISHED',
         CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
 INSERT INTO pis_v2.technical_project
-    (id, organization_reference, business_type_id, project_code, project_name, enabled,
+    (id, organization_reference, business_type_id, project_code, project_name, capability_code, output_type_code, enabled,
      allowed_target_types, produces_slide, produces_block, produces_structured_result, default_slide_type,
-     parameters_schema, result_schema, fee_mapping, display_configuration, required_before_sign_out_default,
+     requires_result, device_type_code, consumable_required, parameters_schema, result_schema, fee_mapping, display_configuration, required_before_sign_out_default,
      configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)
 VALUES
     ('00000000-0000-0000-0000-00000000b401', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
-     'IHC-KI67', 'Ki67免疫组化', TRUE, 'BLOCK,SLIDE', TRUE, FALSE, FALSE, 'IHC',
+     'IHC-KI67', 'Ki67免疫组化', 'IHC', 'SLIDE', TRUE, 'BLOCK,SLIDE', TRUE, FALSE, FALSE, 'IHC', FALSE, 'IHC_STAINER', TRUE,
      '{"fields":[{"code":"antibody","required":true,"type":"TEXT"}]}', NULL,
      '{"externalFeeCode":"SYNTH-IHC-KI67"}', '{"color":"amber"}', TRUE, 1,
      CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST'),
     ('00000000-0000-0000-0000-00000000b402', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
-     'SUPPLEMENTARY-GROSSING', '补充取材', TRUE, 'CASE,SPECIMEN', TRUE, TRUE, FALSE, 'HE',
+     'SUPPLEMENTARY-GROSSING', '补充取材', 'SUPPLEMENTARY_GROSSING', 'MIXED', TRUE, 'CASE,SPECIMEN', TRUE, TRUE, FALSE, 'HE', FALSE, NULL, FALSE,
      '{"fields":[{"code":"specimenId","required":true,"type":"REFERENCE"},{"code":"blockCode","required":true,"type":"TEXT"}]}', NULL,
      '{"externalFeeCode":"SYNTH-SUPPLEMENTARY-GROSSING"}', '{"color":"green"}', TRUE, 1,
      CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST'),
     ('00000000-0000-0000-0000-00000000b403', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
-     'MOLECULAR-STRUCTURED', '结构化检测结果', TRUE, 'CASE,SPECIMEN,BLOCK,SLIDE', FALSE, FALSE, TRUE, NULL,
+     'MOLECULAR-STRUCTURED', '结构化检测结果', 'MOLECULAR', 'RESULT', TRUE, 'CASE,SPECIMEN,BLOCK,SLIDE', FALSE, FALSE, TRUE, NULL, TRUE, NULL, FALSE,
      '{"fields":[{"code":"panel","required":true,"type":"TEXT"}]}',
      '{"fields":[{"code":"mutationDetected","type":"BOOLEAN"},{"code":"interpretation","type":"TEXTAREA"}]}',
      '{"externalFeeCode":"SYNTH-MOLECULAR"}', '{"color":"blue"}', TRUE, 1,
@@ -928,6 +932,38 @@ CREATE TABLE IF NOT EXISTS pis_v2.consumable_quality_evaluation (
     id UUID PRIMARY KEY, batch_id UUID NOT NULL, result_code VARCHAR(32) NOT NULL, note VARCHAR(2000),
     evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL, evaluated_by_ref VARCHAR(128) NOT NULL,
     organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_device_attempt (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, device_type_code VARCHAR(64) NOT NULL,
+    adapter_code VARCHAR(128) NOT NULL, request_reference VARCHAR(256) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, retry_count INTEGER NOT NULL, error_code VARCHAR(128),
+    error_message VARCHAR(2000), requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE, organization_reference VARCHAR(128) NOT NULL,
+    UNIQUE (item_id, request_reference)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_quality_evaluation (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, technical_output_id UUID, output_id UUID, result_code VARCHAR(32) NOT NULL,
+    score NUMERIC(18,6), note VARCHAR(2000), evaluated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    evaluated_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_fee_status (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL UNIQUE, status_code VARCHAR(32) NOT NULL,
+    external_reference VARCHAR(256), failure_reason VARCHAR(2000), updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_consumption (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, consumable_batch_id UUID NOT NULL,
+    quantity NUMERIC(18,3) NOT NULL, unit_code VARCHAR(64) NOT NULL, reason VARCHAR(2000) NOT NULL,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL, occurred_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.technical_order_label_print (
+    id UUID PRIMARY KEY, item_id UUID NOT NULL, technical_output_id UUID NOT NULL, output_id UUID NOT NULL,
+    output_kind VARCHAR(32) NOT NULL,
+    print_version INTEGER NOT NULL, label_code VARCHAR(256) NOT NULL, result_code VARCHAR(32) NOT NULL,
+    failure_reason VARCHAR(2000), printed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    printed_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    UNIQUE (item_id, output_id, print_version)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.procurement_request (
     id UUID PRIMARY KEY, request_no VARCHAR(128) NOT NULL, requester_reference VARCHAR(256) NOT NULL,

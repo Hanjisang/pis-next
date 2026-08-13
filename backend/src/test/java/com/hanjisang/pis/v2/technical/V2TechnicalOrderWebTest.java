@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -100,6 +102,89 @@ class V2TechnicalOrderWebTest {
         assertThat(completed.get("status").asText()).isEqualTo("COMPLETED");
         assertThat(completed.get("blocking").asBoolean()).isFalse();
         assertThat(completed.get("items").get(0).get("status").asText()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void technicalSupportFactsKeepDeviceQualityFeeConsumptionAndLabelHistorySeparate() throws Exception {
+        CaseSetup setup = createReadyCase("I04-SUPPORT-FACTS");
+        String diagnosisId = claim(setup.caseId(), "claim-i04-support-facts").get("diagnosisId").asText();
+        JsonNode executing = execute(createOrder("order-i04-support-facts", diagnosisId, true,
+                item(projectId("IHC-KI67"), "BLOCK", setup.blockId())).get("orderId").asText(),
+                "execute-i04-support-facts");
+        JsonNode technicalItem = executing.get("items").get(0);
+        UUID itemId = UUID.fromString(technicalItem.get("itemId").asText());
+        UUID outputId = UUID.fromString(technicalItem.get("outputs").get(0).get("outputId").asText());
+        UUID technicalOutputId = jdbcTemplate.queryForObject(
+                "SELECT id FROM pis_v2.technical_order_output WHERE item_id = ? AND slide_output_id = ?",
+                UUID.class, itemId, outputId);
+
+        assertThat(technicalItem.get("capabilityCode").asText()).isEqualTo("IHC");
+        assertThat(technicalItem.get("deviceTypeCode").asText()).isEqualTo("IHC_STAINER");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.technical_order_device_attempt WHERE item_id = ? AND status_code = 'SUCCEEDED'",
+                Integer.class, itemId)).isEqualTo(1);
+
+        JsonNode quality = json(mockMvc.perform(post("/api/v2/technical-order-items/%s/quality".formatted(itemId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"outputId\":\"%s\",\"resultCode\":\"PASS\",\"note\":\"synthetic quality check\"}"
+                        .formatted(outputId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(quality.get("resultCode").asText()).isEqualTo("PASS");
+
+        JsonNode fee = json(mockMvc.perform(post("/api/v2/technical-order-items/%s/fee-status".formatted(itemId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusCode\":\"FAILED\",\"failureReason\":\"synthetic fee adapter failure\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(fee.get("statusCode").asText()).isEqualTo("FAILED");
+
+        UUID catalogId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.consumable_catalog
+                    (id, material_code, name, category_code, specification, unit_code, manufacturer, supplier,
+                     hazardous, active, organization_reference, created_at, created_by_ref)
+                VALUES (?, 'SYNTH-IHC-REAGENT', '合成IHC试剂', 'REAGENT', '1mL', 'ML', 'SYNTH', 'SYNTH',
+                        FALSE, TRUE, 'LOCAL_HOSPITAL', ?, 'TEST')
+                """, catalogId, now);
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.consumable_batch
+                    (id, catalog_id, batch_no, expiry_date, storage_location, organization_reference, created_at)
+                VALUES (?, ?, 'SYNTH-BATCH-IHC', NULL, 'SYNTH-CABINET', 'LOCAL_HOSPITAL', ?)
+                """, batchId, catalogId, now);
+        JsonNode consumption = json(mockMvc.perform(post("/api/v2/technical-order-items/%s/consumption".formatted(itemId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"consumableBatchId\":\"%s\",\"quantity\":1,\"unitCode\":\"ML\",\"reason\":\"synthetic IHC execution\"}"
+                        .formatted(batchId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(consumption.get("consumableBatchId").asText()).isEqualTo(batchId.toString());
+
+        JsonNode label = json(mockMvc.perform(post("/api/v2/technical-order-items/%s/label".formatted(itemId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"outputId\":\"%s\",\"reason\":\"synthetic reprint\",\"idempotencyKey\":\"label-i04-support-facts\"}"
+                        .formatted(outputId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(label.get("printVersion").asInt()).isEqualTo(1);
+        assertThat(label.get("resultCode").asText()).isEqualTo("SUCCESS");
+        JsonNode replayedLabel = json(mockMvc.perform(post("/api/v2/technical-order-items/%s/label".formatted(itemId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"outputId\":\"%s\",\"reason\":\"synthetic reprint\",\"idempotencyKey\":\"label-i04-support-facts\"}"
+                        .formatted(outputId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(replayedLabel.get("duplicate").asBoolean()).isTrue();
+        assertThat(replayedLabel.get("printVersion").asInt()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.technical_order_quality_evaluation WHERE item_id = ? AND technical_output_id = ?",
+                Integer.class, itemId, technicalOutputId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.technical_order_fee_status WHERE item_id = ? AND status_code = 'FAILED'",
+                Integer.class, itemId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.technical_order_consumption WHERE item_id = ?",
+                Integer.class, itemId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.technical_order_label_print WHERE item_id = ? AND technical_output_id = ? AND print_version = 1",
+                Integer.class, itemId, technicalOutputId)).isEqualTo(1);
     }
 
     @Test

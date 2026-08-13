@@ -1,5 +1,6 @@
 package com.hanjisang.pis.v2.technical.application;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -14,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hanjisang.pis.integration.OutboxPort;
+import com.hanjisang.pis.integration.device.IhcDevicePort;
+import com.hanjisang.pis.integration.device.LabelPrintService;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
 import com.hanjisang.pis.security.P15AuthorizationService;
@@ -59,12 +62,15 @@ public class V2TechnicalOrderApplicationService {
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
     private final OutboxPort outbox;
+    private final IhcDevicePort ihcDevice;
+    private final LabelPrintService labelPrintService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public V2TechnicalOrderApplicationService(JdbcV2TechnicalOrderRepository repository,
             JdbcV2DiagnosisRepository diagnosisRepository, JdbcV2RegistrationRepository registrationRepository,
             JdbcV2MaterialRepository materialRepository, P15AuthorizationService authorization,
-            JdbcAuditEventRepository audit, OutboxPort outbox) {
+            JdbcAuditEventRepository audit, OutboxPort outbox, IhcDevicePort ihcDevice,
+            LabelPrintService labelPrintService) {
         this.repository = repository;
         this.diagnosisRepository = diagnosisRepository;
         this.registrationRepository = registrationRepository;
@@ -72,6 +78,8 @@ public class V2TechnicalOrderApplicationService {
         this.authorization = authorization;
         this.audit = audit;
         this.outbox = outbox;
+        this.ihcDevice = ihcDevice;
+        this.labelPrintService = labelPrintService;
     }
 
     @Transactional
@@ -79,12 +87,15 @@ public class V2TechnicalOrderApplicationService {
         ActorContext actor = authorization.require(TECHNICAL_PROJECT);
         requireText(command.projectCode(), "技术项目编码不能为空");
         requireText(command.projectName(), "技术项目名称不能为空");
+        requireText(command.capabilityCode(), "技术项目能力编码不能为空");
+        requireText(command.outputTypeCode(), "技术项目输出类型不能为空");
         requireText(command.allowedTargetTypes(), "技术项目目标类型不能为空");
         TechnicalProject project = TechnicalProject.create(UUID.randomUUID(), actor.hospitalScope(),
-                command.businessTypeId(), command.projectCode(), command.projectName(), command.enabled(),
-                command.allowedTargetTypes(), command.producesSlide(), command.producesBlock(),
-                command.producesStructuredResult(), command.defaultSlideType(), command.parametersSchema(),
-                command.resultSchema(), command.feeMapping(), command.displayConfiguration(),
+                command.businessTypeId(), command.projectCode(), command.projectName(), command.capabilityCode(),
+                command.outputTypeCode(), command.enabled(), command.allowedTargetTypes(), command.producesSlide(),
+                command.producesBlock(), command.producesStructuredResult(), command.requiresResult(),
+                command.deviceTypeCode(), command.consumableRequired(), command.defaultSlideType(),
+                command.parametersSchema(), command.resultSchema(), command.feeMapping(), command.displayConfiguration(),
                 command.requiredBeforeSignOutDefault(), command.configurationVersion());
         repository.insertProject(project, Instant.now(), actor.actorId());
         audit.append("PIS-V2-I04-TECHNICAL-PROJECT-CREATE", TECHNICAL_PROJECT, actor, "ALLOWED", "COMPLETED",
@@ -172,7 +183,8 @@ public class V2TechnicalOrderApplicationService {
         for (ItemSnapshot itemSnapshot : snapshot.items()) {
             TechnicalProject project = itemSnapshot.item().project();
             if (itemSnapshot.status() == JdbcV2TechnicalOrderRepository.TechnicalItemStatus.COMPLETED) continue;
-            if ("SUPPLEMENTARY-GROSSING".equals(project.code())) {
+            submitDeviceAttempt(itemSnapshot, actor);
+            if ("SUPPLEMENTARY_GROSSING".equals(project.capabilityCode())) {
                 prepareSupplementaryGrossing(itemSnapshot, actor);
                 continue;
             }
@@ -220,7 +232,7 @@ public class V2TechnicalOrderApplicationService {
                 .orElseThrow(() -> reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在"));
         ItemSnapshot itemSnapshot = snapshot.items().stream().filter(item -> item.item().id().equals(itemId)).findFirst()
                 .orElseThrow();
-        if (!itemSnapshot.item().project().producesStructuredResult()) {
+        if (!itemSnapshot.item().project().requiresResult()) {
             throw reject("V2-TECHNICAL-RESULT-NOT-SUPPORTED", "当前技术项目不产生结构化结果");
         }
         String resultData = normalizeObject(command.resultData(), "技术结果必须是JSON对象");
@@ -264,6 +276,136 @@ public class V2TechnicalOrderApplicationService {
         audit.append("PIS-V2-PX02B-TECHNICAL-RESULT-ACK", DIAGNOSIS_INITIAL, actor, "ALLOWED", "COMPLETED",
                 itemId, "V2-TECHNICAL-ORDER-ITEM-RESULT", UUID.randomUUID().toString(), "技术结果已查看");
         return new TechnicalAcknowledgement(itemId, actor.actorId(), now);
+    }
+
+    @Transactional
+    public TechnicalQualityResult evaluateQuality(UUID itemId, TechnicalQualityCommand command) {
+        ActorContext actor = authorization.require(TECHNICAL_EXECUTION);
+        requireId(itemId, "技术医嘱项目ID不能为空");
+        requireText(command.resultCode(), "质控结果不能为空");
+        if (!List.of("PASS", "WARNING", "FAIL").contains(command.resultCode())) {
+            throw reject("V2-TECHNICAL-QUALITY-RESULT", "质控结果必须为 PASS、WARNING 或 FAIL");
+        }
+        OrderSnapshot snapshot = repository.findOrderSnapshotByItemForCommand(itemId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在"));
+        ItemSnapshot item = snapshot.items().stream().filter(candidate -> candidate.item().id().equals(itemId))
+                .findFirst().orElseThrow();
+        OutputSnapshot selectedOutput = command.outputId() == null ? null : item.outputs().stream()
+                .filter(output -> output.outputId().equals(command.outputId())).findFirst()
+                .orElseThrow(() -> reject("V2-TECHNICAL-OUTPUT-NOT-FOUND", "质控目标不属于当前技术医嘱项目"));
+        Instant now = Instant.now();
+        UUID evaluationId = UUID.randomUUID();
+        repository.insertQualityEvaluation(evaluationId, itemId, selectedOutput == null ? null : selectedOutput.id(),
+                command.outputId(), command.resultCode(), command.score(), command.note(), now, actor.actorId(),
+                actor.hospitalScope());
+        audit.append("PIS-V2-I04-TECHNICAL-QUALITY", TECHNICAL_EXECUTION, actor, "ALLOWED", "COMPLETED",
+                itemId, "V2-TECHNICAL-QUALITY", UUID.randomUUID().toString(), command.resultCode());
+        return new TechnicalQualityResult(evaluationId, itemId, command.outputId(), command.resultCode(), command.score(),
+                command.note(), now, actor.actorId());
+    }
+
+    @Transactional
+    public TechnicalFeeStatusResult updateFeeStatus(UUID itemId, TechnicalFeeStatusCommand command) {
+        ActorContext actor = authorization.require(TECHNICAL_EXECUTION);
+        requireId(itemId, "技术医嘱项目ID不能为空");
+        requireText(command.statusCode(), "费用状态不能为空");
+        if (!List.of("NOT_SENT", "PENDING", "SUCCEEDED", "FAILED").contains(command.statusCode())) {
+            throw reject("V2-TECHNICAL-FEE-STATUS", "费用状态不受支持");
+        }
+        if (!repository.lockItem(itemId, actor.hospitalScope())) {
+            throw reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在或不在当前数据范围");
+        }
+        Instant now = Instant.now();
+        repository.upsertFeeStatus(itemId, command.statusCode(), command.externalReference(), command.failureReason(),
+                now, actor.actorId(), actor.hospitalScope());
+        audit.append("PIS-V2-I04-TECHNICAL-FEE-STATUS", TECHNICAL_EXECUTION, actor, "ALLOWED", "COMPLETED",
+                itemId, "V2-TECHNICAL-FEE-STATUS", UUID.randomUUID().toString(), command.statusCode());
+        return new TechnicalFeeStatusResult(itemId, command.statusCode(), command.externalReference(),
+                command.failureReason(), now, actor.actorId());
+    }
+
+    @Transactional
+    public TechnicalConsumptionResult recordConsumption(UUID itemId, TechnicalConsumptionCommand command) {
+        ActorContext actor = authorization.require(TECHNICAL_EXECUTION);
+        requireId(itemId, "技术医嘱项目ID不能为空");
+        requireId(command.consumableBatchId(), "耗材批次不能为空");
+        requireText(command.unitCode(), "耗材单位不能为空");
+        requireText(command.reason(), "耗材消耗原因不能为空");
+        if (command.quantity() == null || command.quantity().signum() <= 0) {
+            throw reject("V2-TECHNICAL-CONSUMPTION-QUANTITY", "耗材消耗数量必须为正数");
+        }
+        TechnicalOrderItem item = repository.findItem(itemId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在"));
+        if (!item.project().consumableRequired()) {
+            throw reject("V2-TECHNICAL-CONSUMPTION-NOT-REQUIRED", "当前技术项目未配置耗材消耗");
+        }
+        if (!repository.consumableBatchInScope(command.consumableBatchId(), actor.hospitalScope())) {
+            throw reject("V2-CONSUMABLE-BATCH-NOT-FOUND", "耗材批次不存在或不在当前数据范围");
+        }
+        Instant now = Instant.now();
+        UUID consumptionId = UUID.randomUUID();
+        repository.insertConsumption(consumptionId, itemId, command.consumableBatchId(), command.quantity(),
+                command.unitCode(), command.reason(), now, actor.actorId(), actor.hospitalScope());
+        audit.append("PIS-V2-I04-TECHNICAL-CONSUMPTION", TECHNICAL_EXECUTION, actor, "ALLOWED", "COMPLETED",
+                itemId, "V2-TECHNICAL-CONSUMPTION", UUID.randomUUID().toString(), command.reason());
+        return new TechnicalConsumptionResult(consumptionId, itemId, command.consumableBatchId(), command.quantity(),
+                command.unitCode(), now, actor.actorId());
+    }
+
+    @Transactional
+    public TechnicalLabelPrintResult printLabel(UUID itemId, TechnicalLabelPrintCommand command) {
+        ActorContext actor = authorization.require(TECHNICAL_EXECUTION);
+        requireId(itemId, "技术医嘱项目ID不能为空");
+        requireId(command.outputId(), "标签目标不能为空");
+        requireKey(command.idempotencyKey());
+        String operation = "PIS-V2-I04-TECHNICAL-LABEL-PRINT";
+        String digest = digest(itemId, command.outputId(), command.reason());
+        IdempotencyResult existing = repository.findIdempotency(operation, command.idempotencyKey()).orElse(null);
+        if (existing != null) {
+            if (!existing.payloadDigest().equals(digest)) throw reject("V2-IDEMPOTENCY-CONFLICT", "标签打印幂等摘要冲突");
+            JdbcV2TechnicalOrderRepository.LabelPrintSnapshot prior = repository
+                    .findLabelPrint(existing.resultEntityId(), actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-IDEMPOTENCY-INVALID", "标签打印幂等结果对应记录不存在"));
+            return new TechnicalLabelPrintResult(prior.id(), prior.itemId(), prior.outputId(), prior.printVersion(),
+                    prior.resultCode(), true, prior.failureReason());
+        }
+        if (!repository.lockItem(itemId, actor.hospitalScope())) {
+            throw reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在或不在当前数据范围");
+        }
+        OrderSnapshot snapshot = repository.findOrderSnapshotByItemForCommand(itemId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-TECHNICAL-ITEM-NOT-FOUND", "技术医嘱项目不存在"));
+        ItemSnapshot item = snapshot.items().stream().filter(candidate -> candidate.item().id().equals(itemId))
+                .findFirst().orElseThrow();
+        OutputSnapshot output = item.outputs().stream().filter(candidate -> candidate.outputId().equals(command.outputId()))
+                .findFirst().orElseThrow(() -> reject("V2-TECHNICAL-OUTPUT-NOT-FOUND", "标签目标不属于当前技术医嘱项目"));
+        String labelCode;
+        String entityKind;
+        if (output.kind() == TechnicalOutputType.SLIDE) {
+            Slide slide = materialRepository.findSlide(output.outputId(), actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-TECHNICAL-OUTPUT-NOT-FOUND", "技术玻片不存在"));
+            labelCode = slide.slideCode();
+            entityKind = "SLIDE";
+        } else if (output.kind() == TechnicalOutputType.BLOCK) {
+            Block block = materialRepository.findBlock(output.outputId(), actor.hospitalScope())
+                    .orElseThrow(() -> reject("V2-TECHNICAL-OUTPUT-NOT-FOUND", "技术蜡块不存在"));
+            labelCode = block.blockCode();
+            entityKind = "BLOCK";
+        } else {
+            throw reject("V2-TECHNICAL-LABEL-TARGET", "只有蜡块或玻片产物可以打印标签");
+        }
+        LabelPrintService.PrintResult print = labelPrintService.print(new LabelPrintService.PrintRequest(entityKind,
+                command.outputId(), labelCode, "MOCK://SYNTH-PRINTER", labelCode, actor.actorId()));
+        Instant now = Instant.now();
+        int printVersion = repository.nextLabelPrintVersion(itemId, command.outputId(), actor.hospitalScope());
+        UUID printId = UUID.randomUUID();
+        repository.insertLabelPrint(printId, itemId, output.id(), command.outputId(), entityKind, printVersion,
+                labelCode, print.resultCode(), print.failureReason(), now, actor.actorId(), actor.hospitalScope());
+        repository.insertIdempotency(operation, command.idempotencyKey(), digest, "TECHNICAL_LABEL_PRINT", printId,
+                actor.actorId(), now);
+        audit.append(operation, TECHNICAL_EXECUTION, actor, "ALLOWED", print.resultCode(), command.outputId(),
+                "V2-TECHNICAL-LABEL", UUID.randomUUID().toString(), print.failureReason() == null ? labelCode : print.failureReason());
+        return new TechnicalLabelPrintResult(printId, itemId, command.outputId(), printVersion, print.resultCode(),
+                false, print.failureReason());
     }
 
     @Transactional
@@ -455,6 +597,34 @@ public class V2TechnicalOrderApplicationService {
                 actor.actorId());
     }
 
+    private void submitDeviceAttempt(ItemSnapshot itemSnapshot, ActorContext actor) {
+        TechnicalProject project = itemSnapshot.item().project();
+        if (project.deviceTypeCode() == null) return;
+        Instant requestedAt = Instant.now();
+        String requestReference = "TECH-DEVICE-" + UUID.randomUUID();
+        try {
+            IhcDevicePort.Submission submission = ihcDevice.submit(new IhcDevicePort.Request(itemSnapshot.item().id(),
+                    project.code(), project.deviceTypeCode(), itemSnapshot.item().parameters(), actor.actorId()));
+            String effectiveReference = submission.requestReference() == null || submission.requestReference().isBlank()
+                    ? requestReference : submission.requestReference();
+            repository.insertDeviceAttempt(UUID.randomUUID(), itemSnapshot.item().id(), project.deviceTypeCode(),
+                    submission.adapterCode(), effectiveReference, submission.statusCode(), 0,
+                    submission.errorCode(), submission.errorMessage(), requestedAt, submission.completedAt(),
+                    actor.hospitalScope());
+            audit.append("PIS-V2-I04-DEVICE-SUBMIT", TECHNICAL_EXECUTION, actor, "ALLOWED",
+                    submission.succeeded() ? "COMPLETED" : "FAILED", itemSnapshot.item().id(),
+                    "V2-TECHNICAL-DEVICE-ATTEMPT", UUID.randomUUID().toString(),
+                    submission.errorMessage() == null ? effectiveReference : submission.errorMessage());
+        } catch (RuntimeException exception) {
+            repository.insertDeviceAttempt(UUID.randomUUID(), itemSnapshot.item().id(), project.deviceTypeCode(),
+                    "UNAVAILABLE", requestReference, "FAILED", 0, "DEVICE_ADAPTER_FAILURE",
+                    exception.getMessage(), requestedAt, Instant.now(), actor.hospitalScope());
+            audit.append("PIS-V2-I04-DEVICE-SUBMIT", TECHNICAL_EXECUTION, actor, "ALLOWED", "FAILED",
+                    itemSnapshot.item().id(), "V2-TECHNICAL-DEVICE-ATTEMPT", UUID.randomUUID().toString(),
+                    exception.getMessage() == null ? "设备适配器调用失败" : exception.getMessage());
+        }
+    }
+
     private TechnicalOrderResult replayOrder(String operation, String key, String digest, ActorContext actor) {
         IdempotencyResult existing = repository.findIdempotency(operation, key).orElse(null);
         if (existing == null) return null;
@@ -479,7 +649,10 @@ public class V2TechnicalOrderApplicationService {
                 snapshot.blocking(), snapshot.order().version(), snapshot.order().cancelledAt(),
                 snapshot.order().cancellationReason(), snapshot.items().stream().map(item -> new ItemResult(
                 item.item().id(), item.item().project().id(), item.item().project().code(), item.item().project().name(),
-                item.item().quantity(), item.status().name(), item.expectedCount(), item.completedCount(),
+                item.item().project().capabilityCode(), item.item().project().outputTypeCode(),
+                item.item().project().requiresResult(), item.item().project().deviceTypeCode(),
+                item.item().project().consumableRequired(), item.item().quantity(), item.status().name(),
+                item.expectedCount(), item.completedCount(),
                 item.targets().stream().map(target -> new TargetResult(target.target().id(), target.target().targetType(),
                 target.target().targetId(), target.target().displayCode())).toList(),
                 item.outputs().stream().map(output -> new OutputResult(output.kind(), output.outputId(),
@@ -489,9 +662,11 @@ public class V2TechnicalOrderApplicationService {
 
     private ProjectResult projectResult(TechnicalProject project) {
         return new ProjectResult(project.id(), project.businessTypeId(), project.code(), project.name(),
-                project.enabled(), project.allowedTargetTypes().stream().map(Enum::name).sorted().toList(),
-                project.producesSlide(), project.producesBlock(), project.producesStructuredResult(),
-                project.defaultSlideType(), project.parametersSchema(), project.resultSchema(),
+                project.capabilityCode(), project.outputTypeCode(), project.enabled(),
+                project.allowedTargetTypes().stream().map(Enum::name).sorted().toList(), project.producesSlide(),
+                project.producesBlock(), project.producesStructuredResult(), project.requiresResult(),
+                project.deviceTypeCode(), project.consumableRequired(), project.defaultSlideType(),
+                project.parametersSchema(), project.resultSchema(),
                 project.requiredBeforeSignOutDefault(), project.configurationVersion());
     }
 
@@ -553,10 +728,12 @@ public class V2TechnicalOrderApplicationService {
 
     private record PreparedItem(CreateItemCommand command, TechnicalProject project, List<ResolvedTarget> targets) { }
     private record ResolvedTarget(TechnicalTargetType type, UUID id, String displayCode) { }
-    public record CreateProjectCommand(UUID businessTypeId, String projectCode, String projectName, boolean enabled,
-            String allowedTargetTypes, boolean producesSlide, boolean producesBlock, boolean producesStructuredResult,
-            String defaultSlideType, String parametersSchema, String resultSchema, String feeMapping,
-            String displayConfiguration, boolean requiredBeforeSignOutDefault, int configurationVersion) { }
+    public record CreateProjectCommand(UUID businessTypeId, String projectCode, String projectName,
+            String capabilityCode, String outputTypeCode, boolean enabled, String allowedTargetTypes,
+            boolean producesSlide, boolean producesBlock, boolean producesStructuredResult, boolean requiresResult,
+            String deviceTypeCode, boolean consumableRequired, String defaultSlideType, String parametersSchema,
+            String resultSchema, String feeMapping, String displayConfiguration,
+            boolean requiredBeforeSignOutDefault, int configurationVersion) { }
     public record CreateTechnicalOrderCommand(UUID diagnosisId, Boolean requiredBeforeSignOut,
             List<CreateItemCommand> items, String idempotencyKey) { }
     public record CreateItemCommand(UUID projectId, Integer quantity, String parameters, String note,
@@ -566,19 +743,35 @@ public class V2TechnicalOrderApplicationService {
     public record CancelOrderCommand(long expectedVersion, String reason, String idempotencyKey) { }
 
     public record ProjectResult(UUID projectId, UUID businessTypeId, String projectCode, String projectName,
-            boolean enabled, List<String> allowedTargetTypes, boolean producesSlide, boolean producesBlock,
-            boolean producesStructuredResult, String defaultSlideType, String parametersSchema, String resultSchema,
-            boolean requiredBeforeSignOutDefault, int configurationVersion) { }
+            String capabilityCode, String outputTypeCode, boolean enabled, List<String> allowedTargetTypes,
+            boolean producesSlide, boolean producesBlock, boolean producesStructuredResult, boolean requiresResult,
+            String deviceTypeCode, boolean consumableRequired, String defaultSlideType, String parametersSchema,
+            String resultSchema, boolean requiredBeforeSignOutDefault, int configurationVersion) { }
     public record TechnicalOrderResult(UUID orderId, String orderNo, UUID diagnosisId, UUID caseId,
             String caseNo, String patientReference, TechnicalOrderStatus status, boolean requiredBeforeSignOut,
             boolean blocking, long version,
             Instant cancelledAt, String cancellationReason, List<ItemResult> items, boolean duplicate) { }
-    public record ItemResult(UUID itemId, UUID projectId, String projectCode, String projectName, int quantity,
-            String status, int expectedCount, int completedCount, List<TargetResult> targets, List<OutputResult> outputs,
+    public record ItemResult(UUID itemId, UUID projectId, String projectCode, String projectName,
+            String capabilityCode, String outputTypeCode, boolean requiresResult, String deviceTypeCode,
+            boolean consumableRequired, int quantity, String status, int expectedCount, int completedCount,
+            List<TargetResult> targets, List<OutputResult> outputs,
             ResultView result) { }
     public record TargetResult(UUID targetId, TechnicalTargetType targetType, UUID targetObjectId, String displayCode) { }
     public record OutputResult(TechnicalOutputType outputKind, UUID outputId, int occurrenceNo) { }
     public record ResultView(UUID resultId, String resultData, long version, Instant enteredAt) { }
     public record WorkbenchResult(List<TechnicalOrderResult> orders) { }
     public record TechnicalAcknowledgement(UUID itemId, String acknowledgedBy, Instant acknowledgedAt) { }
+    public record TechnicalQualityCommand(UUID outputId, String resultCode, BigDecimal score, String note) { }
+    public record TechnicalQualityResult(UUID evaluationId, UUID itemId, UUID outputId, String resultCode,
+            BigDecimal score, String note, Instant evaluatedAt, String evaluatedBy) { }
+    public record TechnicalFeeStatusCommand(String statusCode, String externalReference, String failureReason) { }
+    public record TechnicalFeeStatusResult(UUID itemId, String statusCode, String externalReference,
+            String failureReason, Instant updatedAt, String updatedBy) { }
+    public record TechnicalConsumptionCommand(UUID consumableBatchId, BigDecimal quantity, String unitCode,
+            String reason) { }
+    public record TechnicalConsumptionResult(UUID consumptionId, UUID itemId, UUID consumableBatchId,
+            BigDecimal quantity, String unitCode, Instant occurredAt, String occurredBy) { }
+    public record TechnicalLabelPrintCommand(UUID outputId, String reason, String idempotencyKey) { }
+    public record TechnicalLabelPrintResult(UUID printId, UUID itemId, UUID outputId, int printVersion,
+            String resultCode, boolean duplicate, String failureReason) { }
 }

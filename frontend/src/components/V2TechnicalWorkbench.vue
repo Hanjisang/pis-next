@@ -15,7 +15,10 @@ import {
   cancelV2TechnicalOrder,
   enterV2TechnicalResult,
   executeV2TechnicalOrder,
+  evaluateV2TechnicalQuality,
   getV2TechnicalWorkbench,
+  printV2TechnicalLabel,
+  updateV2TechnicalFeeStatus,
   type V2TechnicalItem,
   type V2TechnicalOrder,
 } from '../v2DiagnosisApi';
@@ -124,7 +127,7 @@ function returnToWorkbench() {
 watch(caseId, () => void loadMolecularCase(), { immediate: true });
 
 function requiresResult(order: V2TechnicalOrder) {
-  return order.items.some((item) => item.projectCode.includes('MOLECULAR') && !item.result);
+  return order.items.some((item) => item.requiresResult && !item.result);
 }
 
 function progress(order: V2TechnicalOrder) {
@@ -228,7 +231,7 @@ function execute(order: V2TechnicalOrder) {
 }
 
 function isSupplementaryGrossing(item: V2TechnicalItem) {
-  return item.projectCode === 'SUPPLEMENTARY-GROSSING';
+  return item.capabilityCode === 'SUPPLEMENTARY_GROSSING';
 }
 
 function openSupplementaryGrossing(order: V2TechnicalOrder, item: V2TechnicalItem) {
@@ -289,6 +292,42 @@ function completeProducedSlides(order: V2TechnicalOrder, item: V2TechnicalItem) 
     });
     await refresh();
     notice.value = `${order.orderNo} 的 ${slides.length} 张技术玻片已完成，诊断医生现在可以查看。`;
+  });
+}
+
+function printTechnicalLabel(item: V2TechnicalItem, outputId: string) {
+  void submit(async () => {
+    await printV2TechnicalLabel({
+      itemId: item.itemId,
+      outputId,
+      reason: 'TECHNICAL_OUTPUT',
+      idempotencyKey: idempotencyKey('i04-technical-label'),
+    });
+    await refresh();
+    notice.value = `${item.projectName} 的新标签已生成；原打印版本保持可追溯。`;
+  });
+}
+
+function evaluateTechnicalQuality(item: V2TechnicalItem, outputId: string) {
+  void submit(async () => {
+    await evaluateV2TechnicalQuality({
+      itemId: item.itemId,
+      outputId,
+      resultCode: 'PASS',
+      note: '工作台完成快速质量评价',
+    });
+    notice.value = `${item.projectName} 已记录质量评价：通过。`;
+  });
+}
+
+function markTechnicalFeeSucceeded(item: V2TechnicalItem) {
+  void submit(async () => {
+    await updateV2TechnicalFeeStatus({
+      itemId: item.itemId,
+      statusCode: 'SUCCEEDED',
+      externalReference: `TECH-${item.itemId}`,
+    });
+    notice.value = `${item.projectName} 的费用状态已记录为已登记；费用失败不阻断技术产出。`;
   });
 }
 
@@ -492,7 +531,7 @@ onMounted(() => void refresh());
                 结果：{{ displayResult(item) }}
               </p>
               <div
-                v-else-if="item.projectCode.includes('MOLECULAR') && order.status === 'EXECUTING'"
+                v-else-if="item.requiresResult && order.status === 'EXECUTING'"
                 class="result-entry-form"
               >
                 <label
@@ -772,7 +811,7 @@ onMounted(() => void refresh());
             </button>
             <div
               v-else-if="
-                item.projectCode.includes('MOLECULAR') && focusedOrder.status === 'EXECUTING'
+                item.requiresResult && focusedOrder.status === 'EXECUTING'
               "
               class="result-entry-form"
             >
@@ -805,6 +844,45 @@ onMounted(() => void refresh());
             >
               完成玻片
             </button>
+            <div v-if="item.outputs.length" class="technical-output-actions">
+              <small
+                >设备：{{ item.deviceTypeCode || '人工工作站' }} ·
+                {{ item.consumableRequired ? '需记录耗材' : '无需耗材' }}</small
+              >
+              <div
+                v-for="output in item.outputs.filter(
+                  (candidate) => candidate.outputKind === 'SLIDE' || candidate.outputKind === 'BLOCK',
+                )"
+                :key="output.outputId"
+                class="technical-output-action-row"
+              >
+                <span>{{ output.outputKind === 'SLIDE' ? '玻片' : '蜡块' }} {{ output.occurrenceNo }}</span>
+                <button
+                  class="text-button"
+                  type="button"
+                  :disabled="submitting"
+                  @click="printTechnicalLabel(item, output.outputId)"
+                >
+                  打印新标签
+                </button>
+                <button
+                  class="text-button"
+                  type="button"
+                  :disabled="submitting"
+                  @click="evaluateTechnicalQuality(item, output.outputId)"
+                >
+                  质控通过
+                </button>
+              </div>
+              <button
+                class="text-button"
+                type="button"
+                :disabled="submitting"
+                @click="markTechnicalFeeSucceeded(item)"
+              >
+                记录费用已登记
+              </button>
+            </div>
           </section>
         </div>
         <div class="focused-bottom-actions">
