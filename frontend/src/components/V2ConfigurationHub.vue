@@ -3,9 +3,17 @@ import { computed, onMounted, ref } from 'vue';
 
 import { friendlyError } from '../uiText';
 import {
+  createV2ReportTemplate,
+  createV2ReportTemplateVersion,
   getV2Configuration,
+  getV2ReportTemplateCatalog,
+  getV2ReportTemplatePresets,
+  instantiateV2ReportTemplatePreset,
+  publishV2ReportTemplateVersion,
   updateV2Configuration,
   type V2ConfigurationSnapshot,
+  type V2ReportTemplateCatalogRow,
+  type V2ReportTemplatePreset,
 } from '../v2ConfigurationApi';
 import {
   createV2ArchiveLocation,
@@ -29,6 +37,22 @@ type ConfigSection =
   | 'reportTemplates'
   | 'archiveLocations';
 
+type ReportSectionSource =
+  | 'CASE'
+  | 'MATERIAL'
+  | 'DIAGNOSIS'
+  | 'TECHNICAL'
+  | 'SIGNATURE'
+  | 'SUPPLEMENTAL';
+
+type ReportSectionDraft = {
+  clientId: string;
+  code: string;
+  label: string;
+  source: ReportSectionSource;
+  fields: string;
+};
+
 const sectionOptions: Array<{ key: ConfigSection; label: string; group: string }> = [
   { key: 'businessTypes', label: '业务类型', group: '业务配置' },
   { key: 'applicationItemMappings', label: '申请项目映射', group: '业务配置' },
@@ -48,6 +72,23 @@ const error = ref('');
 const notice = ref('');
 const archiveLocations = ref<V2ArchiveLocation[]>([]);
 const assignmentRules = ref<V2AssignmentRule[]>([]);
+const reportTemplatePresets = ref<V2ReportTemplatePreset[]>([]);
+const reportTemplateCatalog = ref<V2ReportTemplateCatalogRow[]>([]);
+const selectedReportTemplateId = ref('');
+const selectedDraftVersionId = ref('');
+const reportTemplateDraft = ref({
+  code: '',
+  name: '',
+  businessTypeId: '',
+  presetCode: '',
+});
+const reportDesigner = ref({
+  title: '病理诊断报告',
+  category: 'GENERAL' as 'GENERAL' | 'TUMOR',
+  tumorSiteCode: '',
+  showPageNumber: true,
+  sections: [] as ReportSectionDraft[],
+});
 const assignmentDraft = ref({
   campus: 'MAIN',
   businessTypeCode: 'HISTOLOGY',
@@ -74,11 +115,22 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    [snapshot.value, archiveLocations.value, assignmentRules.value] = await Promise.all([
+    [
+      snapshot.value,
+      archiveLocations.value,
+      assignmentRules.value,
+      reportTemplatePresets.value,
+      reportTemplateCatalog.value,
+    ] = await Promise.all([
       getV2Configuration(),
       getV2ArchiveLocations(),
       getV2AssignmentRules(),
+      getV2ReportTemplatePresets(),
+      getV2ReportTemplateCatalog(),
     ]);
+    if (!reportTemplateDraft.value.businessTypeId && snapshot.value.businessTypes.length) {
+      reportTemplateDraft.value.businessTypeId = snapshot.value.businessTypes[0].id;
+    }
   } catch (requestError) {
     error.value = friendlyError(requestError, '配置暂时无法加载，请稍后重试。');
   } finally {
@@ -166,6 +218,214 @@ async function save(path: string, body: unknown) {
     notice.value = `${activeLabel.value}已保存，版本已更新。`;
   } catch (requestError) {
     error.value = friendlyError(requestError, '配置保存失败，请刷新后重试。');
+  } finally {
+    saving.value = false;
+  }
+}
+
+const reportTemplateChoices = computed(() => {
+  const seen = new Set<string>();
+  return reportTemplateCatalog.value.filter((item) => {
+    if (seen.has(item.templateId)) return false;
+    seen.add(item.templateId);
+    return true;
+  });
+});
+
+function blankSections(): ReportSectionDraft[] {
+  return [
+    {
+      clientId: crypto.randomUUID(),
+      code: 'BASIC',
+      label: '基本信息',
+      source: 'CASE',
+      fields: 'pathologyNo, patientReference, visitReference',
+    },
+    {
+      clientId: crypto.randomUUID(),
+      code: 'DIAGNOSIS',
+      label: '病理诊断',
+      source: 'DIAGNOSIS',
+      fields: 'microscopicDescription, diagnosisText, structuredData, comment',
+    },
+    {
+      clientId: crypto.randomUUID(),
+      code: 'SIGNATURE',
+      label: '签发信息',
+      source: 'SIGNATURE',
+      fields: 'signedBy, signedAt',
+    },
+  ];
+}
+
+function loadDesignerDefinition(definition?: string) {
+  if (!definition) {
+    reportDesigner.value = {
+      title: '病理诊断报告',
+      category: 'GENERAL',
+      tumorSiteCode: '',
+      showPageNumber: true,
+      sections: blankSections(),
+    };
+    return;
+  }
+  try {
+    const parsed = JSON.parse(definition) as {
+      schemaVersion?: number;
+      title?: string;
+      category?: 'GENERAL' | 'TUMOR';
+      tumorSiteCode?: string;
+      page?: { showPageNumber?: boolean };
+      sections?: Array<{
+        code?: string;
+        label?: string;
+        source?: ReportSectionSource;
+        fields?: string[];
+      }>;
+    };
+    if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.sections)) throw new Error('legacy');
+    reportDesigner.value = {
+      title: parsed.title ?? '病理诊断报告',
+      category: parsed.category ?? 'GENERAL',
+      tumorSiteCode: parsed.tumorSiteCode ?? '',
+      showPageNumber: parsed.page?.showPageNumber ?? true,
+      sections: parsed.sections.map((section) => ({
+        clientId: crypto.randomUUID(),
+        code: section.code ?? '',
+        label: section.label ?? '',
+        source: section.source ?? 'DIAGNOSIS',
+        fields: (section.fields ?? []).join(', '),
+      })),
+    };
+  } catch {
+    loadDesignerDefinition();
+  }
+}
+
+function selectReportTemplate(templateId: string) {
+  selectedReportTemplateId.value = templateId;
+  const latest = reportTemplateCatalog.value
+    .filter((item) => item.templateId === templateId)
+    .sort((left, right) => (right.versionNo ?? 0) - (left.versionNo ?? 0))[0];
+  selectedDraftVersionId.value = latest?.status === 'DRAFT' ? (latest.versionId ?? '') : '';
+  loadDesignerDefinition(latest?.definition);
+}
+
+function addReportSection() {
+  reportDesigner.value.sections.push({
+    clientId: crypto.randomUUID(),
+    code: `SECTION_${reportDesigner.value.sections.length + 1}`,
+    label: '新版块',
+    source: 'DIAGNOSIS',
+    fields: 'diagnosisText',
+  });
+}
+
+function moveReportSection(index: number, offset: number) {
+  const target = index + offset;
+  if (target < 0 || target >= reportDesigner.value.sections.length) return;
+  const [section] = reportDesigner.value.sections.splice(index, 1);
+  reportDesigner.value.sections.splice(target, 0, section);
+}
+
+async function reloadReportTemplateCatalog() {
+  reportTemplateCatalog.value = await getV2ReportTemplateCatalog();
+}
+
+async function createBlankReportTemplate() {
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const created = await createV2ReportTemplate({
+      code: reportTemplateDraft.value.code.trim(),
+      name: reportTemplateDraft.value.name.trim(),
+      businessTypeId: reportTemplateDraft.value.businessTypeId,
+    });
+    await reloadReportTemplateCatalog();
+    selectReportTemplate(created.templateId);
+    notice.value = '报告模板已创建，请设计并保存第一个版本。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '报告模板创建失败，请检查编码是否重复。');
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function createFromTumorPreset() {
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const created = await instantiateV2ReportTemplatePreset(reportTemplateDraft.value.presetCode, {
+      code: reportTemplateDraft.value.code.trim(),
+      name: reportTemplateDraft.value.name.trim(),
+      businessTypeId: reportTemplateDraft.value.businessTypeId,
+    });
+    await reloadReportTemplateCatalog();
+    selectReportTemplate(created.template.templateId);
+    selectedDraftVersionId.value = created.version.versionId;
+    notice.value = '常用肿瘤结构已复制为当前医院草稿，请完成业务审核后发布。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '常用肿瘤模板创建失败，请检查输入。');
+  } finally {
+    saving.value = false;
+  }
+}
+
+function reportDesignerDefinition() {
+  return JSON.stringify({
+    schemaVersion: 1,
+    title: reportDesigner.value.title.trim(),
+    category: reportDesigner.value.category,
+    ...(reportDesigner.value.category === 'TUMOR'
+      ? { tumorSiteCode: reportDesigner.value.tumorSiteCode.trim() }
+      : {}),
+    page: { size: 'A4', showPageNumber: reportDesigner.value.showPageNumber },
+    sections: reportDesigner.value.sections.map((section) => ({
+      code: section.code.trim().toUpperCase(),
+      label: section.label.trim(),
+      source: section.source,
+      fields: section.fields
+        .split(',')
+        .map((field) => field.trim())
+        .filter(Boolean),
+    })),
+  });
+}
+
+async function saveReportDesignerVersion() {
+  if (!selectedReportTemplateId.value) return;
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const created = await createV2ReportTemplateVersion(
+      selectedReportTemplateId.value,
+      reportDesignerDefinition(),
+    );
+    selectedDraftVersionId.value = created.versionId;
+    await reloadReportTemplateCatalog();
+    notice.value = `报告模板草稿 v${created.versionNo} 已保存，尚未影响诊断签发。`;
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '模板定义校验失败，请检查版块代码和字段。');
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function publishReportDesignerVersion() {
+  if (!selectedDraftVersionId.value) return;
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    await publishV2ReportTemplateVersion(selectedDraftVersionId.value);
+    await reloadReportTemplateCatalog();
+    selectedDraftVersionId.value = '';
+    notice.value = '报告模板版本已发布；后续预览和签发可选择该不可变版本。';
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '报告模板发布失败，请刷新后重试。');
   } finally {
     saving.value = false;
   }
@@ -479,32 +739,216 @@ onMounted(() => void load());
             </button>
           </div>
         </div>
-        <div v-else class="config-table">
-          <div class="config-row header">
-            <span>代码</span><span>名称</span><span>业务类型</span><span>版本数</span
-            ><span>状态</span><span></span>
-          </div>
-          <div v-for="item in snapshot.reportTemplates" :key="item.id" class="config-row">
-            <code>{{ item.templateCode }}</code
-            ><input v-model="item.templateName" aria-label="报告模板名称" /><span>{{
-              item.businessTypeName || '通用'
-            }}</span
-            ><span>{{ item.versionCount }}</span
-            ><label class="inline-checkbox"
-              ><input v-model="item.enabled" type="checkbox" />启用</label
-            ><button
-              class="text-button"
-              type="button"
-              :disabled="saving"
-              @click="
-                save(`/report-templates/${item.id}`, {
-                  templateName: item.templateName,
-                  enabled: item.enabled,
-                })
-              "
+        <div v-else class="report-template-designer">
+          <section class="report-template-create-panel" aria-label="新建报告模板">
+            <header>
+              <div>
+                <strong>新建医院报告模板</strong>
+                <p class="muted">从空白结构开始，或复制内置常用肿瘤结构为草稿。</p>
+              </div>
+            </header>
+            <div class="field-grid three-columns">
+              <label
+                >模板编码<input
+                  v-model="reportTemplateDraft.code"
+                  required
+                  placeholder="例如 TUMOR-LUNG-LOCAL"
+              /></label>
+              <label
+                >模板名称<input
+                  v-model="reportTemplateDraft.name"
+                  required
+                  placeholder="例如 肺肿瘤专科报告"
+              /></label>
+              <label
+                >业务类型<select v-model="reportTemplateDraft.businessTypeId" required>
+                  <option v-for="item in snapshot.businessTypes" :key="item.id" :value="item.id">
+                    {{ item.displayName }}
+                  </option>
+                </select></label
+              >
+            </div>
+            <div class="report-template-create-actions">
+              <button
+                class="secondary-button"
+                type="button"
+                :disabled="
+                  saving ||
+                  !reportTemplateDraft.code.trim() ||
+                  !reportTemplateDraft.name.trim() ||
+                  !reportTemplateDraft.businessTypeId
+                "
+                @click="createBlankReportTemplate"
+              >
+                创建空白模板
+              </button>
+              <select v-model="reportTemplateDraft.presetCode" aria-label="常用肿瘤模板">
+                <option value="">选择常用肿瘤结构</option>
+                <option
+                  v-for="preset in reportTemplatePresets"
+                  :key="preset.presetCode"
+                  :value="preset.presetCode"
+                >
+                  {{ preset.presetName }} · v{{ preset.presetVersion }}
+                </option>
+              </select>
+              <button
+                class="primary-button"
+                type="button"
+                :disabled="
+                  saving ||
+                  !reportTemplateDraft.presetCode ||
+                  !reportTemplateDraft.code.trim() ||
+                  !reportTemplateDraft.name.trim() ||
+                  !reportTemplateDraft.businessTypeId
+                "
+                @click="createFromTumorPreset"
+              >
+                从肿瘤结构创建草稿
+              </button>
+            </div>
+          </section>
+
+          <div class="report-template-workspace">
+            <aside class="report-template-list" aria-label="报告模板目录">
+              <button
+                v-for="item in reportTemplateChoices"
+                :key="item.templateId"
+                type="button"
+                :class="{ active: selectedReportTemplateId === item.templateId }"
+                @click="selectReportTemplate(item.templateId)"
+              >
+                <span
+                  ><strong>{{ item.name }}</strong
+                  ><small>{{ item.code }} · {{ item.businessTypeName }}</small></span
+                >
+                <span
+                  class="status-pill"
+                  :class="item.status === 'PUBLISHED' ? 'success' : 'warning'"
+                >
+                  {{ item.versionNo ? `v${item.versionNo} ${item.status}` : '待设计' }}
+                </span>
+              </button>
+              <p v-if="!reportTemplateChoices.length" class="empty-state compact">
+                尚无报告模板，请先创建。
+              </p>
+            </aside>
+
+            <section
+              v-if="selectedReportTemplateId"
+              class="report-template-canvas"
+              aria-label="报告模板设计器"
             >
-              保存
-            </button>
+              <header class="panel-title-row">
+                <div>
+                  <p class="section-kicker">Template Designer</p>
+                  <h3>结构化报告版式</h3>
+                </div>
+                <label class="inline-checkbox"
+                  ><input v-model="reportDesigner.showPageNumber" type="checkbox" />显示页码</label
+                >
+              </header>
+              <div class="field-grid three-columns">
+                <label
+                  >报告标题<input v-model="reportDesigner.title" aria-label="报告标题"
+                /></label>
+                <label
+                  >模板类别<select v-model="reportDesigner.category">
+                    <option value="GENERAL">通用报告</option>
+                    <option value="TUMOR">肿瘤报告</option>
+                  </select></label
+                >
+                <label v-if="reportDesigner.category === 'TUMOR'"
+                  >肿瘤部位代码<input
+                    v-model="reportDesigner.tumorSiteCode"
+                    placeholder="例如 LUNG"
+                /></label>
+                <label v-else>页面规格<input value="A4" disabled /></label>
+              </div>
+              <div class="report-section-list">
+                <article
+                  v-for="(section, index) in reportDesigner.sections"
+                  :key="section.clientId"
+                  class="report-section-card"
+                >
+                  <header>
+                    <strong>{{ index + 1 }}. {{ section.label || '未命名版块' }}</strong>
+                    <div class="inline-actions">
+                      <button
+                        class="text-button"
+                        type="button"
+                        :disabled="index === 0"
+                        aria-label="上移版块"
+                        @click="moveReportSection(index, -1)"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        class="text-button"
+                        type="button"
+                        :disabled="index === reportDesigner.sections.length - 1"
+                        aria-label="下移版块"
+                        @click="moveReportSection(index, 1)"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        class="text-button danger-text"
+                        type="button"
+                        :disabled="reportDesigner.sections.length === 1"
+                        @click="reportDesigner.sections.splice(index, 1)"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </header>
+                  <div class="field-grid three-columns">
+                    <label>版块代码<input v-model="section.code" /></label>
+                    <label>显示名称<input v-model="section.label" /></label>
+                    <label
+                      >数据来源<select v-model="section.source">
+                        <option value="CASE">病例</option>
+                        <option value="MATERIAL">材料</option>
+                        <option value="DIAGNOSIS">诊断</option>
+                        <option value="TECHNICAL">技术结果</option>
+                        <option value="SIGNATURE">签发</option>
+                        <option value="SUPPLEMENTAL">补充报告</option>
+                      </select></label
+                    >
+                  </div>
+                  <label
+                    >字段编码（逗号分隔）
+                    <input v-model="section.fields" placeholder="diagnosisText, structuredData" />
+                  </label>
+                </article>
+              </div>
+              <div class="sticky-form-actions">
+                <button class="secondary-button" type="button" @click="addReportSection">
+                  + 添加版块
+                </button>
+                <span class="muted">保存只创建新草稿版本；发布后版本不可修改。</span>
+                <button
+                  class="secondary-button"
+                  type="button"
+                  :disabled="saving || !reportDesigner.sections.length"
+                  @click="saveReportDesignerVersion"
+                >
+                  保存新草稿
+                </button>
+                <button
+                  class="primary-button"
+                  type="button"
+                  :disabled="saving || !selectedDraftVersionId"
+                  @click="publishReportDesignerVersion"
+                >
+                  发布当前草稿
+                </button>
+              </div>
+            </section>
+            <div v-else class="empty-state">
+              <strong>选择一个报告模板开始设计</strong>
+              <span>已发布版本保持不可变；任何调整都会生成新的草稿版本。</span>
+            </div>
           </div>
         </div>
       </section>

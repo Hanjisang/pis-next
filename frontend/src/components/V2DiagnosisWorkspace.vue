@@ -101,6 +101,12 @@ type PoolCase = {
 type SupportPanel = 'clinical' | 'technical' | 'caseSupport' | 'history' | 'reports' | 'audit';
 type ContextSection = 'application' | 'specimens' | 'blocks' | 'slides' | 'digital' | 'history';
 type ReportPreviewDocument = {
+  presentation?: {
+    title?: string;
+    category?: 'GENERAL' | 'TUMOR';
+    tumorSiteCode?: string;
+    sections?: Array<{ code?: string; label?: string; source?: string; fields?: string[] }>;
+  };
   case?: {
     pathologyNo?: string;
     patientReference?: string;
@@ -179,6 +185,7 @@ const reportPreview = ref<{
   blockingReasons: string[];
   valid: boolean;
 } | null>(null);
+const selectedReportTemplateVersionId = ref('');
 const previewOpen = ref(false);
 const withdrawalReason = ref('');
 const supplementalContent = ref('');
@@ -372,6 +379,13 @@ const previewDocument = computed<ReportPreviewDocument | null>(() => {
 const previewSlides = computed(
   () => previewDocument.value?.material?.filter((item) => item.slideCode) ?? [],
 );
+
+function reportSectionLabel(code: string, fallback: string) {
+  return (
+    previewDocument.value?.presentation?.sections?.find((section) => section.code === code)
+      ?.label ?? fallback
+  );
+}
 const responsibilityActionLabel = computed(() => {
   if (currentRole.value === 'INITIAL') return nextRole.value === 'AUDIT' ? '提交审核' : '提交复诊';
   if (currentRole.value === 'REVIEW') return '提交审核';
@@ -447,6 +461,14 @@ async function loadWorkspace() {
       getV2CaseWorkspace(caseId.value),
     ]);
     workspace.value = loadedWorkspace;
+    const availableReportTemplates = loadedWorkspace.availableReportTemplates ?? [];
+    if (
+      !availableReportTemplates.some(
+        (template) => template.versionId === selectedReportTemplateVersionId.value,
+      )
+    ) {
+      selectedReportTemplateVersionId.value = availableReportTemplates[0]?.versionId ?? '';
+    }
     timelineEntries.value = caseContext.timeline;
     try {
       patientHistory.value =
@@ -872,7 +894,10 @@ async function complete() {
 async function previewReport() {
   if (!workspace.value?.diagnosis) return;
   await submit(async () => {
-    reportPreview.value = await getV2ReportPreview(workspace.value!.diagnosis!.diagnosisId);
+    reportPreview.value = await getV2ReportPreview(
+      workspace.value!.diagnosis!.diagnosisId,
+      selectedReportTemplateVersionId.value || undefined,
+    );
     previewOpen.value = true;
   });
 }
@@ -882,6 +907,7 @@ async function signOutReport() {
   await submit(async () => {
     const report = await signOutV2Report({
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,
+      templateVersionId: selectedReportTemplateVersionId.value || undefined,
       idempotencyKey: requestKey('ux01-report-sign-out'),
     });
     previewOpen.value = false;
@@ -914,6 +940,7 @@ async function supplementReport() {
     await supplementV2Report({
       diagnosisId: workspace.value!.diagnosis!.diagnosisId,
       priorReportId: prior?.reportId,
+      templateVersionId: selectedReportTemplateVersionId.value || undefined,
       content: supplementalContent.value,
       idempotencyKey: requestKey('ux01-report-supplement'),
     });
@@ -2075,7 +2102,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
       >
         <article v-if="previewDocument" class="report-preview-paper" aria-label="报告内容">
           <header class="report-document-header">
-            <p>病理诊断报告</p>
+            <p>{{ previewDocument.presentation?.title || '病理诊断报告' }}</p>
             <h2>{{ previewDocument.case?.pathologyNo ?? workspace?.caseSummary.pathologyNo }}</h2>
             <div>
               <span
@@ -2092,15 +2119,15 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             </div>
           </header>
           <section>
-            <h3>镜下所见</h3>
+            <h3>{{ reportSectionLabel('MICROSCOPY', '镜下所见') }}</h3>
             <p>{{ previewDocument.diagnosis?.microscopicDescription || '未填写' }}</p>
           </section>
           <section class="report-diagnosis-section">
-            <h3>病理诊断</h3>
+            <h3>{{ reportSectionLabel('DIAGNOSIS', '病理诊断') }}</h3>
             <p>{{ previewDocument.diagnosis?.diagnosisText || '未填写' }}</p>
           </section>
           <section v-if="previewSlides.length">
-            <h3>材料</h3>
+            <h3>{{ reportSectionLabel('MATERIAL', '材料') }}</h3>
             <p>
               {{
                 previewSlides
@@ -2110,7 +2137,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             </p>
           </section>
           <section v-if="previewDocument.technicalResults?.length">
-            <h3>技术结果</h3>
+            <h3>{{ reportSectionLabel('TECHNICAL', '技术结果') }}</h3>
             <ul>
               <li v-for="order in previewDocument.technicalResults" :key="order.orderNo">
                 {{
@@ -2144,6 +2171,22 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             <p class="section-kicker">报告预览</p>
             <h2>签发前确认</h2>
           </header>
+          <label v-if="workspace?.availableReportTemplates?.length">
+            报告模板
+            <select
+              v-model="selectedReportTemplateVersionId"
+              aria-label="报告模板版本"
+              @change="previewReport"
+            >
+              <option
+                v-for="template in workspace.availableReportTemplates"
+                :key="template.versionId"
+                :value="template.versionId"
+              >
+                {{ template.name }} · v{{ template.versionNo }}
+              </option>
+            </select>
+          </label>
           <p v-if="reportPreview.valid" class="feedback success">预览有效，可以签发。</p>
           <div v-else class="feedback warning">
             <span
@@ -3043,7 +3086,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
     >
       <article v-if="previewDocument" class="report-preview-paper" aria-label="报告内容">
         <header class="report-document-header">
-          <p>病理诊断报告</p>
+          <p>{{ previewDocument.presentation?.title || '病理诊断报告' }}</p>
           <h2>{{ previewDocument.case?.pathologyNo ?? workspace?.caseSummary.pathologyNo }}</h2>
           <div>
             <span
@@ -3058,15 +3101,15 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
           </div>
         </header>
         <section>
-          <h3>镜下所见</h3>
+          <h3>{{ reportSectionLabel('MICROSCOPY', '镜下所见') }}</h3>
           <p>{{ previewDocument.diagnosis?.microscopicDescription || '未填写' }}</p>
         </section>
         <section class="report-diagnosis-section">
-          <h3>病理诊断</h3>
+          <h3>{{ reportSectionLabel('DIAGNOSIS', '病理诊断') }}</h3>
           <p>{{ previewDocument.diagnosis?.diagnosisText || '未填写' }}</p>
         </section>
         <section v-if="previewSlides.length">
-          <h3>材料</h3>
+          <h3>{{ reportSectionLabel('MATERIAL', '材料') }}</h3>
           <p>
             {{
               previewSlides
@@ -3081,6 +3124,22 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
           <p class="section-kicker">报告预览</p>
           <h2>签发前确认</h2>
         </header>
+        <label v-if="workspace?.availableReportTemplates?.length">
+          报告模板
+          <select
+            v-model="selectedReportTemplateVersionId"
+            aria-label="报告模板版本"
+            @change="previewReport"
+          >
+            <option
+              v-for="template in workspace.availableReportTemplates"
+              :key="template.versionId"
+              :value="template.versionId"
+            >
+              {{ template.name }} · v{{ template.versionNo }}
+            </option>
+          </select>
+        </label>
         <p v-if="reportPreview.valid" class="feedback success">预览有效，可以签发。</p>
         <div v-else class="feedback warning">
           <strong>暂不能签发：</strong

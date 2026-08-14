@@ -237,15 +237,43 @@ describe('V2DiagnosisWorkspace', () => {
   });
 
   it('opens a large report preview without leaving the diagnosis route', async () => {
+    const templateWorkspace = {
+      ...workspace,
+      availableReportTemplates: [
+        {
+          templateId: 'REPORT-TEMPLATE-1',
+          versionId: 'REPORT-TEMPLATE-V1',
+          versionNo: 1,
+          code: 'GENERAL',
+          name: '通用报告',
+        },
+        {
+          templateId: 'REPORT-TEMPLATE-2',
+          versionId: 'REPORT-TEMPLATE-V2',
+          versionNo: 2,
+          code: 'TUMOR-LUNG',
+          name: '肺肿瘤报告',
+          sourcePresetCode: 'TUMOR-LUNG',
+        },
+      ],
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
       if (url.includes('/report-preview')) {
+        const tumorTemplate = url.includes('REPORT-TEMPLATE-V2');
         return new Response(
           JSON.stringify({
             valid: true,
             blockingReasons: [],
             renderedContent: JSON.stringify({
+              presentation: {
+                title: tumorTemplate ? '肺肿瘤病理报告' : '通用病理报告',
+                sections: [
+                  { code: 'MICROSCOPY', label: '镜下描述' },
+                  { code: 'DIAGNOSIS', label: tumorTemplate ? '肺肿瘤诊断' : '病理诊断' },
+                ],
+              },
               case: {
                 pathologyNo: 'P-TEST-001',
                 patientReference: 'SYNTH-PATIENT',
@@ -265,7 +293,11 @@ describe('V2DiagnosisWorkspace', () => {
           }),
         );
       }
-      return new Response(JSON.stringify(workspace));
+      if (url.includes('/case-support') && url.endsWith('/favorite')) {
+        return new Response(JSON.stringify({ caseId: 'CASE-1', favorite: false }));
+      }
+      if (url.includes('/case-support')) return new Response(JSON.stringify([]));
+      return new Response(JSON.stringify(templateWorkspace));
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -281,8 +313,18 @@ describe('V2DiagnosisWorkspace', () => {
       ),
     ).toBe(true);
     expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('合成预览内容');
+    expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('通用病理报告');
     expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('A1-HE');
     expect(wrapper.find('[aria-label="报告预览"]').text()).not.toContain('DOCTOR-A');
+    await wrapper.find('select[aria-label="报告模板版本"]').setValue('REPORT-TEMPLATE-V2');
+    await flushPromises();
+    expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('肺肿瘤病理报告');
+    expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('肺肿瘤诊断');
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes('templateVersionId=REPORT-TEMPLATE-V2'),
+      ),
+    ).toBe(true);
   });
 
   it('downloads a password-protected PDF without persisting the password in the workspace', async () => {

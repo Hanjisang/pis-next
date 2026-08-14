@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.apache.pdfbox.Loader;
@@ -56,14 +58,58 @@ class V2ReportWebTest {
                 "AUDIT", 1, "complete-i05-initial").get("nextResponsibilityId").asText();
         complete(diagnosisId, "/complete-audit", auditId, 0, 1, null, 2, "complete-i05-audit");
 
-        JsonNode preview = json(mockMvc.perform(get("/api/v2/diagnoses/%s/report-preview".formatted(diagnosisId)))
+        JsonNode presets = json(mockMvc.perform(get("/api/v2/report-template-presets"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(presets.toString()).contains("TUMOR-LUNG", "肺肿瘤报告结构");
+        JsonNode instantiated = json(mockMvc.perform(post("/api/v2/report-template-presets/TUMOR-LUNG/instantiate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"code":"SYNTH-LUNG-REPORT","name":"合成肺肿瘤报告模板",
+                         "businessTypeId":"00000000-0000-0000-0000-00000000b001"}
+                        """))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String templateId = instantiated.get("template").get("templateId").asText();
+        mockMvc.perform(post("/api/v2/report-templates/%s/versions".formatted(templateId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"definition\":\"{}\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        String designedDefinition = objectMapper.writeValueAsString(Map.of(
+                "schemaVersion", 1,
+                "title", "合成肺肿瘤专科报告",
+                "category", "TUMOR",
+                "tumorSiteCode", "LUNG",
+                "page", Map.of("size", "A4", "showPageNumber", true),
+                "sections", List.of(
+                        Map.of("code", "MICROSCOPY", "label", "镜下所见", "source", "DIAGNOSIS",
+                                "fields", List.of("microscopicDescription")),
+                        Map.of("code", "DIAGNOSIS", "label", "病理诊断", "source", "DIAGNOSIS",
+                                "fields", List.of("diagnosisText", "structuredData")),
+                        Map.of("code", "SIGNATURE", "label", "签发信息", "source", "SIGNATURE",
+                                "fields", List.of("signedBy", "signedAt")))));
+        JsonNode designedVersion = json(mockMvc.perform(post("/api/v2/report-templates/%s/versions".formatted(templateId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("definition", designedDefinition))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String designedVersionId = designedVersion.get("versionId").asText();
+        mockMvc.perform(post("/api/v2/report-template-versions/%s/publish".formatted(designedVersionId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"publish-synth-lung-v2\"}"))
+                .andExpect(status().isOk());
+        JsonNode catalog = json(mockMvc.perform(get("/api/v2/report-templates"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(catalog.toString()).contains("SYNTH-LUNG-REPORT", "TUMOR-LUNG", designedVersionId);
+
+        JsonNode preview = json(mockMvc.perform(get("/api/v2/diagnoses/%s/report-preview".formatted(diagnosisId))
+                .param("templateVersionId", designedVersionId))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(preview.get("valid").asBoolean()).isTrue();
+        assertThat(preview.get("renderedContent").asText()).contains("合成肺肿瘤专科报告", "tumorSiteCode");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report", Integer.class)).isZero();
 
         JsonNode first = json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"idempotencyKey\":\"sign-i05-r001\"}"))
+                .content("{\"templateVersionId\":\"%s\",\"idempotencyKey\":\"sign-i05-r001\"}"
+                        .formatted(designedVersionId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(first.get("reportNo").asText()).isEqualTo("R001");
         assertThat(first.get("status").asText()).isEqualTo("EFFECTIVE");

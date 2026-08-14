@@ -5434,9 +5434,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N03 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N03 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N03 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-003 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。配置中心提供结构化报告标题、类别、A4页码、版块顺序、数据来源和字段设计，不要求管理员直接编辑JSON。
+- V2 Decision: 保存总是追加DRAFT版本，发布后版本不可修改；服务端校验schemaVersion、版块唯一性、来源及字段，诊断预览可选择已发布版本并把定义固化进报告快照。
 
 ### RPT-004 — Structured elements
 
@@ -5566,9 +5566,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N09 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N09 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N09 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-009 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。内置肺、乳腺和结直肠三类版本化肿瘤报告结构，可复制为当前医院、指定业务类型的草稿后再设计和发布。
+- V2 Decision: 内置内容只定义通用信息、材料、镜下、诊断、辅助检查和签发版块，不预设医学结论或诊断规则；医院草稿必须经本地业务审核后发布，来源预置代码保留追溯。
 
 ### RPT-010 — report preview
 

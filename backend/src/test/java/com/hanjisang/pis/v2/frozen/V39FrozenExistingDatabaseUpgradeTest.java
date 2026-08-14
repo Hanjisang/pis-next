@@ -15,7 +15,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** Verifies that the published Frozen facts survive the FC03C migrations through V43. */
+/** Verifies that the published Frozen facts survive all later migrations. */
 @Testcontainers
 class V39FrozenExistingDatabaseUpgradeTest {
 
@@ -36,7 +36,7 @@ class V39FrozenExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("43");
+                String.class)).isEqualTo("48");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT round_no FROM pis_v2.frozen_round WHERE id = ?", Integer.class,
                 fixture.roundId())).isEqualTo(1);

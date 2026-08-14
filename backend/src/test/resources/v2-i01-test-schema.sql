@@ -540,7 +540,13 @@ CREATE TABLE IF NOT EXISTS pis_v2.report_template (
     template_code VARCHAR(128) NOT NULL, template_name VARCHAR(256) NOT NULL, enabled BOOLEAN NOT NULL,
     configuration_version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_by_ref VARCHAR(128) NOT NULL, UNIQUE (organization_reference, template_code)
+    updated_by_ref VARCHAR(128) NOT NULL, source_preset_code VARCHAR(64),
+    UNIQUE (organization_reference, template_code)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_template_preset (
+    id UUID PRIMARY KEY, preset_code VARCHAR(64) NOT NULL UNIQUE, preset_name VARCHAR(200) NOT NULL,
+    tumor_site_code VARCHAR(64) NOT NULL, definition VARCHAR(20000) NOT NULL, enabled BOOLEAN NOT NULL,
+    preset_version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pis_v2.report_template_version (
     id UUID PRIMARY KEY, template_id UUID NOT NULL, version_no INTEGER NOT NULL, definition VARCHAR(20000) NOT NULL,
@@ -664,6 +670,12 @@ DELETE FROM pis_v2.report_pdf_output;
 DELETE FROM pis_v2.report;
 DELETE FROM pis_v2.report_template_version;
 DELETE FROM pis_v2.report_template;
+DELETE FROM pis_v2.report_template_preset;
+INSERT INTO pis_v2.report_template_preset
+    (id, preset_code, preset_name, tumor_site_code, definition, enabled, preset_version, created_at, created_by_ref)
+VALUES ('00000000-0000-0000-0000-00000000b601', 'TUMOR-LUNG', '肺肿瘤报告结构', 'LUNG',
+        '{"schemaVersion":1,"title":"肺肿瘤病理报告","category":"TUMOR","tumorSiteCode":"LUNG","page":{"size":"A4","showPageNumber":true},"sections":[{"code":"DIAGNOSIS","label":"病理诊断","source":"DIAGNOSIS","fields":["diagnosisText","structuredData"]}]}',
+        TRUE, 1, CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.report_template
     (id, organization_reference, business_type_id, template_code, template_name, enabled,
      configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)

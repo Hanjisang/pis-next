@@ -8,14 +8,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.hanjisang.pis.integration.OutboxPort;
@@ -38,6 +41,7 @@ import com.hanjisang.pis.v2.report.domain.ReportStatus;
 import com.hanjisang.pis.v2.report.domain.ReportTemplateVersion;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository.IdempotencyResult;
+import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository.TemplateCatalogRow;
 import com.hanjisang.pis.v2.technical.application.V2TechnicalOrderApplicationService;
 import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository;
 import com.hanjisang.pis.v2.technical.infrastructure.JdbcV2TechnicalOrderRepository.OrderSnapshot;
@@ -271,11 +275,12 @@ public class V2ReportApplicationService {
     public WorkspaceReport workspace(UUID caseId, Diagnosis diagnosis, List<ResponsibilityUnit> responsibilities,
             List<OrderSnapshot> technicalOrders, String organizationReference, String actorId) {
         if (diagnosis == null) {
-            return new WorkspaceReport(List.of(), new ReportActions(false, false, false, false),
+            return new WorkspaceReport(List.of(), List.of(), new ReportActions(false, false, false, false),
                     List.of("DIAGNOSIS_NOT_CREATED"));
         }
         Case pathologyCase = registrationRepository.findCase(caseId, organizationReference).orElse(null);
-        if (pathologyCase == null) return new WorkspaceReport(List.of(), new ReportActions(false, false, false, false),
+        if (pathologyCase == null) return new WorkspaceReport(List.of(), List.of(),
+                new ReportActions(false, false, false, false),
                 List.of("CASE_NOT_FOUND"));
         ReportTemplateVersion template = repository.findPublishedTemplateForBusinessType(pathologyCase.businessTypeId(),
                 organizationReference).orElse(null);
@@ -292,7 +297,12 @@ public class V2ReportApplicationService {
                 && actorId.equals(lastAudit(responsibilities).doctorId());
         boolean canSignOut = reasons.isEmpty() && auditActor && !effectiveOriginal;
         boolean canSupplement = auditActor && effectiveOriginal && technicalReasons(technicalOrders).isEmpty();
-        return new WorkspaceReport(reports.stream().map(report -> reportView(report)).toList(),
+        List<AvailableTemplateResult> availableTemplates = repository
+                .findPublishedTemplateCatalog(pathologyCase.businessTypeId(), organizationReference).stream()
+                .map(item -> new AvailableTemplateResult(item.templateId(), item.versionId(), item.versionNo(),
+                        item.templateCode(), item.templateName(), item.sourcePresetCode()))
+                .toList();
+        return new WorkspaceReport(reports.stream().map(report -> reportView(report)).toList(), availableTemplates,
                 new ReportActions(true, canSignOut, canWithdraw, canSupplement), reasons);
     }
 
@@ -303,7 +313,7 @@ public class V2ReportApplicationService {
         requireText(command.name(), "报告模板名称不能为空");
         var template = new com.hanjisang.pis.v2.report.domain.ReportTemplate(UUID.randomUUID(), actor.hospitalScope(),
                 command.businessTypeId(), command.code(), command.name(), true, 1, Instant.now(), actor.actorId(),
-                Instant.now(), actor.actorId());
+                Instant.now(), actor.actorId(), null);
         repository.insertTemplate(template, Instant.now(), actor.actorId());
         audit.append("PIS-V2-I05-REPORT-TEMPLATE-CREATE", REPORT_TEMPLATE_MANAGE, actor, "ALLOWED", "COMPLETED",
                 template.id(), "V2-REPORT-TEMPLATE", UUID.randomUUID().toString(), template.code());
@@ -314,6 +324,7 @@ public class V2ReportApplicationService {
     public TemplateVersionResult createTemplateVersion(UUID templateId, CreateTemplateVersionCommand command) {
         ActorContext actor = authorization.require(REPORT_TEMPLATE_MANAGE);
         requireText(command.definition(), "报告模板定义不能为空");
+        validateTemplateDefinition(command.definition());
         if (repository.findTemplate(templateId, actor.hospitalScope()).isEmpty()) {
             throw reject("V2-REPORT-TEMPLATE-NOT-FOUND", "报告模板不存在");
         }
@@ -321,7 +332,47 @@ public class V2ReportApplicationService {
         ReportTemplateVersion version = new ReportTemplateVersion(UUID.randomUUID(), templateId, versionNo,
                 command.definition(), "DRAFT", null, null, Instant.now(), actor.actorId(), 0);
         repository.insertTemplateVersion(version);
+        audit.append("PIS-V2-REPORT-TEMPLATE-VERSION-CREATE", REPORT_TEMPLATE_MANAGE, actor, "ALLOWED", "COMPLETED",
+                version.id(), "V2-REPORT-TEMPLATE-VERSION", UUID.randomUUID().toString(),
+                "templateId=" + templateId + "; version=" + versionNo);
         return templateVersionResult(version, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<TemplatePresetResult> templatePresets() {
+        authorization.require(REPORT_TEMPLATE_MANAGE);
+        return repository.findTemplatePresets().stream().map(item -> new TemplatePresetResult(item.presetCode(),
+                item.presetName(), item.tumorSiteCode(), item.definition(), item.presetVersion())).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<TemplateCatalogResult> templateCatalog() {
+        ActorContext actor = authorization.require(REPORT_TEMPLATE_MANAGE);
+        return repository.findTemplateCatalog(actor.hospitalScope()).stream().map(this::templateCatalogResult).toList();
+    }
+
+    @Transactional
+    public PresetInstantiationResult instantiateTemplatePreset(String presetCode,
+            InstantiateTemplatePresetCommand command) {
+        ActorContext actor = authorization.require(REPORT_TEMPLATE_MANAGE);
+        requireText(command.code(), "报告模板编码不能为空");
+        requireText(command.name(), "报告模板名称不能为空");
+        if (command.businessTypeId() == null) throw reject("V2-INVALID-REQUEST", "业务类型不能为空");
+        var preset = repository.findTemplatePreset(presetCode)
+                .orElseThrow(() -> reject("V2-REPORT-TEMPLATE-PRESET-NOT-FOUND", "常用肿瘤模板不存在或未启用"));
+        validateTemplateDefinition(preset.definition());
+        Instant now = Instant.now();
+        var template = new com.hanjisang.pis.v2.report.domain.ReportTemplate(UUID.randomUUID(), actor.hospitalScope(),
+                command.businessTypeId(), command.code().trim(), command.name().trim(), true, 1, now,
+                actor.actorId(), now, actor.actorId(), preset.presetCode());
+        repository.insertTemplate(template, now, actor.actorId());
+        ReportTemplateVersion version = new ReportTemplateVersion(UUID.randomUUID(), template.id(), 1,
+                preset.definition(), "DRAFT", null, null, now, actor.actorId(), 0);
+        repository.insertTemplateVersion(version);
+        audit.append("PIS-V2-REPORT-TEMPLATE-PRESET-INSTANTIATE", REPORT_TEMPLATE_MANAGE, actor, "ALLOWED",
+                "COMPLETED", template.id(), "V2-REPORT-TEMPLATE", UUID.randomUUID().toString(),
+                "preset=" + preset.presetCode());
+        return new PresetInstantiationResult(templateResult(template), templateVersionResult(version, false));
     }
 
     @Transactional
@@ -331,10 +382,14 @@ public class V2ReportApplicationService {
         ReportTemplateVersion version = repository.findTemplateVersionForUpdate(versionId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-REPORT-TEMPLATE-VERSION-NOT-FOUND", "报告模板版本不存在"));
         if (version.published()) return templateVersionResult(version, true);
+        validateTemplateDefinition(version.definition());
         if (!repository.publishTemplateVersion(versionId, actor.hospitalScope(), Instant.now(), actor.actorId())) {
             throw conflict("报告模板版本发布发生并发冲突");
         }
         ReportTemplateVersion published = repository.findTemplateVersion(versionId, actor.hospitalScope()).orElseThrow();
+        audit.append("PIS-V2-REPORT-TEMPLATE-VERSION-PUBLISH", REPORT_TEMPLATE_MANAGE, actor, "ALLOWED", "COMPLETED",
+                versionId, "V2-REPORT-TEMPLATE-VERSION", UUID.randomUUID().toString(),
+                "templateId=" + published.templateId() + "; version=" + published.versionNo());
         return templateVersionResult(published, false);
     }
 
@@ -407,6 +462,7 @@ public class V2ReportApplicationService {
         Map<String, Object> model = new LinkedHashMap<>();
         model.put("templateVersionId", template.id());
         model.put("templateVersionNo", template.versionNo());
+        model.put("presentation", object(template.definition()));
         model.put("nature", nature.name());
         model.put("case", object(caseSnapshot));
         model.put("diagnosis", object(diagnosisSnapshot));
@@ -551,6 +607,71 @@ public class V2ReportApplicationService {
                 version.status(), version.publishedAt(), duplicate);
     }
 
+    private TemplateResult templateResult(com.hanjisang.pis.v2.report.domain.ReportTemplate template) {
+        return new TemplateResult(template.id(), template.code(), template.name(), false);
+    }
+
+    private TemplateCatalogResult templateCatalogResult(TemplateCatalogRow row) {
+        return new TemplateCatalogResult(row.templateId(), row.templateCode(), row.templateName(),
+                row.businessTypeId(), row.businessTypeCode(), row.businessTypeName(), row.enabled(),
+                row.configurationVersion(), row.sourcePresetCode(), row.versionId(), row.versionNo(),
+                row.definition(), row.status(), row.publishedAt(), row.createdAt());
+    }
+
+    private void validateTemplateDefinition(String definition) {
+        final JsonNode root;
+        try {
+            root = objectMapper.readTree(definition);
+        } catch (JsonProcessingException exception) {
+            throw reject("V2-REPORT-TEMPLATE-DEFINITION-JSON", "报告模板定义不是有效JSON");
+        }
+        if (root == null || !root.isObject() || root.path("schemaVersion").asInt() != 1) {
+            throw reject("V2-REPORT-TEMPLATE-SCHEMA-VERSION", "报告模板必须使用schemaVersion 1");
+        }
+        String title = root.path("title").asText("").trim();
+        if (title.isEmpty() || title.length() > 100) {
+            throw reject("V2-REPORT-TEMPLATE-TITLE", "报告标题长度必须为1至100个字符");
+        }
+        String category = root.path("category").asText("");
+        if (!Set.of("GENERAL", "TUMOR").contains(category)) {
+            throw reject("V2-REPORT-TEMPLATE-CATEGORY", "报告模板类别必须为GENERAL或TUMOR");
+        }
+        if ("TUMOR".equals(category) && root.path("tumorSiteCode").asText("").isBlank()) {
+            throw reject("V2-REPORT-TEMPLATE-TUMOR-SITE", "肿瘤模板必须指定部位代码");
+        }
+        JsonNode page = root.path("page");
+        if (!page.isObject() || !"A4".equals(page.path("size").asText())
+                || !page.path("showPageNumber").isBoolean()) {
+            throw reject("V2-REPORT-TEMPLATE-PAGE", "报告模板页面必须为A4并明确页码设置");
+        }
+        JsonNode sections = root.path("sections");
+        if (!sections.isArray() || sections.isEmpty() || sections.size() > 20) {
+            throw reject("V2-REPORT-TEMPLATE-SECTIONS", "报告模板必须包含1至20个版块");
+        }
+        Set<String> codes = new LinkedHashSet<>();
+        Set<String> sources = Set.of("CASE", "MATERIAL", "DIAGNOSIS", "TECHNICAL", "SIGNATURE", "SUPPLEMENTAL");
+        for (JsonNode section : sections) {
+            String code = section.path("code").asText("");
+            String label = section.path("label").asText("").trim();
+            String source = section.path("source").asText("");
+            JsonNode fields = section.path("fields");
+            if (!code.matches("[A-Z][A-Z0-9_]{1,31}") || !codes.add(code)) {
+                throw reject("V2-REPORT-TEMPLATE-SECTION-CODE", "报告模板版块代码无效或重复");
+            }
+            if (label.isEmpty() || label.length() > 100 || !sources.contains(source)) {
+                throw reject("V2-REPORT-TEMPLATE-SECTION", "报告模板版块名称或数据来源无效");
+            }
+            if (!fields.isArray() || fields.isEmpty() || fields.size() > 20) {
+                throw reject("V2-REPORT-TEMPLATE-FIELDS", "每个报告版块必须包含1至20个字段");
+            }
+            for (JsonNode field : fields) {
+                if (!field.isTextual() || !field.asText().matches("[A-Za-z][A-Za-z0-9]{0,63}")) {
+                    throw reject("V2-REPORT-TEMPLATE-FIELD", "报告模板字段编码无效");
+                }
+            }
+        }
+    }
+
     private void publish(String event, UUID subjectId, long version, ActorContext actor, String digest) {
         outbox.append(event, subjectId, "V2-REPORT", version, UUID.randomUUID().toString(), digest, actor.actorId());
     }
@@ -591,6 +712,7 @@ public class V2ReportApplicationService {
     public record EncryptedPdfCommand(String accessPassword, String reason) { }
     public record CreateTemplateCommand(String code, String name, UUID businessTypeId) { }
     public record CreateTemplateVersionCommand(String definition) { }
+    public record InstantiateTemplatePresetCommand(String code, String name, UUID businessTypeId) { }
     public record PreviewResult(boolean valid, List<String> blockingReasons, UUID templateVersionId, int templateVersionNo,
             String renderedContent, String renderedContentHash, String pdfContentHash, ReportActions actions) { }
     public record ReportResult(UUID reportId, String reportNo, UUID caseId, UUID diagnosisId, ReportNature nature,
@@ -601,10 +723,20 @@ public class V2ReportApplicationService {
             UUID templateVersionId, String pdfFileReference, String pdfContentHash, String signedBy, Instant signedAt,
             Instant withdrawnAt, String withdrawalReason) { }
     public record ReportActions(boolean canPreview, boolean canSignOut, boolean canWithdraw, boolean canSupplement) { }
-    public record WorkspaceReport(List<ReportView> reports, ReportActions actions, List<String> blockingReasons) { }
+    public record WorkspaceReport(List<ReportView> reports, List<AvailableTemplateResult> availableTemplates,
+            ReportActions actions, List<String> blockingReasons) { }
+    public record AvailableTemplateResult(UUID templateId, UUID versionId, Integer versionNo, String code, String name,
+            String sourcePresetCode) { }
     public record PdfResult(UUID reportId, String reportNo, String fileReference, String contentHash,
             String protection, byte[] content) { }
     public record TemplateResult(UUID templateId, String code, String name, boolean duplicate) { }
     public record TemplateVersionResult(UUID versionId, UUID templateId, int versionNo, String definition, String status,
             Instant publishedAt, boolean duplicate) { }
+    public record TemplatePresetResult(String presetCode, String presetName, String tumorSiteCode, String definition,
+            int presetVersion) { }
+    public record TemplateCatalogResult(UUID templateId, String code, String name, UUID businessTypeId,
+            String businessTypeCode, String businessTypeName, boolean enabled, int configurationVersion,
+            String sourcePresetCode, UUID versionId, Integer versionNo, String definition, String status,
+            Instant publishedAt, Instant createdAt) { }
+    public record PresetInstantiationResult(TemplateResult template, TemplateVersionResult version) { }
 }

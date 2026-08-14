@@ -523,8 +523,8 @@ public class V2DiagnosisApplicationService {
                 current == null ? null : responsibilityView(current), actions, molecularResults, technicalOrders,
                 blockingTechnicalOrderCount,
                 new Placeholder("TECHNICAL_ORDER", "V2-I04已实现"), new Placeholder("REPORT", "V2-I05待实现"),
-                reportWorkspace.reports(), reportWorkspace.blockingReasons(), digitalSlides,
-                Instant.now());
+                reportWorkspace.reports(), reportWorkspace.availableTemplates(), reportWorkspace.blockingReasons(),
+                digitalSlides, Instant.now());
     }
 
     @Transactional(readOnly = true)
@@ -1017,6 +1017,7 @@ public class V2DiagnosisApplicationService {
             List<TechnicalOrderView> technicalOrders,
             int blockingTechnicalOrderCount, Placeholder technicalOrder,
             Placeholder report, List<V2ReportApplicationService.ReportView> reports,
+            List<V2ReportApplicationService.AvailableTemplateResult> availableReportTemplates,
             List<String> blockingReasons, List<DigitalSlideView> digitalSlides, Instant refreshedAt) { }
     public record CaseSummary(UUID caseId, String pathologyNo, String businessTypeCode, String lifecycle) { }
     public record ApplicationSummary(String applicationItemCode, String sourceSystemCode, String externalApplicationId) { }

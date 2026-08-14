@@ -18,6 +18,7 @@ import com.hanjisang.pis.v2.report.application.V2ReportApplicationService;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.CreateTemplateCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.CreateTemplateVersionCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.EncryptedPdfCommand;
+import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.InstantiateTemplatePresetCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.SignOutCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.SupplementalCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.WithdrawCommand;
@@ -100,6 +101,23 @@ public class V2ReportController {
         return service.createTemplate(new CreateTemplateCommand(request.code(), request.name(), request.businessTypeId()));
     }
 
+    @GetMapping("/report-templates")
+    public List<V2ReportApplicationService.TemplateCatalogResult> templateCatalog() {
+        return service.templateCatalog();
+    }
+
+    @GetMapping("/report-template-presets")
+    public List<V2ReportApplicationService.TemplatePresetResult> templatePresets() {
+        return service.templatePresets();
+    }
+
+    @PostMapping("/report-template-presets/{presetCode}/instantiate")
+    public V2ReportApplicationService.PresetInstantiationResult instantiateTemplatePreset(
+            @PathVariable String presetCode, @RequestBody InstantiateTemplatePresetRequest request) {
+        return service.instantiateTemplatePreset(presetCode,
+                new InstantiateTemplatePresetCommand(request.code(), request.name(), request.businessTypeId()));
+    }
+
     @PostMapping("/report-templates/{templateId}/versions")
     public V2ReportApplicationService.TemplateVersionResult createTemplateVersion(@PathVariable UUID templateId,
             @RequestBody CreateTemplateVersionRequest request) {
@@ -120,4 +138,5 @@ public class V2ReportController {
     public record CreateTemplateVersionRequest(String definition) { }
     public record IdempotencyRequest(String idempotencyKey) { }
     public record EncryptedPdfRequest(String accessPassword, String reason) { }
+    public record InstantiateTemplatePresetRequest(String code, String name, UUID businessTypeId) { }
 }

@@ -1,5 +1,13 @@
 # SRS V1.4 → PIS V2 实施日志
 
+## 2026-08-14：报告模板设计器与常用肿瘤结构闭环
+
+关闭 `RPT-003`、`RPT-009`。配置中心的报告模板不再只允许改名称：管理员可创建医院级模板，在结构化设计器中配置报告标题、通用/肿瘤类别、肿瘤部位代码、A4页码、版块顺序、版块数据来源及字段编码。保存总是追加新的 DRAFT；发布经过服务端 schemaVersion、标题、类别、肿瘤部位、页面、版块唯一性、来源和字段校验，已发布版本仍由既有数据库触发器保持不可变。诊断工作区列出与病例业务类型匹配的已发布报告版本，预览切换后显示模板标题/版块名称，签发命令显式携带并固化所选版本定义。
+
+V48 新增版本化 `report_template_preset` 和医院模板的 `source_preset_code` 追溯，内置肺、乳腺、结直肠三类结构。预置只包含基本信息、材料、镜下、诊断、辅助检查和签发等通用结构，不写入医学结论、分期规则或治疗建议；复制后仍是当前医院草稿，必须由本地业务审核并显式发布。`V48ReportTemplateDesignerExistingDatabaseUpgradeTest` 覆盖 V47→V48 顺序、三项种子和来源列。
+
+验证证据：`V2ReportWebTest` 通过，覆盖预置查询/复制、非法定义拒绝、设计新版本、发布、目录追溯、诊断预览选择和签发快照；前端全量 16 个测试文件、35 tests 通过，format、lint、typecheck 和 production build 均通过；`report-template-designer.spec.ts` 在 1920/1366 两档共 2 个浏览器用例通过。Docker 恢复后，14 个 Testcontainers 测试类共 19 tests 全部通过，覆盖 PostgreSQL 18.4 新库迁移、V34/V35/V36/V39/V45/V46/V47/V48 顺序升级与并发约束；Flyway 当前仅声明已测试至 PostgreSQL 17，因此保留版本兼容告警但不存在测试失败。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=333 / PARTIAL=124 / MISSING=205 / EXTERNAL_DEPENDENCY=80 / CONFLICT_RESOLVED_BY_V2=0`。
+
 ## 2026-08-14：报告分页与 PDF 加密闭环
 
 关闭 `RPT-011`、`RPT-013`。原手工 PDF 适配器固定单页并截断 1500 字符，无法作为正式医疗输出。本次改为 Apache PDFBox 3.0.8：按 Unicode 码点换行、完整正文自动分页，页眉固化报告号、内容 SHA-256 和页码，文档元数据记录完整字符数用于回归核验。签发报告 PDF 默认使用 AES-256 权限保护，禁止修改、批注、表单填充、组装和普通内容提取，保留打印与辅助访问能力。

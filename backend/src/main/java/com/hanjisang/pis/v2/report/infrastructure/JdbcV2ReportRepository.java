@@ -88,7 +88,8 @@ public class JdbcV2ReportRepository {
     public Optional<ReportTemplate> findTemplate(UUID templateId, String organizationReference) {
         return jdbc.query("""
                 SELECT id, organization_reference, business_type_id, template_code, template_name, enabled,
-                       configuration_version, created_at, created_by_ref, updated_at, updated_by_ref
+                       configuration_version, created_at, created_by_ref, updated_at, updated_by_ref,
+                       source_preset_code
                 FROM pis_v2.report_template
                 WHERE id = ? AND organization_reference = ?
                 """, rs -> rs.next() ? Optional.of(new ReportTemplate(rs.getObject("id", UUID.class),
@@ -96,7 +97,52 @@ public class JdbcV2ReportRepository {
                         rs.getString("template_code"), rs.getString("template_name"), rs.getBoolean("enabled"),
                         rs.getInt("configuration_version"), rs.getTimestamp("created_at").toInstant(),
                         rs.getString("created_by_ref"), rs.getTimestamp("updated_at").toInstant(),
-                        rs.getString("updated_by_ref"))) : Optional.empty(), templateId, organizationReference);
+                        rs.getString("updated_by_ref"), rs.getString("source_preset_code"))) : Optional.empty(),
+                templateId, organizationReference);
+    }
+
+    public List<TemplateCatalogRow> findTemplateCatalog(String organizationReference) {
+        return jdbc.query("""
+                SELECT t.id AS template_id, t.template_code, t.template_name, t.business_type_id,
+                       b.business_type_code, b.display_name AS business_type_name, t.enabled,
+                       t.configuration_version, t.source_preset_code,
+                       v.id AS version_id, v.version_no, CAST(v.definition AS VARCHAR) AS definition,
+                       v.status_code, v.published_at, v.created_at
+                FROM pis_v2.report_template t
+                JOIN pis_v2.business_type b ON b.id = t.business_type_id
+                LEFT JOIN pis_v2.report_template_version v ON v.template_id = t.id
+                WHERE t.organization_reference = ?
+                ORDER BY t.template_name, t.id, v.version_no DESC
+                """, (rs, rowNum) -> new TemplateCatalogRow(rs.getObject("template_id", UUID.class),
+                        rs.getString("template_code"), rs.getString("template_name"),
+                        rs.getObject("business_type_id", UUID.class), rs.getString("business_type_code"),
+                        rs.getString("business_type_name"), rs.getBoolean("enabled"),
+                        rs.getInt("configuration_version"), rs.getString("source_preset_code"),
+                        rs.getObject("version_id", UUID.class), (Integer) rs.getObject("version_no"),
+                        rs.getString("definition"), rs.getString("status_code"), instant(rs, "published_at"),
+                instant(rs, "created_at")), organizationReference);
+    }
+
+    public List<TemplateCatalogRow> findPublishedTemplateCatalog(UUID businessTypeId, String organizationReference) {
+        return findTemplateCatalog(organizationReference).stream()
+                .filter(item -> businessTypeId.equals(item.businessTypeId()))
+                .filter(item -> item.enabled() && "PUBLISHED".equals(item.status()))
+                .toList();
+    }
+
+    public List<TemplatePreset> findTemplatePresets() {
+        return jdbc.query("""
+                SELECT preset_code, preset_name, tumor_site_code, CAST(definition AS VARCHAR) AS definition,
+                       preset_version
+                FROM pis_v2.report_template_preset
+                WHERE enabled = TRUE
+                ORDER BY preset_name
+                """, (rs, rowNum) -> new TemplatePreset(rs.getString("preset_code"), rs.getString("preset_name"),
+                        rs.getString("tumor_site_code"), rs.getString("definition"), rs.getInt("preset_version")));
+    }
+
+    public Optional<TemplatePreset> findTemplatePreset(String presetCode) {
+        return findTemplatePresets().stream().filter(item -> item.presetCode().equals(presetCode)).findFirst();
     }
 
     public int nextTemplateVersion(UUID templateId) {
@@ -110,11 +156,12 @@ public class JdbcV2ReportRepository {
         jdbc.update("""
                 INSERT INTO pis_v2.report_template
                     (id, organization_reference, business_type_id, template_code, template_name, enabled,
-                     configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     configuration_version, created_at, created_by_ref, updated_at, updated_by_ref,
+                     source_preset_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, template.id(), template.organizationReference(), template.businessTypeId(), template.code(),
                 template.name(), template.enabled(), template.configurationVersion(), Timestamp.from(now), actorRef,
-                Timestamp.from(now), actorRef);
+                Timestamp.from(now), actorRef, template.sourcePresetCode());
     }
 
     public void insertTemplateVersion(ReportTemplateVersion version) {
@@ -261,6 +308,14 @@ public class JdbcV2ReportRepository {
                 instant(rs, "published_at"), rs.getString("published_by_ref"), rs.getTimestamp("created_at").toInstant(),
                 rs.getString("created_by_ref"), rs.getLong("concurrency_version"));
     }
+
+    public record TemplateCatalogRow(UUID templateId, String templateCode, String templateName,
+            UUID businessTypeId, String businessTypeCode, String businessTypeName, boolean enabled,
+            int configurationVersion, String sourcePresetCode, UUID versionId, Integer versionNo, String definition,
+            String status, Instant publishedAt, Instant createdAt) { }
+
+    public record TemplatePreset(String presetCode, String presetName, String tumorSiteCode, String definition,
+            int presetVersion) { }
 
     private Report toReport(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Report(rs.getObject("id", UUID.class), rs.getString("report_no"),

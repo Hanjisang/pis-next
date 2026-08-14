@@ -123,6 +123,14 @@ export type V2DiagnosisWorkspace = {
   technicalOrder: { kind: string; status: string };
   report: { kind: string; status: string };
   reports: V2Report[];
+  availableReportTemplates?: Array<{
+    templateId: string;
+    versionId: string;
+    versionNo: number;
+    code: string;
+    name: string;
+    sourcePresetCode?: string;
+  }>;
   blockingReasons: string[];
   digitalSlides: Array<{
     digitalSlideId: string;

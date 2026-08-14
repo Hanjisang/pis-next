@@ -2921,6 +2921,118 @@ textarea:focus {
   font-weight: 650;
 }
 
+.report-template-designer {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.report-template-create-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+}
+
+.report-template-create-panel header,
+.report-template-create-actions,
+.report-section-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.report-template-create-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.report-template-create-actions select {
+  min-width: 240px;
+}
+
+.report-template-workspace {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.32fr) minmax(0, 1fr);
+  min-height: 520px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.report-template-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: var(--space-3);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-subtle);
+}
+
+.report-template-list > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+}
+
+.report-template-list > button span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.report-template-list > button.active {
+  border-color: color-mix(in srgb, var(--brand-700) 35%, var(--border-subtle));
+  background: var(--surface-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.report-template-canvas {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.report-section-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.report-section-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+}
+
+.report-section-card > label {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+
+@media (max-width: 1100px) {
+  .report-template-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .report-template-list {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
 .report-status-list > span {
   display: flex;
   align-items: center;
