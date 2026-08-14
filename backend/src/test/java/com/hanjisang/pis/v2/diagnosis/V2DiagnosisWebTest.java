@@ -149,6 +149,68 @@ class V2DiagnosisWebTest {
     }
 
     @Test
+    void caseSupportCommandsAreScopedIdempotentAndKeepCompletionHistory() throws Exception {
+        String caseId = createReadyCase("DX-CASE-SUPPORT");
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
+                .andExpect(status().isOk());
+
+        String followUpBody = """
+                {"followUpDate":"2026-09-01","plan":"合成出院后三个月随访",
+                 "idempotencyKey":"dx-follow-up-create"}
+                """;
+        JsonNode followUp = json(mockMvc.perform(post("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON).content(followUpBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        JsonNode followUpReplay = json(mockMvc.perform(post("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON).content(followUpBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(followUpReplay.get("followUpId").asText()).isEqualTo(followUp.get("followUpId").asText());
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"followUpDate":"2026-09-01","plan":"冲突的合成随访计划",
+                         "idempotencyKey":"dx-follow-up-create"}
+                        """)).andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.case_follow_up", Integer.class)).isEqualTo(1);
+
+        String completeBody = """
+                {"content":"合成电话随访","result":"无新增异常，继续观察",
+                 "idempotencyKey":"dx-follow-up-complete"}
+                """;
+        mockMvc.perform(post("/api/v2/case-support/follow-ups/%s/complete"
+                        .formatted(followUp.get("followUpId").asText()))
+                .contentType(MediaType.APPLICATION_JSON).content(completeBody)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/case-support/follow-ups/%s/complete"
+                        .formatted(followUp.get("followUpId").asText()))
+                .contentType(MediaType.APPLICATION_JSON).content(completeBody)).andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.case_follow_up WHERE completed_at IS NOT NULL", Integer.class)).isEqualTo(1);
+
+        String consultationBody = """
+                {"initiatorRef":"SYNTH-DOCTOR-A","participantRefs":"SYNTH-DOCTOR-B,SYNTH-DOCTOR-C",
+                 "reason":"合成疑难病例复核","discussion":"合成讨论记录","conclusion":"形成合成会诊结论",
+                 "idempotencyKey":"dx-consultation-create"}
+                """;
+        JsonNode consultation = json(mockMvc.perform(post(
+                        "/api/v2/case-support/cases/%s/consultations".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON).content(consultationBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        JsonNode consultationReplay = json(mockMvc.perform(post(
+                        "/api/v2/case-support/cases/%s/consultations".formatted(caseId))
+                .contentType(MediaType.APPLICATION_JSON).content(consultationBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(consultationReplay.get("consultationId").asText())
+                .isEqualTo(consultation.get("consultationId").asText());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.case_consultation", Integer.class)).isEqualTo(1);
+
+        jdbcTemplate.update("UPDATE pis_v2.pathology_case SET organization_reference = 'SYNTH-OTHER' WHERE id = ?",
+                UUID.fromString(caseId));
+        mockMvc.perform(get("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId)))
+                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(post("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
     void newPublishedTemplateVersionDoesNotMoveExistingDiagnosisSnapshot() throws Exception {
         String firstCase = createReadyCase("I03-TEMPLATE-A");
         JsonNode first = json(mockMvc.perform(post("/api/v2/diagnoses/claim")

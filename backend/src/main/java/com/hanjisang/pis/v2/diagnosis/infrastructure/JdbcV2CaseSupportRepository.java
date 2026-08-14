@@ -19,6 +19,22 @@ public class JdbcV2CaseSupportRepository {
 
     public JdbcV2CaseSupportRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    public boolean caseInScope(UUID caseId, String organizationReference) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.pathology_case
+                 WHERE id = ? AND organization_reference = ?
+                """, Integer.class, caseId, organizationReference);
+        return count != null && count == 1;
+    }
+
+    public boolean lockCaseInScope(UUID caseId, String organizationReference) {
+        return !jdbc.queryForList("""
+                SELECT id FROM pis_v2.pathology_case
+                 WHERE id = ? AND organization_reference = ?
+                 FOR UPDATE
+                """, UUID.class, caseId, organizationReference).isEmpty();
+    }
+
     public boolean isFavorite(UUID caseId, String userReference, String organizationReference) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM pis_v2.case_favorite
@@ -74,6 +90,17 @@ public class JdbcV2CaseSupportRepository {
                 instant(rs, "completed_at")), caseId, organizationReference);
     }
 
+    public Optional<FollowUpRow> findFollowUp(UUID followUpId, String organizationReference) {
+        return jdbc.query("""
+                SELECT id, case_id, follow_up_date, plan, content, result, operator_ref, created_at, completed_at
+                  FROM pis_v2.case_follow_up WHERE id = ? AND organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new FollowUpRow(rs.getObject("id", UUID.class),
+                rs.getObject("case_id", UUID.class), rs.getDate("follow_up_date").toLocalDate(), rs.getString("plan"),
+                rs.getString("content"), rs.getString("result"), rs.getString("operator_ref"),
+                rs.getTimestamp("created_at").toInstant(), instant(rs, "completed_at"))) : Optional.empty(), followUpId,
+                organizationReference);
+    }
+
     public Optional<FollowUpRow> completeFollowUp(UUID followUpId, String content, String result,
             Instant completedAt, String organizationReference) {
         int changed = jdbc.update("""
@@ -115,6 +142,19 @@ public class JdbcV2CaseSupportRepository {
                 rs.getString("participant_refs"), rs.getString("reason"), rs.getString("discussion"),
                 rs.getString("conclusion"), rs.getString("note"), rs.getString("attachment_reference"),
                 rs.getString("recorded_by_ref"), rs.getTimestamp("created_at").toInstant()), caseId, organizationReference);
+    }
+
+    public Optional<ConsultationRow> findConsultation(UUID consultationId, String organizationReference) {
+        return jdbc.query("""
+                SELECT id, case_id, consultation_at, initiator_ref, participant_refs, reason, discussion,
+                       conclusion, note, attachment_reference, recorded_by_ref, created_at
+                  FROM pis_v2.case_consultation WHERE id = ? AND organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new ConsultationRow(rs.getObject("id", UUID.class),
+                rs.getObject("case_id", UUID.class), rs.getTimestamp("consultation_at").toInstant(),
+                rs.getString("initiator_ref"), rs.getString("participant_refs"), rs.getString("reason"),
+                rs.getString("discussion"), rs.getString("conclusion"), rs.getString("note"),
+                rs.getString("attachment_reference"), rs.getString("recorded_by_ref"),
+                rs.getTimestamp("created_at").toInstant())) : Optional.empty(), consultationId, organizationReference);
     }
 
     private static Instant instant(java.sql.ResultSet rs, String column) throws java.sql.SQLException {

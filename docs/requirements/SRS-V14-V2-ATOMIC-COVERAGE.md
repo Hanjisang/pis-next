@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 314 |
-| PARTIAL | 132 |
-| MISSING | 217 |
+| COMPLETE | 318 |
+| PARTIAL | 131 |
+| MISSING | 214 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
@@ -4418,13 +4418,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 L07 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L07 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L07 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L07 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L07 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-007 独立立项、实现和验收。
+- Backend Evidence: `V2ReportApplicationService.withdraw` 撤回不可变报告并重开最后一个审核责任；`V2WorkbenchApplicationService` 与 `JdbcV2WorkbenchRepository.findWithdrawnReports` 投影独立撤回待处理队列。
+- DB Evidence: `report` 保存撤回人、时间、原因和原 PDF 哈希；`responsibility_unit` 追加重开的审核责任事实，原签审记录不覆盖。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 在历史报告面板提供撤回入口并展示撤回状态；工作台能力队列提供“撤回待处理”入口。
+- Test Evidence: `V2ReportWebTest.previewDoesNotPersistAndSignOutWithdrawResignAndSupplementPreserveHistory` 覆盖撤回、审核责任重开、工作台待处理投影、重新签发和完整版本历史。
+- Status: COMPLETE
+- Gap: 无当前已知产品内闭环缺口；撤回不删除或覆盖任何已签发报告。
+- V2 Decision: “撤回待处理”是 Report 与 ResponsibilityUnit 事实投影，不创建 Generic Task/Workflow。
 
 ### DX-008 — 主动接诊
 
@@ -4858,13 +4858,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 L27 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L27 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L27 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L27 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L27 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-027 独立立项、实现和验收。
+- Backend Evidence: `V2CaseSupportApplicationService` 与 `V2CaseSupportController` 保存和查询科内会诊；创建命令具备权限、病例数据范围、幂等摘要冲突和审计校验。
+- DB Evidence: `V33__business_case_support_facts.sql` 的 `case_consultation` 保存发起人、参与人、原因、讨论、结论、备注、附件引用和记录人；幂等结果复用 `diagnosis_command_idempotency`。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 的“会诊与随访”面板提供参与医生、原因、讨论、结论和备注录入及历史展示。
+- Test Evidence: `V2DiagnosisWebTest.caseSupportCommandsAreScopedIdempotentAndKeepCompletionHistory` 与 `V2DiagnosisWorkspace.test.ts` 覆盖会诊创建、重放、范围拒绝和工作区入口。
+- Status: COMPLETE
+- Gap: 无当前已知产品内闭环缺口；附件只保存受控引用，文件存储和访问继续遵循统一附件权限。
+- V2 Decision: 科内会诊是病例下追加业务事实，不替代初诊/复诊/审核责任链。
 
 ### DX-028 — 病例收藏
 
@@ -4880,13 +4880,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 L28 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L28 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L28 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L28 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L28 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-028 独立立项、实现和验收。
+- Backend Evidence: `V2CaseSupportApplicationService.favorite/unfavorite/favoriteState/favorites` 提供用户级收藏，强制权限、病例范围和审计。
+- DB Evidence: `case_favorite` 以病例、用户和组织范围组成唯一键，重复收藏自然幂等且不会改变病例医疗状态。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 顶部主操作区提供“收藏病例/取消收藏”并即时反馈状态。
+- Test Evidence: `V2DiagnosisWebTest.caseSupportCommandsAreScopedIdempotentAndKeepCompletionHistory`、`V2GateCWebTest` 和 `V2DiagnosisWorkspace.test.ts` 覆盖收藏、状态读取、范围拒绝和 UI 动作。
+- Status: COMPLETE
+- Gap: 无当前已知产品内闭环缺口。
+- V2 Decision: 收藏是用户偏好事实，不进入病例生命周期和责任状态机。
 
 ### DX-029 — 随访
 
@@ -4902,13 +4902,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 L29 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L29 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L29 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L29 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L29 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-029 独立立项、实现和验收。
+- Backend Evidence: `V2CaseSupportApplicationService` 与 `V2CaseSupportController` 提供随访计划创建、查询和一次性完成；写命令具备权限、病例范围、幂等摘要冲突及审计。
+- DB Evidence: `case_follow_up` 分离计划日期、计划、随访内容、结果、操作人和完成时间，完成后不允许覆盖；幂等结果复用 `diagnosis_command_idempotency`。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 的“会诊与随访”面板支持新增计划、查看待随访项、填写内容/结果并完成。
+- Test Evidence: `V2DiagnosisWebTest.caseSupportCommandsAreScopedIdempotentAndKeepCompletionHistory` 与 `V2DiagnosisWorkspace.test.ts` 覆盖创建/完成重放、不可重复完成、范围拒绝和 UI 请求。
+- Status: COMPLETE
+- Gap: 无当前已知产品内闭环缺口；跨系统自动随访消息不在本原子项中冒充完成。
+- V2 Decision: 随访使用独立病例事实，不修改报告版本或诊断责任链。
 
 ### WSI-001 — DigitalSlide
 

@@ -15,6 +15,33 @@ export type V2Responsibility = {
   current: boolean;
 };
 
+export type V2CaseFollowUp = {
+  followUpId: string;
+  caseId: string;
+  followUpDate: string;
+  plan: string;
+  content?: string;
+  result?: string;
+  operatorRef: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type V2CaseConsultation = {
+  consultationId: string;
+  caseId: string;
+  consultationAt: string;
+  initiatorRef: string;
+  participantRefs: string;
+  reason: string;
+  discussion?: string;
+  conclusion?: string;
+  note?: string;
+  attachmentReference?: string;
+  recordedByRef: string;
+  createdAt: string;
+};
+
 export type V2DiagnosisWorkspace = {
   caseSummary: {
     caseId: string;
@@ -482,6 +509,79 @@ export function claimV2Diagnosis(caseId: string, idempotencyKey: string) {
     '/diagnoses/self-claim',
     { method: 'POST', body: JSON.stringify({ caseId, idempotencyKey }) },
   );
+}
+
+export function getV2CaseFavorite(caseId: string) {
+  return diagnosisRequest<{ caseId: string; favorite: boolean }>(
+    `/case-support/cases/${caseId}/favorite`,
+  );
+}
+
+export function favoriteV2Case(caseId: string) {
+  return diagnosisRequest<{ caseId: string; favorite: boolean }>(
+    `/case-support/cases/${caseId}/favorite`,
+    { method: 'POST' },
+  );
+}
+
+export function unfavoriteV2Case(caseId: string) {
+  return diagnosisRequest<{ caseId: string; favorite: boolean }>(
+    `/case-support/cases/${caseId}/unfavorite`,
+    { method: 'POST' },
+  );
+}
+
+export function getV2CaseFollowUps(caseId: string) {
+  return diagnosisRequest<V2CaseFollowUp[]>(`/case-support/cases/${caseId}/follow-ups`);
+}
+
+export function createV2CaseFollowUp(input: {
+  caseId: string;
+  followUpDate: string;
+  plan: string;
+  idempotencyKey: string;
+}) {
+  const { caseId, ...body } = input;
+  return diagnosisRequest<V2CaseFollowUp>(`/case-support/cases/${caseId}/follow-ups`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function completeV2CaseFollowUp(input: {
+  followUpId: string;
+  content: string;
+  result: string;
+  idempotencyKey: string;
+}) {
+  const { followUpId, ...body } = input;
+  return diagnosisRequest<V2CaseFollowUp>(`/case-support/follow-ups/${followUpId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getV2CaseConsultations(caseId: string) {
+  return diagnosisRequest<V2CaseConsultation[]>(`/case-support/cases/${caseId}/consultations`);
+}
+
+export function createV2CaseConsultation(input: {
+  caseId: string;
+  consultationAt?: string;
+  initiatorRef: string;
+  participantRefs: string;
+  reason: string;
+  discussion?: string;
+  conclusion?: string;
+  note?: string;
+  attachmentReference?: string;
+  idempotencyKey: string;
+}) {
+  const { caseId, ...body } = input;
+  return diagnosisRequest<V2CaseConsultation>(`/case-support/cases/${caseId}/consultations`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export function assignV2Diagnosis(input: {

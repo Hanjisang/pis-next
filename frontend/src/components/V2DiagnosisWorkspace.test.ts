@@ -123,6 +123,15 @@ const doctors = [
 function responseForWorkspace(input: RequestInfo | URL): Response {
   const url = String(input);
   if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+  if (url.includes('/case-support') && url.endsWith('/favorite')) {
+    return new Response(JSON.stringify({ caseId: 'CASE-1', favorite: false }));
+  }
+  if (url.includes('/case-support') && url.endsWith('/follow-ups')) {
+    return new Response(JSON.stringify([]));
+  }
+  if (url.includes('/case-support') && url.endsWith('/consultations')) {
+    return new Response(JSON.stringify([]));
+  }
   return new Response(JSON.stringify(workspace));
 }
 
@@ -274,5 +283,85 @@ describe('V2DiagnosisWorkspace', () => {
     expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('合成预览内容');
     expect(wrapper.find('[aria-label="报告预览"]').text()).toContain('A1-HE');
     expect(wrapper.find('[aria-label="报告预览"]').text()).not.toContain('DOCTOR-A');
+  });
+
+  it('keeps favorite, consultation and follow-up actions inside the diagnosis workspace', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.includes('/case-support') && init?.method === 'POST') {
+        if (url.endsWith('/favorite')) {
+          return new Response(JSON.stringify({ caseId: 'CASE-1', favorite: true }));
+        }
+        if (url.endsWith('/follow-ups')) {
+          return new Response(
+            JSON.stringify({
+              followUpId: 'FU-1',
+              caseId: 'CASE-1',
+              followUpDate: '2026-09-01',
+              plan: '合成随访计划',
+              operatorRef: 'doctor-a',
+              createdAt: '2026-08-14T00:00:00Z',
+            }),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            consultationId: 'CONS-1',
+            caseId: 'CASE-1',
+            consultationAt: '2026-08-14T00:00:00Z',
+            initiatorRef: 'doctor-a',
+            participantRefs: 'doctor-b',
+            reason: '合成疑难病例复核',
+            recordedByRef: 'doctor-a',
+            createdAt: '2026-08-14T00:00:00Z',
+          }),
+        );
+      }
+      return responseForWorkspace(input);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2DiagnosisWorkspace, {
+      props: {
+        caseId: 'CASE-1',
+        authUser: {
+          userId: 'doctor-a',
+          username: 'doctor-a',
+          displayName: '张医生',
+          roleCode: 'DOCTOR',
+          permissions: [],
+          doctor: { id: 'doctor-a', doctorCode: 'D-A', displayName: '张医生' },
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '收藏病例')
+      ?.trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('会诊与随访'))
+      ?.trigger('click');
+    await wrapper.find('input[placeholder="填写随访目的和计划"]').setValue('合成随访计划');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '新增随访')
+      ?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('病例随访');
+    expect(wrapper.text()).toContain('科内会诊');
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/favorite'))).toBe(true);
+    const followUpCall = fetchMock.mock.calls.find(
+      ([input, init]) => String(input).endsWith('/follow-ups') && init?.method === 'POST',
+    );
+    expect(followUpCall).toBeTruthy();
+    expect(JSON.parse(followUpCall?.[1]?.body as string)).toMatchObject({
+      plan: '合成随访计划',
+      idempotencyKey: expect.any(String),
+    });
   });
 });

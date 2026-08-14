@@ -78,6 +78,10 @@ class V2ReportWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(reopened.get("currentResponsibility").get("role").asText()).isEqualTo("AUDIT");
         assertThat(reopened.get("responsibilityChain")).hasSize(2);
+        JsonNode withdrawalQueue = json(mockMvc.perform(get("/api/v2/my-workbench"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(withdrawalQueue.get("counts").get("withdrawnReport").asInt()).isEqualTo(1);
+        assertThat(withdrawalQueue.get("myWork").toString()).contains("WITHDRAWN_REPORT_REQUIRES_ATTENTION");
         assertThat(jdbcTemplate.queryForObject("SELECT pdf_content_hash FROM pis_v2.report WHERE id = ?", String.class,
                 UUID.fromString(reportId))).isNotBlank();
 

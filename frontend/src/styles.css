@@ -6030,6 +6030,40 @@ button.dense-report-row:hover {
   padding: 10px 12px;
 }
 
+.support-panel-content.diagnosis-case-support {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 360px;
+}
+
+.case-support-section {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+}
+
+.case-support-section header div,
+.case-support-create-form {
+  display: grid;
+  gap: 4px;
+}
+
+.case-support-section header small {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.case-support-create-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.case-support-create-form button {
+  align-self: end;
+}
+
 .support-facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(120px, 1fr));
@@ -6165,6 +6199,10 @@ button.dense-report-row:hover {
   .diagnosis-focused-layout {
     grid-template-columns: 190px minmax(0, 1fr) 320px;
     min-height: 520px;
+  }
+
+  .support-panel-content.diagnosis-case-support {
+    grid-template-columns: 1fr;
   }
 
   .frozen-focused-grid {

@@ -97,11 +97,11 @@ class V2GateCWebTest {
                 .isTrue();
         mockMvc.perform(post("/api/v2/case-support/cases/%s/follow-ups".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"followUpDate\":\"2026-09-01\",\"plan\":\"合成随访计划\"}"))
+                .content("{\"followUpDate\":\"2026-09-01\",\"plan\":\"合成随访计划\",\"idempotencyKey\":\"gatec-follow-up\"}"))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v2/case-support/cases/%s/consultations".formatted(caseId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"initiatorRef\":\"SYNTH-DOCTOR-A\",\"participantRefs\":\"SYNTH-DOCTOR-B\",\"reason\":\"合成会诊\"}"))
+                .content("{\"initiatorRef\":\"SYNTH-DOCTOR-A\",\"participantRefs\":\"SYNTH-DOCTOR-B\",\"reason\":\"合成会诊\",\"idempotencyKey\":\"gatec-consultation\"}"))
                 .andExpect(status().isOk());
         assertThat(json(mockMvc.perform(get("/api/v2/case-support/cases/%s/consultations".formatted(caseId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);

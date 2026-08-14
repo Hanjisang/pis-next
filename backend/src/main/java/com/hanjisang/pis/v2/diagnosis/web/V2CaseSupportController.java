@@ -40,7 +40,8 @@ public class V2CaseSupportController {
     @PostMapping("/cases/{caseId}/follow-ups")
     public V2CaseSupportApplicationService.FollowUpResult createFollowUp(@PathVariable UUID caseId,
             @RequestBody FollowUpRequest request) {
-        return service.createFollowUp(caseId, new FollowUpCommand(request.followUpDate(), request.plan()));
+        return service.createFollowUp(caseId, new FollowUpCommand(request.followUpDate(), request.plan(),
+                request.idempotencyKey()));
     }
 
     @GetMapping("/cases/{caseId}/follow-ups")
@@ -49,7 +50,8 @@ public class V2CaseSupportController {
     @PostMapping("/follow-ups/{followUpId}/complete")
     public V2CaseSupportApplicationService.FollowUpResult completeFollowUp(@PathVariable UUID followUpId,
             @RequestBody CompleteFollowUpRequest request) {
-        return service.completeFollowUp(followUpId, new CompleteFollowUpCommand(request.content(), request.result()));
+        return service.completeFollowUp(followUpId, new CompleteFollowUpCommand(request.content(), request.result(),
+                request.idempotencyKey()));
     }
 
     @PostMapping("/cases/{caseId}/consultations")
@@ -57,7 +59,7 @@ public class V2CaseSupportController {
             @RequestBody ConsultationRequest request) {
         return service.createConsultation(caseId, new ConsultationCommand(request.consultationAt(), request.initiatorRef(),
                 request.participantRefs(), request.reason(), request.discussion(), request.conclusion(), request.note(),
-                request.attachmentReference()));
+                request.attachmentReference(), request.idempotencyKey()));
     }
 
     @GetMapping("/cases/{caseId}/consultations")
@@ -65,8 +67,9 @@ public class V2CaseSupportController {
         return service.consultations(caseId);
     }
 
-    public record FollowUpRequest(LocalDate followUpDate, String plan) { }
-    public record CompleteFollowUpRequest(String content, String result) { }
+    public record FollowUpRequest(LocalDate followUpDate, String plan, String idempotencyKey) { }
+    public record CompleteFollowUpRequest(String content, String result, String idempotencyKey) { }
     public record ConsultationRequest(Instant consultationAt, String initiatorRef, String participantRefs,
-            String reason, String discussion, String conclusion, String note, String attachmentReference) { }
+            String reason, String discussion, String conclusion, String note, String attachmentReference,
+            String idempotencyKey) { }
 }

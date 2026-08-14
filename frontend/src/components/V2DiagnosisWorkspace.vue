@@ -14,12 +14,18 @@ import {
   acknowledgeV2TechnicalResult,
   assignV2Diagnosis,
   claimV2Diagnosis,
+  completeV2CaseFollowUp,
   completeV2Responsibility,
+  createV2CaseConsultation,
+  createV2CaseFollowUp,
   createV2DigitalAnnotation,
   createV2DigitalMeasurement,
   createV2FrozenRoundDiagnosis,
   createV2TechnicalOrder,
   getV2DiagnosisWorkspace,
+  getV2CaseConsultations,
+  getV2CaseFavorite,
+  getV2CaseFollowUps,
   getV2FrozenRoundDiagnosisWorkspace,
   getV2ReportPdfUrl,
   getV2ReportPreview,
@@ -28,7 +34,11 @@ import {
   saveV2DigitalScreenshot,
   signOutV2Report,
   supplementV2Report,
+  favoriteV2Case,
+  unfavoriteV2Case,
   withdrawV2Report,
+  type V2CaseConsultation,
+  type V2CaseFollowUp,
   type V2DiagnosisWorkspace as DiagnosisWorkspace,
   type V2ResponsibilityRole,
   type V2TechnicalItem,
@@ -79,7 +89,7 @@ type PoolCase = {
   businessTypeCode: string;
   workCode?: string;
 };
-type SupportPanel = 'clinical' | 'technical' | 'history' | 'reports' | 'audit';
+type SupportPanel = 'clinical' | 'technical' | 'caseSupport' | 'history' | 'reports' | 'audit';
 type ContextSection = 'application' | 'specimens' | 'blocks' | 'slides' | 'digital' | 'history';
 type ReportPreviewDocument = {
   case?: {
@@ -180,6 +190,19 @@ const selectedViewer = ref<{
 } | null>(null);
 const viewerAnnotationNote = ref('');
 const viewerReviewBusy = ref(false);
+const caseFavorite = ref(false);
+const caseFollowUps = ref<V2CaseFollowUp[]>([]);
+const caseConsultations = ref<V2CaseConsultation[]>([]);
+const followUpDate = ref(new Date().toISOString().slice(0, 10));
+const followUpPlan = ref('');
+const followUpCompletion = ref<Record<string, { content: string; result: string }>>({});
+const consultationDraft = ref({
+  participantRefs: '',
+  reason: '',
+  discussion: '',
+  conclusion: '',
+  note: '',
+});
 
 const currentResponsibility = computed(() => workspace.value?.currentResponsibility);
 const currentRole = computed<V2ResponsibilityRole | undefined>(
@@ -409,6 +432,7 @@ async function loadWorkspace() {
     } catch {
       patientHistory.value = [];
     }
+    await loadCaseSupport(loadedWorkspace.caseSummary.caseId);
     void getV2MyWorkbench()
       .then((result) => {
         const queueItems =
@@ -457,6 +481,107 @@ async function loadWorkspace() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadCaseSupport(currentCaseId: string) {
+  try {
+    const [favorite, followUps, consultations] = await Promise.all([
+      getV2CaseFavorite(currentCaseId),
+      getV2CaseFollowUps(currentCaseId),
+      getV2CaseConsultations(currentCaseId),
+    ]);
+    caseFavorite.value = Boolean(favorite.favorite);
+    caseFollowUps.value = Array.isArray(followUps) ? followUps : [];
+    caseConsultations.value = Array.isArray(consultations) ? consultations : [];
+    followUpCompletion.value = Object.fromEntries(
+      caseFollowUps.value
+        .filter((item) => !item.completedAt)
+        .map((item) => [item.followUpId, { content: '', result: '' }]),
+    );
+  } catch {
+    caseFavorite.value = false;
+    caseFollowUps.value = [];
+    caseConsultations.value = [];
+    followUpCompletion.value = {};
+  }
+}
+
+async function toggleFavorite() {
+  if (!workspace.value) return;
+  await submit(async () => {
+    const result = caseFavorite.value
+      ? await unfavoriteV2Case(workspace.value!.caseSummary.caseId)
+      : await favoriteV2Case(workspace.value!.caseSummary.caseId);
+    caseFavorite.value = result.favorite;
+    notice.value = result.favorite ? '病例已收藏。' : '已取消收藏。';
+  });
+}
+
+async function createFollowUp() {
+  if (!workspace.value || !followUpDate.value || !followUpPlan.value.trim()) return;
+  await submit(async () => {
+    await createV2CaseFollowUp({
+      caseId: workspace.value!.caseSummary.caseId,
+      followUpDate: followUpDate.value,
+      plan: followUpPlan.value.trim(),
+      idempotencyKey: requestKey('dx-follow-up-create'),
+    });
+    followUpPlan.value = '';
+    await loadCaseSupport(workspace.value!.caseSummary.caseId);
+    activeSupportPanel.value = 'caseSupport';
+    notice.value = '随访计划已保存。';
+  });
+}
+
+async function completeFollowUp(item: V2CaseFollowUp) {
+  const draft = followUpCompletion.value[item.followUpId];
+  if (!workspace.value || !draft || (!draft.content.trim() && !draft.result.trim())) return;
+  await submit(async () => {
+    await completeV2CaseFollowUp({
+      followUpId: item.followUpId,
+      content: draft.content.trim(),
+      result: draft.result.trim(),
+      idempotencyKey: requestKey('dx-follow-up-complete'),
+    });
+    await loadCaseSupport(workspace.value!.caseSummary.caseId);
+    activeSupportPanel.value = 'caseSupport';
+    notice.value = '随访结果已完成并留痕。';
+  });
+}
+
+function followUpDraft(followUpId: string) {
+  return (followUpCompletion.value[followUpId] ??= { content: '', result: '' });
+}
+
+async function createConsultation() {
+  if (
+    !workspace.value ||
+    !consultationDraft.value.participantRefs.trim() ||
+    !consultationDraft.value.reason.trim()
+  )
+    return;
+  await submit(async () => {
+    await createV2CaseConsultation({
+      caseId: workspace.value!.caseSummary.caseId,
+      initiatorRef: props.authUser?.doctor?.id ?? props.authUser?.userId ?? '当前医生',
+      participantRefs: consultationDraft.value.participantRefs.trim(),
+      reason: consultationDraft.value.reason.trim(),
+      discussion: consultationDraft.value.discussion.trim(),
+      conclusion: consultationDraft.value.conclusion.trim(),
+      note: consultationDraft.value.note.trim(),
+      idempotencyKey: requestKey('dx-consultation-create'),
+    });
+    consultationDraft.value = {
+      participantRefs: '',
+      reason: '',
+      discussion: '',
+      conclusion: '',
+      note: '',
+    };
+    await loadCaseSupport(workspace.value!.caseSummary.caseId);
+    activeSupportPanel.value = 'caseSupport';
+    notice.value = '科内会诊记录已保存。';
+  });
 }
 
 async function loadFrozenDiagnosisWorkspace(roundId: string) {
@@ -1958,6 +2083,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
       >
         <template #actions>
           <div class="diagnosis-header-actions" aria-label="诊断主要操作">
+            <button
+              class="secondary-button"
+              type="button"
+              :disabled="submitting"
+              @click="toggleFavorite"
+            >
+              {{ caseFavorite ? '取消收藏' : '收藏病例' }}
+            </button>
             <template v-if="!workspace.diagnosis">
               <button
                 v-if="workspace.actions.canClaim"
@@ -2292,6 +2425,19 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             <button
               type="button"
               role="tab"
+              :aria-selected="activeSupportPanel === 'caseSupport'"
+              :class="{ active: activeSupportPanel === 'caseSupport' }"
+              @click="toggleSupportPanel('caseSupport')"
+            >
+              会诊与随访<span
+                v-if="caseConsultations.length + caseFollowUps.length"
+                class="count-pill"
+                >{{ caseConsultations.length + caseFollowUps.length }}</span
+              >
+            </button>
+            <button
+              type="button"
+              role="tab"
               :aria-selected="activeSupportPanel === 'history'"
               :class="{ active: activeSupportPanel === 'history' }"
               @click="toggleSupportPanel('history')"
@@ -2379,6 +2525,114 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               </template>
             </div>
             <p v-else class="muted">当前没有技术结果。</p>
+          </div>
+          <div
+            v-else-if="activeSupportPanel === 'caseSupport'"
+            class="support-panel-content diagnosis-case-support"
+          >
+            <section class="case-support-section" aria-label="随访">
+              <header>
+                <div><strong>病例随访</strong><small>计划和完成结果均独立留痕</small></div>
+              </header>
+              <div class="report-inline-form case-support-create-form">
+                <label>随访日期<input v-model="followUpDate" type="date" /></label>
+                <label
+                  >随访计划<input v-model="followUpPlan" placeholder="填写随访目的和计划"
+                /></label>
+                <button
+                  class="primary-button"
+                  type="button"
+                  :disabled="!followUpDate || !followUpPlan.trim() || submitting"
+                  @click="createFollowUp"
+                >
+                  新增随访
+                </button>
+              </div>
+              <div class="support-history-list">
+                <article v-for="item in caseFollowUps" :key="item.followUpId">
+                  <strong>{{ item.followUpDate }} · {{ item.plan }}</strong>
+                  <span v-if="item.completedAt">{{ item.result || item.content || '已完成' }}</span>
+                  <small>{{
+                    item.completedAt ? '已完成 ' + formatDateTime(item.completedAt) : '待随访'
+                  }}</small>
+                  <div
+                    v-if="!item.completedAt && followUpCompletion[item.followUpId]"
+                    class="report-inline-form"
+                  >
+                    <label
+                      >随访内容<input
+                        v-model="followUpDraft(item.followUpId).content"
+                        placeholder="沟通或复查内容"
+                    /></label>
+                    <label
+                      >随访结果<input
+                        v-model="followUpDraft(item.followUpId).result"
+                        placeholder="结果或后续安排"
+                    /></label>
+                    <button
+                      class="secondary-button"
+                      type="button"
+                      :disabled="
+                        submitting ||
+                        (!followUpDraft(item.followUpId).content.trim() &&
+                          !followUpDraft(item.followUpId).result.trim())
+                      "
+                      @click="completeFollowUp(item)"
+                    >
+                      完成随访
+                    </button>
+                  </div>
+                </article>
+                <p v-if="!caseFollowUps.length" class="muted">当前没有随访计划。</p>
+              </div>
+            </section>
+            <section class="case-support-section" aria-label="科内会诊">
+              <header>
+                <div><strong>科内会诊</strong><small>记录参与人、讨论和结论</small></div>
+              </header>
+              <div class="report-inline-form case-support-create-form">
+                <label
+                  >参与医生<input
+                    v-model="consultationDraft.participantRefs"
+                    placeholder="多个医生可用逗号分隔"
+                /></label>
+                <label
+                  >会诊原因<input v-model="consultationDraft.reason" placeholder="填写发起原因"
+                /></label>
+                <label
+                  >讨论记录<textarea v-model="consultationDraft.discussion" rows="2"></textarea>
+                </label>
+                <label
+                  >会诊结论<textarea v-model="consultationDraft.conclusion" rows="2"></textarea>
+                </label>
+                <label>备注<input v-model="consultationDraft.note" /></label>
+                <button
+                  class="primary-button"
+                  type="button"
+                  :disabled="
+                    !consultationDraft.participantRefs.trim() ||
+                    !consultationDraft.reason.trim() ||
+                    submitting
+                  "
+                  @click="createConsultation"
+                >
+                  保存会诊记录
+                </button>
+              </div>
+              <div class="support-history-list">
+                <article v-for="item in caseConsultations" :key="item.consultationId">
+                  <strong>{{ item.reason }}</strong>
+                  <span
+                    >{{ item.participantRefs }} ·
+                    {{ item.conclusion || item.discussion || '待补充结论' }}</span
+                  >
+                  <small
+                    >{{ formatDateTime(item.consultationAt) }} · 发起 {{ item.initiatorRef }}</small
+                  >
+                </article>
+                <p v-if="!caseConsultations.length" class="muted">当前没有科内会诊记录。</p>
+              </div>
+            </section>
           </div>
           <div
             v-else-if="activeSupportPanel === 'history'"
