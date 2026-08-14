@@ -138,7 +138,8 @@ function normalizedPoint(event: MouseEvent) {
   if (!host) return null;
   const image = regular.value ? host.querySelector<HTMLElement>('.viewer-regular-image') : null;
   const imageBounds = image?.getBoundingClientRect();
-  const bounds = imageBounds?.width && imageBounds.height ? imageBounds : host.getBoundingClientRect();
+  const bounds =
+    imageBounds?.width && imageBounds.height ? imageBounds : host.getBoundingClientRect();
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
   if (
     event.clientX < bounds.left ||
@@ -150,7 +151,9 @@ function normalizedPoint(event: MouseEvent) {
   return {
     x: Number(Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)).toFixed(6)),
     y: Number(Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)).toFixed(6)),
-    coordinateSystem: regular.value ? ('NORMALIZED_IMAGE' as const) : ('NORMALIZED_VIEWPORT' as const),
+    coordinateSystem: regular.value
+      ? ('NORMALIZED_IMAGE' as const)
+      : ('NORMALIZED_VIEWPORT' as const),
   };
 }
 

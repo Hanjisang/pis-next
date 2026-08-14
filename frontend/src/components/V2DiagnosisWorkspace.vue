@@ -23,6 +23,7 @@ import {
   createV2DigitalMeasurement,
   createV2FrozenRoundDiagnosis,
   createV2TechnicalOrder,
+  downloadV2EncryptedReportPdf,
   getV2DiagnosisWorkspace,
   getV2DigitalAnnotations,
   getV2DigitalMeasurements,
@@ -183,6 +184,9 @@ const withdrawalReason = ref('');
 const supplementalContent = ref('');
 const supplementalOpen = ref(false);
 const withdrawalOpen = ref(false);
+const encryptedPdfReport = ref<{ reportId: string; reportNo: string } | null>(null);
+const encryptedPdfPassword = ref('');
+const encryptedPdfReason = ref('');
 const selectedViewer = ref<{
   digitalSlideId: string;
   viewerReference: string;
@@ -917,6 +921,38 @@ async function supplementReport() {
     supplementalOpen.value = false;
     await loadWorkspace();
     notice.value = '补充报告已签发，原报告继续生效。';
+  });
+}
+
+function openEncryptedPdf(reportId: string, reportNo: string) {
+  encryptedPdfReport.value = { reportId, reportNo };
+  encryptedPdfPassword.value = '';
+  encryptedPdfReason.value = '';
+}
+
+function closeEncryptedPdf() {
+  encryptedPdfReport.value = null;
+  encryptedPdfPassword.value = '';
+  encryptedPdfReason.value = '';
+}
+
+async function downloadEncryptedPdf() {
+  if (!encryptedPdfReport.value) return;
+  await submit(async () => {
+    const report = encryptedPdfReport.value!;
+    const content = await downloadV2EncryptedReportPdf({
+      reportId: report.reportId,
+      accessPassword: encryptedPdfPassword.value,
+      reason: encryptedPdfReason.value,
+    });
+    const url = URL.createObjectURL(content);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${report.reportNo}-encrypted.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    closeEncryptedPdf();
+    notice.value = '口令加密PDF已生成并下载；系统未保存访问密码。';
   });
 }
 
@@ -1771,6 +1807,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                     <a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
                       >PDF</a
                     >
+                    <button
+                      v-if="report.status === 'EFFECTIVE'"
+                      class="text-button"
+                      type="button"
+                      @click="openEncryptedPdf(report.reportId, report.reportNo)"
+                    >
+                      加密下载
+                    </button>
                   </article>
                 </div>
                 <div class="inline-actions">
@@ -2814,6 +2858,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               ><a :href="getV2ReportPdfUrl(report.reportId)" target="_blank" rel="noreferrer"
                 >PDF</a
               >
+              <button
+                v-if="report.status === 'EFFECTIVE'"
+                class="text-button"
+                type="button"
+                @click="openEncryptedPdf(report.reportId, report.reportNo)"
+              >
+                加密下载
+              </button>
             </article>
             <div class="inline-actions">
               <button
@@ -3045,6 +3097,61 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
         >
           确认签发
         </button>
+      </aside>
+    </div>
+
+    <div
+      v-if="encryptedPdfReport"
+      class="drawer-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="加密下载报告"
+      @click.self="closeEncryptedPdf"
+    >
+      <aside class="technical-order-drawer encrypted-pdf-drawer">
+        <header class="drawer-header">
+          <div>
+            <p class="section-kicker">对外安全副本</p>
+            <h2>加密下载 {{ encryptedPdfReport.reportNo }}</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="关闭加密下载"
+            @click="closeEncryptedPdf"
+          >
+            ×
+          </button>
+        </header>
+        <p class="muted">访问密码仅用于本次 AES-256 加密，不会写入报告、日志或审计记录。</p>
+        <label
+          >访问密码（8–64字符）
+          <input v-model="encryptedPdfPassword" type="password" autocomplete="new-password" />
+        </label>
+        <label
+          >下载用途
+          <textarea
+            v-model="encryptedPdfReason"
+            rows="3"
+            placeholder="填写对外提供或归档用途"
+          ></textarea>
+        </label>
+        <div class="sticky-form-actions">
+          <button class="secondary-button" type="button" @click="closeEncryptedPdf">取消</button>
+          <button
+            class="primary-button"
+            type="button"
+            :disabled="
+              encryptedPdfPassword.length < 8 ||
+              encryptedPdfPassword.length > 64 ||
+              !encryptedPdfReason.trim() ||
+              submitting
+            "
+            @click="downloadEncryptedPdf"
+          >
+            生成并下载
+          </button>
+        </div>
       </aside>
     </div>
   </section>

@@ -3,6 +3,7 @@ package com.hanjisang.pis.v2.report.web;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.CreateTemplateCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.CreateTemplateVersionCommand;
+import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.EncryptedPdfCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.SignOutCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.SupplementalCommand;
 import com.hanjisang.pis.v2.report.application.V2ReportApplicationService.WithdrawCommand;
@@ -75,7 +77,22 @@ public class V2ReportController {
         V2ReportApplicationService.PdfResult result = service.pdf(reportId);
         return ResponseEntity.ok().header("Content-Disposition", "inline; filename=\"" + result.reportNo() + ".pdf\"")
                 .header("X-PIS-V2-Report-Pdf-Reference", result.fileReference())
-                .header("X-PIS-V2-Report-Pdf-Hash", result.contentHash()).body(result.content());
+                .header("X-PIS-V2-Report-Pdf-Hash", result.contentHash())
+                .header("X-PIS-V2-Report-Pdf-Protection", result.protection()).body(result.content());
+    }
+
+    @PostMapping(value = "/reports/{reportId}/pdf-encrypted", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> encryptedPdf(@PathVariable UUID reportId,
+            @RequestBody EncryptedPdfRequest request) {
+        V2ReportApplicationService.PdfResult result = service.encryptedPdf(reportId,
+                new EncryptedPdfCommand(request.accessPassword(), request.reason()));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header("Content-Disposition", "attachment; filename=\"" + result.reportNo() + "-encrypted.pdf\"")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("X-PIS-V2-Report-Pdf-Reference", result.fileReference())
+                .header("X-PIS-V2-Report-Pdf-Hash", result.contentHash())
+                .header("X-PIS-V2-Report-Pdf-Protection", result.protection()).body(result.content());
     }
 
     @PostMapping("/report-templates")
@@ -102,4 +119,5 @@ public class V2ReportController {
     public record CreateTemplateRequest(String code, String name, UUID businessTypeId) { }
     public record CreateTemplateVersionRequest(String definition) { }
     public record IdempotencyRequest(String idempotencyKey) { }
+    public record EncryptedPdfRequest(String accessPassword, String reason) { }
 }

@@ -107,8 +107,10 @@ test('医生在真实阅片视口完成标注、两点测量和 PNG 截图', asy
     const path = url.pathname;
     if (path.endsWith('/auth/config')) return route.fulfill({ json: { required: false } });
     if (path.endsWith('/operations/notifications')) return route.fulfill({ json: [] });
-    if (path.endsWith('/diagnosis-workspaces/CASE-VIEWER')) return route.fulfill({ json: workspace });
-    if (path.endsWith('/case-workspaces/CASE-VIEWER')) return route.fulfill({ json: { timeline: [] } });
+    if (path.endsWith('/diagnosis-workspaces/CASE-VIEWER'))
+      return route.fulfill({ json: workspace });
+    if (path.endsWith('/case-workspaces/CASE-VIEWER'))
+      return route.fulfill({ json: { timeline: [] } });
     if (path.endsWith('/patient-history')) return route.fulfill({ json: { items: [] } });
     if (path.endsWith('/my-workbench')) {
       return route.fulfill({ json: { myWork: [], publicPool: [], counts: {} } });
@@ -156,10 +158,7 @@ test('医生在真实阅片视口完成标注、两点测量和 PNG 截图', asy
   const clickImageAt = async (xRatio: number, yRatio: number) => {
     const bounds = await viewerImage.boundingBox();
     expect(bounds).not.toBeNull();
-    await page.mouse.click(
-      bounds!.x + bounds!.width * xRatio,
-      bounds!.y + bounds!.height * yRatio,
-    );
+    await page.mouse.click(bounds!.x + bounds!.width * xRatio, bounds!.y + bounds!.height * yRatio);
   };
   await page.getByLabel('标注说明').fill('胃黏膜可疑区域');
   await page.getByRole('button', { name: '在图像上标注' }).click();
@@ -183,5 +182,7 @@ test('医生在真实阅片视口完成标注、两点测量和 PNG 截图', asy
 
   await page.getByRole('button', { name: '保存当前截图' }).click();
   await expect(page.getByLabel('阅片记录历史')).toContainText('查看截图');
-  expect(String((screenshots[0] as { imageDataBase64?: string }).imageDataBase64)).toMatch(/^iVBOR/);
+  expect(String((screenshots[0] as { imageDataBase64?: string }).imageDataBase64)).toMatch(
+    /^iVBOR/,
+  );
 });

@@ -5610,9 +5610,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N11 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N11 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-011 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。正式 PDF 按完整 Unicode 正文自动换行和分页，页眉显示报告号、内容摘要和页码，不再截断长报告。
+- V2 Decision: 采用 PDFBox 分页渲染并由 `V2ReportPdfRendererTest` 验证长正文跨页及完整字符计数；签发、预览和补充报告统一使用该输出边界。
 
 ### RPT-012 — PDF
 
@@ -5654,9 +5654,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N13 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N13 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N13 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-013 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。正式 PDF 默认执行 AES-256 权限保护；生效报告可在诊断工作区按用途生成一次性口令加密副本。
+- V2 Decision: 口令只用于本次生成，不落库、不写日志和审计；审计仅记录报告、操作者和下载用途。撤回报告禁止生成新的对外加密副本，原签发 PDF 仍保持不可变。
 
 ### RPT-014 — CA signature
 

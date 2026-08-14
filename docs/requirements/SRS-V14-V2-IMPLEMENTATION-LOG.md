@@ -1,5 +1,13 @@
 # SRS V1.4 → PIS V2 实施日志
 
+## 2026-08-14：报告分页与 PDF 加密闭环
+
+关闭 `RPT-011`、`RPT-013`。原手工 PDF 适配器固定单页并截断 1500 字符，无法作为正式医疗输出。本次改为 Apache PDFBox 3.0.8：按 Unicode 码点换行、完整正文自动分页，页眉固化报告号、内容 SHA-256 和页码，文档元数据记录完整字符数用于回归核验。签发报告 PDF 默认使用 AES-256 权限保护，禁止修改、批注、表单填充、组装和普通内容提取，保留打印与辅助访问能力。
+
+诊断工作区的每份生效报告新增“加密下载”入口。操作者必须输入 8–64 字符访问密码和下载用途；后端基于不可变签发 PDF 生成一次性 AES-256 口令副本，仅返回下载，不创建新的 Report、不覆盖原 PDF、不保存或记录密码。撤回报告不能再生成新的对外副本；高风险下载记录报告、操作者与用途审计。运行环境缺少中文字体字形时，渲染器以 Unicode 转义显示缺失字符，保证内容不静默丢失；生产镜像中文字体包仍需作为部署基线验证。
+
+验证证据：`V2ReportPdfRendererTest` 验证长中文正文跨页、加密状态、完整字符计数和内容摘要；`V2ReportWebTest` 验证默认权限加密、短密码拒绝、错误密码拒绝、正确密码打开、撤回报告拒绝以及审计事实。前端 3 个相关测试文件共 11 tests 通过，`report-pdf-security.spec.ts`、报告输出和 Viewer 回归在 1920/1366 两档共 6 个浏览器用例通过；format、lint、typecheck 和 production build 均通过。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=331 / PARTIAL=125 / MISSING=206 / EXTERNAL_DEPENDENCY=80 / CONFLICT_RESOLVED_BY_V2=0`。
+
 ## 2026-08-14：报告重签、自助打印与输出历史闭环
 
 关闭 `RPT-017`、`RPT-024`、`RPT-033`、`RPT-036`、`RPT-038`；`RPT-037` 在完成产品内端口、Simulator、状态查询和错误语义后转为 `EXTERNAL_DEPENDENCY`。撤回后的同一 Diagnosis 继续编辑和重新审核，再签发追加 R002，R001 及 PDF 保持不可变，不引入 ReportVersion。

@@ -23,7 +23,10 @@ test('报告打印与发放在真实业务入口显示执行结果和历史', as
     if (path.endsWith('/operations/overview')) {
       return route.fulfill({ json: { distributions: [], packages: [] } });
     }
-    if (path.endsWith('/operations/critical-values') || path.endsWith('/operations/logistics/addresses')) {
+    if (
+      path.endsWith('/operations/critical-values') ||
+      path.endsWith('/operations/logistics/addresses')
+    ) {
       return route.fulfill({ json: [] });
     }
     if (path.endsWith('/operations/reports/00000000-0000-0000-0000-000000000001/prints')) {

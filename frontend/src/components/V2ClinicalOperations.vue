@@ -124,31 +124,25 @@ function feedback() {
   );
 }
 function sendReport() {
-  return run(
-    async () => {
-      const result = await distributeOperationsReport(
-        distribution.value.reportId,
-        distribution.value.targetCode,
-        outputKey('report-distribution'),
-      );
-      await loadReportOutput();
-      if (result.errorMessage) throw new Error(result.errorMessage);
-    },
-    '报告发放结果已记录。',
-  );
+  return run(async () => {
+    const result = await distributeOperationsReport(
+      distribution.value.reportId,
+      distribution.value.targetCode,
+      outputKey('report-distribution'),
+    );
+    await loadReportOutput();
+    if (result.errorMessage) throw new Error(result.errorMessage);
+  }, '报告发放结果已记录。');
 }
 function printReport() {
-  return run(
-    async () => {
-      const result = await printOperationsReport(distribution.value.reportId, {
-        ...reportPrint.value,
-        idempotencyKey: outputKey('report-print'),
-      });
-      await loadReportOutput();
-      if (result.errorMessage) throw new Error(result.errorMessage);
-    },
-    '报告打印结果已记录。',
-  );
+  return run(async () => {
+    const result = await printOperationsReport(distribution.value.reportId, {
+      ...reportPrint.value,
+      idempotencyKey: outputKey('report-print'),
+    });
+    await loadReportOutput();
+    if (result.errorMessage) throw new Error(result.errorMessage);
+  }, '报告打印结果已记录。');
 }
 async function loadReportOutput() {
   const reportId = distribution.value.reportId.trim();
@@ -268,13 +262,16 @@ onMounted(() => void load());
           required
           placeholder="已签发报告记录标识"
           @change="loadReportOutput"
-        /><select
-          v-model="distribution.targetCode"
-        >
+        /><select v-model="distribution.targetCode">
           <option value="SIMULATOR_PATIENT_PORTAL">产品内患者服务模拟通道</option>
           <option value="HIS">院内系统（需真实适配器）</option></select
         ><button :disabled="saving">执行发放</button
-        ><button class="secondary-button" type="button" :disabled="saving" @click="loadReportOutput">
+        ><button
+          class="secondary-button"
+          type="button"
+          :disabled="saving"
+          @click="loadReportOutput"
+        >
           查询历史
         </button>
       </form>
@@ -291,7 +288,10 @@ onMounted(() => void load());
       <div v-for="item in reportPrints" :key="item.id" class="operations-row">
         <div>
           <strong>打印 · {{ item.resultCode }}</strong>
-          <p>{{ formatDateTime(item.printedAt) }} · {{ item.terminalReference }} · {{ item.copyCount }} 份</p>
+          <p>
+            {{ formatDateTime(item.printedAt) }} · {{ item.terminalReference }} ·
+            {{ item.copyCount }} 份
+          </p>
           <small v-if="item.failureReason">{{ item.failureReason }}</small>
         </div>
         <span class="status-pill">{{ item.resultCode }}</span>

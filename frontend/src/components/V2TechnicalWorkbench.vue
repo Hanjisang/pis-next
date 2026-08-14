@@ -810,9 +810,7 @@ onMounted(() => void refresh());
               补充取材
             </button>
             <div
-              v-else-if="
-                item.requiresResult && focusedOrder.status === 'EXECUTING'
-              "
+              v-else-if="item.requiresResult && focusedOrder.status === 'EXECUTING'"
               class="result-entry-form"
             >
               <label
@@ -851,12 +849,16 @@ onMounted(() => void refresh());
               >
               <div
                 v-for="output in item.outputs.filter(
-                  (candidate) => candidate.outputKind === 'SLIDE' || candidate.outputKind === 'BLOCK',
+                  (candidate) =>
+                    candidate.outputKind === 'SLIDE' || candidate.outputKind === 'BLOCK',
                 )"
                 :key="output.outputId"
                 class="technical-output-action-row"
               >
-                <span>{{ output.outputKind === 'SLIDE' ? '玻片' : '蜡块' }} {{ output.occurrenceNo }}</span>
+                <span
+                  >{{ output.outputKind === 'SLIDE' ? '玻片' : '蜡块' }}
+                  {{ output.occurrenceNo }}</span
+                >
                 <button
                   class="text-button"
                   type="button"

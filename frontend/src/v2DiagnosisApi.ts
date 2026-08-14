@@ -427,6 +427,25 @@ export function getV2ReportPdfUrl(reportId: string) {
   return `/api/v2/reports/${reportId}/pdf`;
 }
 
+export async function downloadV2EncryptedReportPdf(input: {
+  reportId: string;
+  accessPassword: string;
+  reason: string;
+}): Promise<Blob> {
+  const response = await fetch(`/api/v2/reports/${input.reportId}/pdf-encrypted`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessPassword: input.accessPassword, reason: input.reason }),
+  });
+  if (!response.ok) {
+    const error = (await response.json()) as { error_code?: string; message?: string };
+    throw new Error(
+      `${error.error_code ?? 'V2-REPORT-PDF-ENCRYPTION-FAILED'}: ${error.message ?? '加密PDF生成失败'}`,
+    );
+  }
+  return response.blob();
+}
+
 export function getV2TechnicalProjects(caseId?: string): Promise<V2TechnicalProject[]> {
   return diagnosisRequest(
     `/technical-projects${caseId ? `?caseId=${encodeURIComponent(caseId)}` : ''}`,

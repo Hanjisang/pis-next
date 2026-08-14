@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.util.UUID;
 
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,14 +69,41 @@ class V2ReportWebTest {
         assertThat(first.get("status").asText()).isEqualTo("EFFECTIVE");
         String reportId = first.get("reportId").asText();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report_pdf_output", Integer.class)).isEqualTo(1);
-        assertThat(mockMvc.perform(get("/api/v2/reports/%s/pdf".formatted(reportId)))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).startsWith("%PDF-1.4");
+        byte[] formalPdf = mockMvc.perform(get("/api/v2/reports/%s/pdf".formatted(reportId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(new String(formalPdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        try (PDDocument document = Loader.loadPDF(formalPdf)) {
+            assertThat(document.isEncrypted()).isTrue();
+            assertThat(document.getCurrentAccessPermission().canModify()).isFalse();
+        }
+
+        mockMvc.perform(post("/api/v2/reports/%s/pdf-encrypted".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"accessPassword\":\"short\",\"reason\":\"synthetic delivery\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        byte[] protectedPdf = mockMvc.perform(post("/api/v2/reports/%s/pdf-encrypted".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"accessPassword\":\"synthetic-safe-2026\",\"reason\":\"synthetic delivery\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThatThrownByInvalidPassword(protectedPdf);
+        try (PDDocument document = Loader.loadPDF(protectedPdf, "synthetic-safe-2026")) {
+            assertThat(document.isEncrypted()).isTrue();
+            assertThat(document.getCurrentAccessPermission().canModify()).isFalse();
+        }
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis.audit_event
+                WHERE operation_code = 'PIS-V2-REPORT-PDF-ENCRYPTED-DOWNLOAD'
+                """, Integer.class)).isEqualTo(1);
 
         JsonNode withdrawn = json(mockMvc.perform(post("/api/v2/reports/%s/withdraw".formatted(reportId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"synthetic correction\",\"idempotencyKey\":\"withdraw-i05\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(withdrawn.get("status").asText()).isEqualTo("WITHDRAWN");
+        mockMvc.perform(post("/api/v2/reports/%s/pdf-encrypted".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"accessPassword\":\"synthetic-safe-2026\",\"reason\":\"synthetic delivery\"}"))
+                .andExpect(status().isUnprocessableEntity());
         JsonNode reopened = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(reopened.get("currentResponsibility").get("role").asText()).isEqualTo("AUDIT");
@@ -176,4 +206,9 @@ class V2ReportWebTest {
     }
 
     private JsonNode json(String value) throws Exception { return objectMapper.readTree(value); }
+
+    private static void assertThatThrownByInvalidPassword(byte[] content) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Loader.loadPDF(content))
+                .isInstanceOf(InvalidPasswordException.class);
+    }
 }

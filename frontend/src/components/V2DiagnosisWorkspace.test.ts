@@ -285,6 +285,74 @@ describe('V2DiagnosisWorkspace', () => {
     expect(wrapper.find('[aria-label="报告预览"]').text()).not.toContain('DOCTOR-A');
   });
 
+  it('downloads a password-protected PDF without persisting the password in the workspace', async () => {
+    const reportWorkspace = {
+      ...workspace,
+      reports: [
+        {
+          reportId: 'REPORT-1',
+          reportNo: 'R001',
+          nature: 'ORIGINAL',
+          supplemental: false,
+          status: 'EFFECTIVE',
+          templateVersionId: 'RTV-1',
+          pdfFileReference: 'pis-v2/reports/REPORT-1.pdf',
+          pdfContentHash: 'synthetic-pdf-hash',
+          signedBy: 'doctor-a',
+          signedAt: '2026-08-14T01:00:00Z',
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/pdf-encrypted') && init?.method === 'POST') {
+        return new Response(new Blob(['synthetic encrypted pdf'], { type: 'application/pdf' }));
+      }
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.includes('/case-support') && url.endsWith('/favorite')) {
+        return new Response(JSON.stringify({ caseId: 'CASE-1', favorite: false }));
+      }
+      if (url.includes('/case-support')) return new Response(JSON.stringify([]));
+      return new Response(JSON.stringify(reportWorkspace));
+    });
+    const createObjectURL = vi.fn(() => 'blob:synthetic-report');
+    const revokeObjectURL = vi.fn();
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+    const wrapper = mount(V2DiagnosisWorkspace, {
+      props: { caseId: 'CASE-1', focusKind: 'report' },
+    });
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '加密下载')
+      ?.trigger('click');
+    await wrapper.find('input[type="password"]').setValue('synthetic-safe-2026');
+    await wrapper.find('textarea[placeholder="填写对外提供或归档用途"]').setValue('合成对外提供');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '生成并下载')
+      ?.trigger('click');
+    await flushPromises();
+
+    const request = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/pdf-encrypted'),
+    );
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({
+      accessPassword: 'synthetic-safe-2026',
+      reason: '合成对外提供',
+    });
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:synthetic-report');
+    expect(click).toHaveBeenCalledOnce();
+    expect(wrapper.find('[aria-label="加密下载报告"]').exists()).toBe(false);
+    click.mockRestore();
+  });
+
   it('keeps favorite, consultation and follow-up actions inside the diagnosis workspace', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

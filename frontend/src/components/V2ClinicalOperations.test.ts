@@ -53,7 +53,10 @@ describe('V2ClinicalOperations report output', () => {
     vi.stubGlobal('crypto', { randomUUID: () => 'SYNTHETIC-KEY' });
     const wrapper = mount(V2ClinicalOperations, { props: { overview: { distributions: [] } } });
     await flushPromises();
-    await wrapper.findAll('button').find((button) => button.text().includes('报告发放'))!.trigger('click');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('报告发放'))!
+      .trigger('click');
 
     expect(wrapper.text()).toContain('报告自助打印');
     expect(wrapper.text()).toContain('产品内患者服务模拟通道');

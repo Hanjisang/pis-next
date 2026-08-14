@@ -2909,6 +2909,18 @@ textarea:focus {
   padding: var(--space-3);
 }
 
+.encrypted-pdf-drawer {
+  display: grid;
+  gap: 18px;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.encrypted-pdf-drawer > label {
+  display: grid;
+  gap: 8px;
+  font-weight: 650;
+}
+
 .report-status-list > span {
   display: flex;
   align-items: center;

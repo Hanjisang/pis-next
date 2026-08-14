@@ -238,7 +238,33 @@ public class V2ReportApplicationService {
         Report report = repository.findReport(reportId, actor.hospitalScope())
                 .orElseThrow(() -> reject("V2-REPORT-NOT-FOUND", "报告不存在或不在当前数据范围"));
         return new PdfResult(report.id(), report.reportNo(), report.pdfFileReference(), report.pdfContentHash(),
-                repository.pdf(reportId, actor.hospitalScope()));
+                "AES_256_PERMISSION", repository.pdf(reportId, actor.hospitalScope()));
+    }
+
+    @Transactional
+    public PdfResult encryptedPdf(UUID reportId, EncryptedPdfCommand command) {
+        ActorContext actor = authorization.require(REPORT_QUERY);
+        requireText(command.accessPassword(), "加密PDF访问密码不能为空");
+        requireText(command.reason(), "加密PDF下载原因不能为空");
+        if (command.accessPassword().length() < 8 || command.accessPassword().length() > 64) {
+            throw reject("V2-REPORT-PDF-PASSWORD-LENGTH", "加密PDF访问密码长度必须为8至64个字符");
+        }
+        if (command.reason().length() > 500) {
+            throw reject("V2-REPORT-PDF-REASON-LENGTH", "加密PDF下载原因不能超过500个字符");
+        }
+        Report report = repository.findReport(reportId, actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-REPORT-NOT-FOUND", "报告不存在或不在当前数据范围"));
+        if (report.status() != ReportStatus.EFFECTIVE) {
+            throw reject("V2-REPORT-PDF-NOT-EFFECTIVE", "只有生效报告可以生成对外加密副本");
+        }
+        byte[] content = pdfRenderer.encryptForDelivery(repository.pdf(reportId, actor.hospitalScope()),
+                command.accessPassword());
+        String reference = report.pdfFileReference().replace(".pdf", "-encrypted.pdf");
+        String contentHash = sha256(content);
+        audit.append("PIS-V2-REPORT-PDF-ENCRYPTED-DOWNLOAD", REPORT_QUERY, actor, "ALLOWED", "COMPLETED",
+                report.id(), "V2-REPORT", UUID.randomUUID().toString(),
+                "reportNo=" + report.reportNo() + "; reason=" + command.reason().trim());
+        return new PdfResult(report.id(), report.reportNo(), reference, contentHash, "AES_256_PASSWORD", content);
     }
 
     @Transactional(readOnly = true)
@@ -562,6 +588,7 @@ public class V2ReportApplicationService {
     public record WithdrawCommand(String reason, String idempotencyKey) { }
     public record SupplementalCommand(UUID priorReportId, UUID templateVersionId, String content,
             String idempotencyKey) { }
+    public record EncryptedPdfCommand(String accessPassword, String reason) { }
     public record CreateTemplateCommand(String code, String name, UUID businessTypeId) { }
     public record CreateTemplateVersionCommand(String definition) { }
     public record PreviewResult(boolean valid, List<String> blockingReasons, UUID templateVersionId, int templateVersionNo,
@@ -575,7 +602,8 @@ public class V2ReportApplicationService {
             Instant withdrawnAt, String withdrawalReason) { }
     public record ReportActions(boolean canPreview, boolean canSignOut, boolean canWithdraw, boolean canSupplement) { }
     public record WorkspaceReport(List<ReportView> reports, ReportActions actions, List<String> blockingReasons) { }
-    public record PdfResult(UUID reportId, String reportNo, String fileReference, String contentHash, byte[] content) { }
+    public record PdfResult(UUID reportId, String reportNo, String fileReference, String contentHash,
+            String protection, byte[] content) { }
     public record TemplateResult(UUID templateId, String code, String name, boolean duplicate) { }
     public record TemplateVersionResult(UUID versionId, UUID templateId, int versionNo, String definition, String status,
             Instant publishedAt, boolean duplicate) { }
