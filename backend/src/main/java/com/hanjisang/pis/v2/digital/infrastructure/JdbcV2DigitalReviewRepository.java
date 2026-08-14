@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,6 +24,16 @@ public class JdbcV2DigitalReviewRepository {
                 WHERE d.id = ? AND c.organization_reference = ?
                 """, Integer.class, digitalSlideId, organizationReference);
         return count != null && count == 1;
+    }
+
+    public boolean lockDigitalSlide(UUID digitalSlideId, String organizationReference) {
+        return !jdbc.query("""
+                SELECT d.id FROM pis_v2.digital_slide d
+                JOIN pis_v2.pathology_case c ON c.id = d.case_id
+                WHERE d.id = ? AND c.organization_reference = ?
+                FOR UPDATE
+                """, (rs, rowNum) -> rs.getObject(1, UUID.class), digitalSlideId,
+                organizationReference).isEmpty();
     }
 
     public UUID insertAnnotation(UUID digitalSlideId, String typeCode, String geometryJson, String label, String note,
@@ -80,17 +91,60 @@ public class JdbcV2DigitalReviewRepository {
                 organizationReference);
     }
 
-    public UUID insertScreenshot(UUID digitalSlideId, String viewportJson, String storageReference,
-            String actorRef, Instant now, String organizationReference) {
-        UUID id = UUID.randomUUID();
+    public void insertScreenshot(UUID id, UUID digitalSlideId, String viewportJson, String storageReference,
+            String mediaType, String contentHash, byte[] contentData, String actorRef, Instant now,
+            String organizationReference) {
         jdbc.update("""
                 INSERT INTO pis_v2.digital_slide_screenshot
-                    (id, digital_slide_id, viewport_json, storage_reference, created_at, created_by_ref,
-                     organization_reference)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, id, digitalSlideId, viewportJson, storageReference, Timestamp.from(now), actorRef,
-                organizationReference);
-        return id;
+                    (id, digital_slide_id, viewport_json, storage_reference, media_type, content_hash, content_data,
+                     created_at, created_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id, digitalSlideId, viewportJson, storageReference, mediaType, contentHash, contentData,
+                Timestamp.from(now), actorRef, organizationReference);
+    }
+
+    public List<ScreenshotRow> screenshots(UUID digitalSlideId, String organizationReference) {
+        return jdbc.query("""
+                SELECT id, digital_slide_id, viewport_json, storage_reference, media_type, content_hash,
+                       created_at, created_by_ref
+                  FROM pis_v2.digital_slide_screenshot
+                 WHERE digital_slide_id = ? AND organization_reference = ?
+                 ORDER BY created_at, id
+                """, (rs, rowNum) -> screenshot(rs), digitalSlideId, organizationReference);
+    }
+
+    public Optional<ScreenshotContentRow> screenshotContent(UUID screenshotId, String organizationReference) {
+        return jdbc.query("""
+                SELECT ss.id, ss.media_type, ss.content_hash, ss.content_data
+                  FROM pis_v2.digital_slide_screenshot ss
+                  JOIN pis_v2.digital_slide d ON d.id = ss.digital_slide_id
+                  JOIN pis_v2.pathology_case c ON c.id = d.case_id
+                 WHERE ss.id = ? AND ss.organization_reference = ? AND c.organization_reference = ?
+                   AND ss.content_data IS NOT NULL
+                """, rs -> rs.next() ? Optional.of(new ScreenshotContentRow(rs.getObject("id", UUID.class),
+                rs.getString("media_type"), rs.getString("content_hash"), rs.getBytes("content_data")))
+                : Optional.empty(), screenshotId, organizationReference, organizationReference);
+    }
+
+    public Optional<IdempotencyRow> findIdempotency(String operation, String key, String organizationReference) {
+        return jdbc.query("""
+                SELECT payload_digest, result_entity_id
+                  FROM pis_v2.digital_review_command_idempotency
+                 WHERE organization_reference = ? AND operation_code = ? AND idempotency_key = ?
+                """, rs -> rs.next() ? Optional.of(new IdempotencyRow(rs.getString("payload_digest"),
+                rs.getObject("result_entity_id", UUID.class))) : Optional.empty(), organizationReference,
+                operation, key);
+    }
+
+    public void insertIdempotency(String operation, String key, String payloadDigest, UUID resultEntityId,
+            String actorRef, Instant now, String organizationReference) {
+        jdbc.update("""
+                INSERT INTO pis_v2.digital_review_command_idempotency
+                    (id, operation_code, idempotency_key, payload_digest, result_entity_id, created_at,
+                     created_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), operation, key, payloadDigest, resultEntityId, Timestamp.from(now),
+                actorRef, organizationReference);
     }
 
     public record AnnotationRow(UUID annotationId, UUID digitalSlideId, String annotationTypeCode,
@@ -98,4 +152,15 @@ public class JdbcV2DigitalReviewRepository {
             Instant updatedAt, String updatedByRef) { }
     public record MeasurementRow(UUID measurementId, UUID digitalSlideId, String geometryJson, BigDecimal value,
             String unitCode, String measurementModeCode, Instant createdAt, String createdByRef) { }
+    public record ScreenshotRow(UUID screenshotId, UUID digitalSlideId, String viewportJson, String storageReference,
+            String mediaType, String contentHash, Instant createdAt, String createdByRef) { }
+    public record ScreenshotContentRow(UUID screenshotId, String mediaType, String contentHash, byte[] contentData) { }
+    public record IdempotencyRow(String payloadDigest, UUID resultEntityId) { }
+
+    private static ScreenshotRow screenshot(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new ScreenshotRow(rs.getObject("id", UUID.class), rs.getObject("digital_slide_id", UUID.class),
+                rs.getString("viewport_json"), rs.getString("storage_reference"), rs.getString("media_type"),
+                rs.getString("content_hash"), rs.getTimestamp("created_at").toInstant(),
+                rs.getString("created_by_ref"));
+    }
 }

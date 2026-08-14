@@ -24,6 +24,10 @@ import {
   createV2FrozenRoundDiagnosis,
   createV2TechnicalOrder,
   getV2DiagnosisWorkspace,
+  getV2DigitalAnnotations,
+  getV2DigitalMeasurements,
+  getV2DigitalScreenshots,
+  getV2DigitalScreenshotContentUrl,
   getV2CaseConsultations,
   getV2CaseFavorite,
   getV2CaseFollowUps,
@@ -41,6 +45,9 @@ import {
   type V2CaseConsultation,
   type V2CaseFollowUp,
   type V2DiagnosisWorkspace as DiagnosisWorkspace,
+  type V2DigitalAnnotation,
+  type V2DigitalMeasurement,
+  type V2DigitalScreenshot,
   type V2ResponsibilityRole,
   type V2TechnicalItem,
   type V2TechnicalProject,
@@ -191,6 +198,17 @@ const selectedViewer = ref<{
 } | null>(null);
 const viewerAnnotationNote = ref('');
 const viewerReviewBusy = ref(false);
+const imageViewer = ref<{
+  startAnnotation: () => boolean;
+  startMeasurement: () => boolean;
+  captureCurrentView: () => Promise<{
+    capture: { mediaType: string; dataUrl: string };
+    viewport: { zoom: number; centerX: number; centerY: number } | null;
+  } | null>;
+} | null>(null);
+const viewerAnnotations = ref<V2DigitalAnnotation[]>([]);
+const viewerMeasurements = ref<V2DigitalMeasurement[]>([]);
+const viewerScreenshots = ref<V2DigitalScreenshot[]>([]);
 const caseFavorite = ref(false);
 const caseFollowUps = ref<V2CaseFollowUp[]>([]);
 const caseConsultations = ref<V2CaseConsultation[]>([]);
@@ -947,6 +965,7 @@ function openViewer(digital: {
       digitalSlideId: digital.digitalSlideId,
     },
   };
+  void loadViewerReview(digital.digitalSlideId);
   activeContext.value = 'digital';
 }
 
@@ -991,7 +1010,49 @@ function selectViewerOffset(offset: number) {
   if (next) openViewer(next);
 }
 
-async function saveViewerAnnotation() {
+async function loadViewerReview(digitalSlideId: string) {
+  try {
+    const [annotations, measurements, screenshots] = await Promise.all([
+      getV2DigitalAnnotations(digitalSlideId),
+      getV2DigitalMeasurements(digitalSlideId),
+      getV2DigitalScreenshots(digitalSlideId),
+    ]);
+    if (selectedViewer.value?.digitalSlideId !== digitalSlideId) return;
+    viewerAnnotations.value = annotations;
+    viewerMeasurements.value = measurements;
+    viewerScreenshots.value = screenshots;
+  } catch {
+    if (selectedViewer.value?.digitalSlideId !== digitalSlideId) return;
+    viewerAnnotations.value = [];
+    viewerMeasurements.value = [];
+    viewerScreenshots.value = [];
+  }
+}
+
+function startViewerAnnotation() {
+  if (!viewerAnnotationNote.value.trim()) {
+    error.value = '请先填写标注说明，再在图像上选择位置。';
+    return;
+  }
+  error.value = '';
+  if (!imageViewer.value?.startAnnotation()) {
+    error.value = '当前阅片器不支持页面内标注，请在可交互的数字切片中操作。';
+  }
+}
+
+function startViewerMeasurement() {
+  error.value = '';
+  if (!imageViewer.value?.startMeasurement()) {
+    error.value = '当前阅片器不支持页面内测量，请在可交互的数字切片中操作。';
+  }
+}
+
+async function saveViewerAnnotation(geometry: {
+  x: number;
+  y: number;
+  coordinateSystem: 'NORMALIZED_IMAGE' | 'NORMALIZED_VIEWPORT';
+  viewport: unknown;
+}) {
   const digital = selectedViewer.value;
   if (!digital || !viewerAnnotationNote.value.trim()) return;
   viewerReviewBusy.value = true;
@@ -1000,11 +1061,13 @@ async function saveViewerAnnotation() {
     await createV2DigitalAnnotation({
       digitalSlideId: digital.digitalSlideId,
       annotationTypeCode: 'POINT',
-      geometryJson: JSON.stringify({ x: 0.5, y: 0.5 }),
+      geometryJson: JSON.stringify(geometry),
       label: '阅片标注',
       note: viewerAnnotationNote.value.trim(),
+      idempotencyKey: requestKey('viewer-annotation'),
     });
     viewerAnnotationNote.value = '';
+    await loadViewerReview(digital.digitalSlideId);
     notice.value = '阅片标注已保存。';
   } catch (requestError) {
     error.value = friendlyError(requestError, '阅片标注保存失败，请稍后重试。');
@@ -1013,7 +1076,15 @@ async function saveViewerAnnotation() {
   }
 }
 
-async function saveViewerMeasurement() {
+async function saveViewerMeasurement(geometry: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  value: number;
+  coordinateSystem: 'NORMALIZED_IMAGE' | 'NORMALIZED_VIEWPORT';
+  viewport: unknown;
+}) {
   const digital = selectedViewer.value;
   if (!digital) return;
   viewerReviewBusy.value = true;
@@ -1021,12 +1092,14 @@ async function saveViewerMeasurement() {
   try {
     await createV2DigitalMeasurement({
       digitalSlideId: digital.digitalSlideId,
-      geometryJson: JSON.stringify({ x1: 0.25, y1: 0.5, x2: 0.75, y2: 0.5 }),
-      value: 1,
-      unitCode: 'IMAGE_UNIT',
-      measurementModeCode: 'VIEWPORT_COORDINATE',
+      geometryJson: JSON.stringify(geometry),
+      value: geometry.value,
+      unitCode: geometry.coordinateSystem === 'NORMALIZED_IMAGE' ? 'IMAGE_RATIO' : 'VIEWPORT_RATIO',
+      measurementModeCode: geometry.coordinateSystem + '_COORDINATE',
+      idempotencyKey: requestKey('viewer-measurement'),
     });
-    notice.value = '阅片测量已保存（当前视野坐标）。';
+    await loadViewerReview(digital.digitalSlideId);
+    notice.value = '阅片测量已保存（图像比例坐标）。';
   } catch (requestError) {
     error.value = friendlyError(requestError, '阅片测量保存失败，请稍后重试。');
   } finally {
@@ -1040,12 +1113,23 @@ async function saveViewerScreenshot() {
   viewerReviewBusy.value = true;
   error.value = '';
   try {
+    const captured = await imageViewer.value?.captureCurrentView();
+    if (!captured) throw new Error('当前阅片器无法导出图像，请检查切片资源的跨域访问设置');
+    const imageDataBase64 = captured.capture.dataUrl.split(',', 2)[1];
+    if (!imageDataBase64) throw new Error('截图内容为空');
     await saveV2DigitalScreenshot({
       digitalSlideId: digital.digitalSlideId,
-      viewportJson: JSON.stringify({ capturedAt: new Date().toISOString(), mode: 'CURRENT_VIEW' }),
-      storageReference: `browser://diagnosis-screenshot/${digital.digitalSlideId}/${Date.now()}`,
+      viewportJson: JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        mode: 'CURRENT_VIEW',
+        viewport: captured.viewport,
+      }),
+      mediaType: captured.capture.mediaType,
+      imageDataBase64,
+      idempotencyKey: requestKey('viewer-screenshot'),
     });
-    notice.value = '当前阅片视野截图记录已保存。';
+    await loadViewerReview(digital.digitalSlideId);
+    notice.value = '当前阅片视野截图已保存。';
   } catch (requestError) {
     error.value = friendlyError(requestError, '截图保存失败，请稍后重试。');
   } finally {
@@ -1362,10 +1446,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   </button>
                 </div>
                 <V2ImageViewer
+                  ref="imageViewer"
                   :source="selectedViewer.viewerReference"
                   :label="selectedViewer.slideId ? `玻片 ${selectedViewer.slideId}` : '数字切片'"
                   :source-platform="selectedViewer.sourcePlatform"
                   :context="selectedViewer.context"
+                  @annotation="saveViewerAnnotation"
+                  @measurement="saveViewerMeasurement"
                 />
               </ImageViewerPanel>
               <DiagnosisEditor>
@@ -2301,10 +2388,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               </div>
               <div v-if="selectedViewer" class="diagnosis-viewer-host">
                 <V2ImageViewer
+                  ref="imageViewer"
                   :source="selectedViewer.viewerReference"
                   :label="selectedViewer.slideId ? '玻片 ' + selectedViewer.slideId : '数字切片'"
                   :source-platform="selectedViewer.sourcePlatform"
                   :context="selectedViewer.context"
+                  @annotation="saveViewerAnnotation"
+                  @measurement="saveViewerMeasurement"
                 />
               </div>
               <div v-if="selectedViewer" class="viewer-review-tools" aria-label="阅片记录">
@@ -2313,19 +2403,45 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                   type="text"
                   placeholder="标注说明"
                   aria-label="标注说明"
-                  @keyup.enter="saveViewerAnnotation"
+                  @keyup.enter="startViewerAnnotation"
                 />
-                <button type="button" :disabled="viewerReviewBusy" @click="saveViewerAnnotation">
-                  保存标注
+                <button type="button" :disabled="viewerReviewBusy" @click="startViewerAnnotation">
+                  在图像上标注
                 </button>
-                <button type="button" :disabled="viewerReviewBusy" @click="saveViewerMeasurement">
-                  保存测量
+                <button type="button" :disabled="viewerReviewBusy" @click="startViewerMeasurement">
+                  在图像上测量
                 </button>
                 <button type="button" :disabled="viewerReviewBusy" @click="saveViewerScreenshot">
-                  保存截图记录
+                  保存当前截图
                 </button>
               </div>
-              <div v-else class="diagnosis-no-viewer" aria-live="polite">
+              <div
+                v-if="
+                  selectedViewer &&
+                  (viewerAnnotations.length ||
+                    viewerMeasurements.length ||
+                    viewerScreenshots.length)
+                "
+                class="viewer-review-history"
+                aria-label="阅片记录历史"
+              >
+                <span v-for="item in viewerAnnotations" :key="item.annotationId">
+                  标注 · {{ item.note || item.label || '未命名' }}
+                </span>
+                <span v-for="item in viewerMeasurements" :key="item.measurementId">
+                  测量 · {{ (item.value * 100).toFixed(1) }}% 归一化视距
+                </span>
+                <a
+                  v-for="item in viewerScreenshots"
+                  :key="item.screenshotId"
+                  :href="getV2DigitalScreenshotContentUrl(item.screenshotId)"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  查看截图 · {{ formatDateTime(item.createdAt) }}
+                </a>
+              </div>
+              <div v-if="!selectedViewer" class="diagnosis-no-viewer" aria-live="polite">
                 <strong>{{
                   allSlides.length ? '当前玻片暂无数字切片' : '当前病例暂无玻片'
                 }}</strong>

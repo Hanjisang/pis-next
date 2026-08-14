@@ -5,6 +5,8 @@ import {
   isRegularImageSource,
   isTiledViewerSource,
   type ImageViewerAdapter,
+  type ViewerCapture,
+  type ViewerViewport,
 } from '../viewer/ImageViewerAdapter';
 import { RegularImageViewerAdapter } from '../viewer/RegularImageViewerAdapter';
 import { TiledWSIViewerAdapter } from '../viewer/TiledWSIViewerAdapter';
@@ -23,6 +25,27 @@ const props = defineProps<{
   sourcePlatform?: string;
   context?: ViewerContext;
 }>();
+const emit = defineEmits<{
+  annotation: [
+    geometry: {
+      x: number;
+      y: number;
+      coordinateSystem: 'NORMALIZED_IMAGE' | 'NORMALIZED_VIEWPORT';
+      viewport: ViewerViewport | null;
+    },
+  ];
+  measurement: [
+    geometry: {
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      value: number;
+      coordinateSystem: 'NORMALIZED_IMAGE' | 'NORMALIZED_VIEWPORT';
+      viewport: ViewerViewport | null;
+    },
+  ];
+}>();
 
 const viewerRoot = ref<HTMLElement | null>(null);
 const viewerHost = ref<HTMLElement | null>(null);
@@ -31,6 +54,8 @@ const scale = ref(1);
 const imageError = ref(false);
 const fullscreenActive = ref(false);
 const loading = ref(false);
+const reviewMode = ref<'NONE' | 'POINT' | 'MEASURE'>('NONE');
+const measurementStart = ref<{ x: number; y: number } | null>(null);
 
 const sourceValue = computed(() => props.source?.trim() ?? '');
 const tiled = computed(() => isTiledViewerSource(sourceValue.value));
@@ -108,6 +133,78 @@ function fullscreen() {
   }
 }
 
+function normalizedPoint(event: MouseEvent) {
+  const host = viewerHost.value;
+  if (!host) return null;
+  const image = regular.value ? host.querySelector<HTMLElement>('.viewer-regular-image') : null;
+  const imageBounds = image?.getBoundingClientRect();
+  const bounds = imageBounds?.width && imageBounds.height ? imageBounds : host.getBoundingClientRect();
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
+  if (
+    event.clientX < bounds.left ||
+    event.clientX > bounds.right ||
+    event.clientY < bounds.top ||
+    event.clientY > bounds.bottom
+  )
+    return null;
+  return {
+    x: Number(Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)).toFixed(6)),
+    y: Number(Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)).toFixed(6)),
+    coordinateSystem: regular.value ? ('NORMALIZED_IMAGE' as const) : ('NORMALIZED_VIEWPORT' as const),
+  };
+}
+
+function recordReviewPoint(event: MouseEvent) {
+  if (reviewMode.value === 'NONE') return;
+  const point = normalizedPoint(event);
+  if (!point) return;
+  if (reviewMode.value === 'POINT') {
+    emit('annotation', { ...point, viewport: adapter.value?.getViewport() ?? null });
+    reviewMode.value = 'NONE';
+    return;
+  }
+  if (!measurementStart.value) {
+    measurementStart.value = point;
+    return;
+  }
+  const start = measurementStart.value;
+  emit('measurement', {
+    x1: start.x,
+    y1: start.y,
+    x2: point.x,
+    y2: point.y,
+    value: Number(Math.hypot(point.x - start.x, point.y - start.y).toFixed(6)),
+    coordinateSystem: point.coordinateSystem,
+    viewport: adapter.value?.getViewport() ?? null,
+  });
+  measurementStart.value = null;
+  reviewMode.value = 'NONE';
+}
+
+function startAnnotation() {
+  if (!supported.value || !adapter.value) return false;
+  reviewMode.value = 'POINT';
+  measurementStart.value = null;
+  return true;
+}
+
+function startMeasurement() {
+  if (!supported.value || !adapter.value) return false;
+  reviewMode.value = 'MEASURE';
+  measurementStart.value = null;
+  return true;
+}
+
+async function captureCurrentView(): Promise<{
+  capture: ViewerCapture;
+  viewport: ViewerViewport | null;
+} | null> {
+  const capture = await adapter.value?.captureCurrentView();
+  return capture ? { capture, viewport: adapter.value?.getViewport() ?? null } : null;
+}
+
+defineExpose({ startAnnotation, startMeasurement, captureCurrentView });
+
 onMounted(() => {
   document.addEventListener('fullscreenchange', onFullscreenChange);
   void mountViewer();
@@ -168,6 +265,7 @@ onUnmounted(() => {
       :class="{ 'image-viewer-placeholder': !supported || imageError, 'viewer-loading': loading }"
       tabindex="0"
       @wheel="onWheel"
+      @click="recordReviewPoint"
     >
       <div v-if="loading" class="viewer-empty-content" aria-live="polite">
         <span class="loading-spinner" aria-hidden="true"></span>
@@ -182,6 +280,15 @@ onUnmounted(() => {
         <span class="viewer-placeholder-icon" aria-hidden="true">◉</span>
         <strong>当前玻片暂无数字切片</strong>
         <p>仍可从材料列表切换其他玻片。</p>
+      </div>
+      <div v-if="reviewMode !== 'NONE'" class="viewer-review-prompt" role="status">
+        {{
+          reviewMode === 'POINT'
+            ? '请在图像上点击标注位置'
+            : measurementStart
+              ? '请点击测量终点'
+              : '请点击测量起点'
+        }}
       </div>
     </div>
     <footer class="image-viewer-footer">

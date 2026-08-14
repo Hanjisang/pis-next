@@ -856,7 +856,15 @@ CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_measurement (
 CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_screenshot (
     id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, viewport_json VARCHAR(20000) NOT NULL,
     storage_reference VARCHAR(1024) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    media_type VARCHAR(128), content_hash VARCHAR(64), content_data BINARY LARGE OBJECT
+);
+CREATE TABLE IF NOT EXISTS pis_v2.digital_review_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(64) NOT NULL, result_entity_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, operation_code, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS pis_v2.case_favorite (

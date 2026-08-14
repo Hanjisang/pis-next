@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
+import java.util.Base64;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,18 +78,41 @@ class V2GateCWebTest {
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v2/digital-slides/%s/annotations".formatted(digitalId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"annotationTypeCode\":\"POINT\",\"geometryJson\":\"{\\\"x\\\":0.5,\\\"y\\\":0.5}\",\"label\":\"可疑区域\",\"note\":\"合成阅片记录\"}"))
+                .content("{\"annotationTypeCode\":\"POINT\",\"geometryJson\":\"{\\\"x\\\":0.5,\\\"y\\\":0.5}\",\"label\":\"可疑区域\",\"note\":\"合成阅片记录\",\"idempotencyKey\":\"gatec-annotation\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v2/digital-slides/%s/annotations".formatted(digitalId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"annotationTypeCode\":\"POINT\",\"geometryJson\":\"{\\\"x\\\":0.5,\\\"y\\\":0.5}\",\"label\":\"可疑区域\",\"note\":\"合成阅片记录\",\"idempotencyKey\":\"gatec-annotation\"}"))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v2/digital-slides/%s/measurements".formatted(digitalId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"geometryJson\":\"{\\\"x1\\\":0.1,\\\"y1\\\":0.2,\\\"x2\\\":0.8,\\\"y2\\\":0.2}\",\"value\":1.2,\"unitCode\":\"IMAGE_UNIT\",\"measurementModeCode\":\"VIEWPORT_COORDINATE\"}"))
+                .content("{\"geometryJson\":\"{\\\"x1\\\":0.1,\\\"y1\\\":0.2,\\\"x2\\\":0.8,\\\"y2\\\":0.2}\",\"value\":0.7,\"unitCode\":\"IMAGE_RATIO\",\"measurementModeCode\":\"NORMALIZED_IMAGE_COORDINATE\",\"idempotencyKey\":\"gatec-measurement\"}"))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v2/digital-slides/%s/screenshots".formatted(digitalId))
+        byte[] screenshotBytes = Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        String screenshotData = Base64.getEncoder().encodeToString(screenshotBytes);
+        JsonNode screenshot = json(mockMvc.perform(post("/api/v2/digital-slides/%s/screenshots".formatted(digitalId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"viewportJson\":\"{\\\"mode\\\":\\\"CURRENT_VIEW\\\"}\",\"storageReference\":\"browser://gatec-screenshot\"}"))
-                .andExpect(status().isOk());
+                .content("{\"viewportJson\":\"{\\\"mode\\\":\\\"CURRENT_VIEW\\\"}\",\"mediaType\":\"image/png\",\"imageDataBase64\":\"%s\",\"idempotencyKey\":\"gatec-screenshot\"}"
+                        .formatted(screenshotData)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(json(mockMvc.perform(get("/api/v2/digital-slides/%s/annotations".formatted(digitalId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);
+        assertThat(json(mockMvc.perform(get("/api/v2/digital-slides/%s/measurements".formatted(digitalId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);
+        assertThat(json(mockMvc.perform(get("/api/v2/digital-slides/%s/screenshots".formatted(digitalId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())).hasSize(1);
+        byte[] screenshotContent = mockMvc.perform(get("/api/v2/digital-slides/screenshots/%s/content"
+                        .formatted(screenshot.get("screenshotId").asText())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(screenshotContent).isEqualTo(screenshotBytes);
+        JsonNode screenshotReplay = json(mockMvc.perform(post("/api/v2/digital-slides/%s/screenshots"
+                        .formatted(digitalId)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"viewportJson\":\"{\\\"mode\\\":\\\"CURRENT_VIEW\\\"}\",\"mediaType\":\"image/png\",\"imageDataBase64\":\"%s\",\"idempotencyKey\":\"gatec-screenshot\"}"
+                        .formatted(screenshotData)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(screenshotReplay.get("duplicate").asBoolean()).isTrue();
+        assertThat(screenshotReplay.get("screenshotId").asText()).isEqualTo(screenshot.get("screenshotId").asText());
 
         mockMvc.perform(post("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
                 .andExpect(status().isOk());
@@ -147,6 +171,13 @@ class V2GateCWebTest {
                 """.formatted(slideId))).andExpect(status().isOk());
         assertThat(jdbcTemplate.queryForObject("SELECT destroyed_at FROM pis_v2.slide WHERE id = ?", Object.class,
                 UUID.fromString(slideId))).isNotNull();
+        jdbcTemplate.update("UPDATE pis_v2.pathology_case SET organization_reference = 'SYNTH-OTHER' WHERE id = ?",
+                UUID.fromString(caseId));
+        mockMvc.perform(get("/api/v2/digital-slides/%s/annotations".formatted(digitalId)))
+                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(get("/api/v2/digital-slides/screenshots/%s/content"
+                        .formatted(screenshot.get("screenshotId").asText())))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     private String createCase() throws Exception {

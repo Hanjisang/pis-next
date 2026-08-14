@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 import com.hanjisang.pis.v2.digital.application.V2DigitalSlideApplicationService;
 import com.hanjisang.pis.v2.digital.application.V2DigitalSlideApplicationService.CreateDigitalSlideCommand;
@@ -59,7 +62,8 @@ public class V2DigitalSlideController {
     public V2DigitalSlideApplicationService.AnnotationResult annotate(@PathVariable UUID digitalSlideId,
             @RequestBody AnnotationRequest request) {
         return service.annotate(digitalSlideId, new V2DigitalSlideApplicationService.AnnotationCommand(
-                request.annotationTypeCode(), request.geometryJson(), request.label(), request.note()));
+                request.annotationTypeCode(), request.geometryJson(), request.label(), request.note(),
+                request.idempotencyKey()));
     }
 
     @GetMapping("/{digitalSlideId}/measurements")
@@ -71,21 +75,37 @@ public class V2DigitalSlideController {
     public V2DigitalSlideApplicationService.MeasurementResult measure(@PathVariable UUID digitalSlideId,
             @RequestBody MeasurementRequest request) {
         return service.measure(digitalSlideId, new V2DigitalSlideApplicationService.MeasurementCommand(
-                request.geometryJson(), request.value(), request.unitCode(), request.measurementModeCode()));
+                request.geometryJson(), request.value(), request.unitCode(), request.measurementModeCode(),
+                request.idempotencyKey()));
+    }
+
+    @GetMapping("/{digitalSlideId}/screenshots")
+    public List<V2DigitalSlideApplicationService.ScreenshotResult> screenshots(@PathVariable UUID digitalSlideId) {
+        return service.screenshots(digitalSlideId);
     }
 
     @PostMapping("/{digitalSlideId}/screenshots")
     public V2DigitalSlideApplicationService.ScreenshotResult screenshot(@PathVariable UUID digitalSlideId,
             @RequestBody ScreenshotRequest request) {
         return service.screenshot(digitalSlideId, new V2DigitalSlideApplicationService.ScreenshotCommand(
-                request.viewportJson(), request.storageReference()));
+                request.viewportJson(), request.mediaType(), request.imageDataBase64(), request.idempotencyKey()));
+    }
+
+    @GetMapping("/screenshots/{screenshotId}/content")
+    public ResponseEntity<byte[]> screenshotContent(@PathVariable UUID screenshotId) {
+        var result = service.screenshotContent(screenshotId);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .contentType(MediaType.parseMediaType(result.mediaType()))
+                .header("X-Content-SHA256", result.contentHash()).body(result.content());
     }
 
     public record CreateRequest(UUID caseId, UUID blockId, UUID slideId, String bindingModeCode,
             String viewerReference, String sourcePlatform) { }
     public record RebindRequest(UUID blockId, UUID slideId) { }
-    public record AnnotationRequest(String annotationTypeCode, String geometryJson, String label, String note) { }
+    public record AnnotationRequest(String annotationTypeCode, String geometryJson, String label, String note,
+            String idempotencyKey) { }
     public record MeasurementRequest(String geometryJson, BigDecimal value, String unitCode,
-            String measurementModeCode) { }
-    public record ScreenshotRequest(String viewportJson, String storageReference) { }
+            String measurementModeCode, String idempotencyKey) { }
+    public record ScreenshotRequest(String viewportJson, String mediaType, String imageDataBase64,
+            String idempotencyKey) { }
 }

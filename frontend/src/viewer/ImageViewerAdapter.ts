@@ -9,6 +9,11 @@ export type ViewerOpenRequest = {
   viewport?: ViewerViewport;
 };
 
+export type ViewerCapture = {
+  mediaType: 'image/png';
+  dataUrl: string;
+};
+
 export interface ImageViewerAdapter {
   mount(element: HTMLElement): Promise<void>;
   open(request: ViewerOpenRequest): Promise<void> | void;
@@ -16,6 +21,7 @@ export interface ImageViewerAdapter {
   reset(): void;
   setFullScreen(enabled: boolean): void;
   getViewport(): ViewerViewport | null;
+  captureCurrentView(): Promise<ViewerCapture | null>;
   destroy(): void;
 }
 

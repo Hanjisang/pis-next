@@ -244,6 +244,42 @@ export type V2AssignmentRule = {
   duplicate: boolean;
 };
 
+export type V2DigitalAnnotation = {
+  annotationId: string;
+  digitalSlideId: string;
+  annotationTypeCode: string;
+  geometryJson: string;
+  label?: string;
+  note?: string;
+  createdAt: string;
+  createdByRef: string;
+  duplicate: boolean;
+};
+
+export type V2DigitalMeasurement = {
+  measurementId: string;
+  digitalSlideId: string;
+  geometryJson: string;
+  value: number;
+  unitCode: string;
+  measurementModeCode: string;
+  createdAt: string;
+  createdByRef: string;
+  duplicate: boolean;
+};
+
+export type V2DigitalScreenshot = {
+  screenshotId: string;
+  digitalSlideId: string;
+  viewportJson: string;
+  storageReference: string;
+  mediaType: string;
+  contentHash: string;
+  createdAt: string;
+  createdByRef: string;
+  duplicate: boolean;
+};
+
 async function diagnosisRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/v2${path}`, {
     ...init,
@@ -269,7 +305,8 @@ export function createV2DigitalAnnotation(input: {
   geometryJson: string;
   label?: string;
   note?: string;
-}) {
+  idempotencyKey: string;
+}): Promise<V2DigitalAnnotation> {
   const { digitalSlideId, ...body } = input;
   return diagnosisRequest(`/digital-slides/${digitalSlideId}/annotations`, {
     method: 'POST',
@@ -283,7 +320,8 @@ export function createV2DigitalMeasurement(input: {
   value: number;
   unitCode: string;
   measurementModeCode: string;
-}) {
+  idempotencyKey: string;
+}): Promise<V2DigitalMeasurement> {
   const { digitalSlideId, ...body } = input;
   return diagnosisRequest(`/digital-slides/${digitalSlideId}/measurements`, {
     method: 'POST',
@@ -294,13 +332,31 @@ export function createV2DigitalMeasurement(input: {
 export function saveV2DigitalScreenshot(input: {
   digitalSlideId: string;
   viewportJson: string;
-  storageReference: string;
-}) {
+  mediaType: string;
+  imageDataBase64: string;
+  idempotencyKey: string;
+}): Promise<V2DigitalScreenshot> {
   const { digitalSlideId, ...body } = input;
   return diagnosisRequest(`/digital-slides/${digitalSlideId}/screenshots`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export function getV2DigitalAnnotations(digitalSlideId: string): Promise<V2DigitalAnnotation[]> {
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/annotations`);
+}
+
+export function getV2DigitalMeasurements(digitalSlideId: string): Promise<V2DigitalMeasurement[]> {
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/measurements`);
+}
+
+export function getV2DigitalScreenshots(digitalSlideId: string): Promise<V2DigitalScreenshot[]> {
+  return diagnosisRequest(`/digital-slides/${digitalSlideId}/screenshots`);
+}
+
+export function getV2DigitalScreenshotContentUrl(screenshotId: string) {
+  return `/api/v2/digital-slides/screenshots/${encodeURIComponent(screenshotId)}/content`;
 }
 
 export function getV2FrozenRoundDiagnosisWorkspace(roundId: string): Promise<V2DiagnosisWorkspace> {

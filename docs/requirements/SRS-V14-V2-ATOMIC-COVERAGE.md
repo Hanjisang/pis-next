@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 321 |
+| COMPLETE | 324 |
 | PARTIAL | 129 |
-| MISSING | 213 |
+| MISSING | 210 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
@@ -5231,14 +5231,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 M15 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M15 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M15 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M15 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M15 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 WSI-015 独立立项、实现和验收。
+- UI Entry: 诊断工作区阅片主区域的“在图像上标注”；先填说明，再在真实 Viewer 视口点选。
+- Backend Evidence: `V2DigitalSlideApplicationService.annotate` 校验权限、组织范围、几何数据和幂等摘要，保存后写审计。
+- DB Evidence: `digital_slide_annotation` 保存坐标系、归一化坐标、视口、说明与创建人；`V46__digital_slide_review_closure.sql` 提供并发幂等记录。
+- Frontend Evidence: `V2ImageViewer.vue` 从实际鼠标位置计算坐标；普通图像按渲染图像边界归一化并拒绝留白点击，分层 WSI 保存归一化视口坐标及当时视口状态；`V2DiagnosisWorkspace.vue` 保存并回显标注历史。
+- Test Evidence: `V2GateCWebTest` 验证保存、幂等重放、查询和跨医院拒绝；`V2ImageViewer.test.ts` 验证实际点选坐标。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；坐标系随记录显式保存，不冒充扫描仪物理标定值。
+- V2 Decision: 标注是 DigitalSlide 的独立审阅事实，不修改源 WSI 或 Slide。
 
 ### WSI-016 — measurement
 
@@ -5253,14 +5253,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 M16 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M16 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M16 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M16 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M16 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 WSI-016 独立立项、实现和验收。
+- UI Entry: 诊断工作区阅片主区域的“在图像上测量”，依次选择起点和终点。
+- Backend Evidence: `V2DigitalSlideApplicationService.measure` 校验非负值、权限、范围和幂等，写独立测量事实与审计。
+- DB Evidence: `digital_slide_measurement` 保存两点归一化几何、比例值、单位和测量模式。
+- Frontend Evidence: `V2ImageViewer.vue` 依据两次真实点选计算同一坐标系内的比例距离；历史区以百分比业务语言回显。
+- Test Evidence: `V2GateCWebTest` 验证持久化查询；`V2ImageViewer.test.ts` 断言两点坐标和 0.7 比例距离。
+- Status: COMPLETE
+- Gap: 无扫描仪物理标定时只显示 `IMAGE_RATIO` 或 `VIEWPORT_RATIO`，不伪造毫米或微米结果；真实物理单位由具备校准元数据的 Viewer Adapter 提供。
+- V2 Decision: 测量结果记录坐标系和单位，未校准图像不得冒充物理尺寸。
 
 ### WSI-017 — screenshot
 
@@ -5275,14 +5275,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 M17 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M17 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M17 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M17 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md M17 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 WSI-017 独立立项、实现和验收。
+- UI Entry: 诊断工作区阅片主区域“保存当前截图”，历史区提供受控截图查看链接。
+- Backend Evidence: Viewer Adapter 导出当前 PNG；`V2DigitalSlideApplicationService.screenshot` 校验 PNG 签名、10MB 上限、幂等和范围，内容读取再次授权。
+- DB Evidence: `V46__digital_slide_review_closure.sql` 为截图增加媒体类型、SHA-256 和二进制证据，并保持 V32 旧引用行兼容。
+- Frontend Evidence: Regular Image 与 OpenSeadragon Adapter 均实现当前视野捕获；工作区保存实际图像和视口参数，不再生成 `browser://` 伪引用。
+- Test Evidence: `V2GateCWebTest` 验证 PNG 内容往返、hash 元数据、幂等重放、列表和跨医院读取拒绝；前端类型与组件测试覆盖 Adapter 契约。
+- Status: COMPLETE
+- Gap: 外部厂商 Viewer 若不开放截图 API 会明确返回不可导出，不伪造截图成功。
+- V2 Decision: 截图是受控 DigitalSlide 审阅证据；保存真实内容、摘要和视口，不仅保存客户端临时 URL。
 
 ### WSI-018 — slide metadata
 

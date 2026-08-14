@@ -1,4 +1,9 @@
-import type { ImageViewerAdapter, ViewerOpenRequest, ViewerViewport } from './ImageViewerAdapter';
+import type {
+  ImageViewerAdapter,
+  ViewerCapture,
+  ViewerOpenRequest,
+  ViewerViewport,
+} from './ImageViewerAdapter';
 
 type OpenSeadragonViewer = {
   open(source: string | object): void;
@@ -12,6 +17,7 @@ type OpenSeadragonViewer = {
     panTo(center: { x: number; y: number }): void;
   };
   setFullScreen(enabled: boolean): void;
+  drawer?: { canvas?: HTMLCanvasElement };
 };
 
 type OpenSeadragonFactory = (options: Record<string, unknown>) => OpenSeadragonViewer;
@@ -66,6 +72,15 @@ export class TiledWSIViewerAdapter implements ImageViewerAdapter {
     if (!this.viewer) return null;
     const center = this.viewer.viewport.getCenter();
     return { zoom: this.viewer.viewport.getZoom(), centerX: center.x, centerY: center.y };
+  }
+
+  async captureCurrentView(): Promise<ViewerCapture | null> {
+    try {
+      const dataUrl = this.viewer?.drawer?.canvas?.toDataURL('image/png');
+      return dataUrl ? { mediaType: 'image/png', dataUrl } : null;
+    } catch {
+      return null;
+    }
   }
 
   destroy(): void {

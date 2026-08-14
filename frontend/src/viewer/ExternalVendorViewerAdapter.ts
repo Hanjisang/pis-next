@@ -16,5 +16,9 @@ export class ExternalVendorViewerAdapter implements ImageViewerAdapter {
     return null;
   }
 
+  async captureCurrentView(): Promise<null> {
+    return null;
+  }
+
   destroy(): void {}
 }

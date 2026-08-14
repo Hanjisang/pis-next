@@ -1,4 +1,9 @@
-import type { ImageViewerAdapter, ViewerOpenRequest, ViewerViewport } from './ImageViewerAdapter';
+import type {
+  ImageViewerAdapter,
+  ViewerCapture,
+  ViewerOpenRequest,
+  ViewerViewport,
+} from './ImageViewerAdapter';
 
 export class RegularImageViewerAdapter implements ImageViewerAdapter {
   private image: HTMLImageElement | null = null;
@@ -43,6 +48,33 @@ export class RegularImageViewerAdapter implements ImageViewerAdapter {
 
   getViewport(): ViewerViewport {
     return { ...this.viewport };
+  }
+
+  async captureCurrentView(): Promise<ViewerCapture | null> {
+    if (!this.image || !this.element || !this.image.complete || !this.image.naturalWidth)
+      return null;
+    const width = Math.max(1, this.element.clientWidth || this.image.naturalWidth);
+    const height = Math.max(1, this.element.clientHeight || this.image.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    const fit = Math.min(width / this.image.naturalWidth, height / this.image.naturalHeight);
+    const drawWidth = this.image.naturalWidth * fit * this.viewport.zoom;
+    const drawHeight = this.image.naturalHeight * fit * this.viewport.zoom;
+    context.drawImage(
+      this.image,
+      (width - drawWidth) / 2,
+      (height - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
+    );
+    try {
+      return { mediaType: 'image/png', dataUrl: canvas.toDataURL('image/png') };
+    } catch {
+      return null;
+    }
   }
 
   destroy(): void {
