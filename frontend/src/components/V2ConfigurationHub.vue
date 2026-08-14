@@ -12,12 +12,19 @@ import {
   getV2ArchiveLocations,
   type V2ArchiveLocation,
 } from '../v2CustodyApi';
+import {
+  createV2AssignmentRule,
+  getV2AssignmentRules,
+  updateV2AssignmentRule,
+  type V2AssignmentRule,
+} from '../v2DiagnosisApi';
 
 type ConfigSection =
   | 'businessTypes'
   | 'applicationItemMappings'
   | 'pathologyNumberRules'
   | 'technicalProjects'
+  | 'assignmentRules'
   | 'diagnosisTemplates'
   | 'reportTemplates'
   | 'archiveLocations';
@@ -27,6 +34,7 @@ const sectionOptions: Array<{ key: ConfigSection; label: string; group: string }
   { key: 'applicationItemMappings', label: '申请项目映射', group: '业务配置' },
   { key: 'pathologyNumberRules', label: '病理号规则', group: '业务配置' },
   { key: 'diagnosisTemplates', label: '诊断模板', group: '诊断配置' },
+  { key: 'assignmentRules', label: '自动分诊规则', group: '诊断配置' },
   { key: 'reportTemplates', label: '报告模板', group: '诊断配置' },
   { key: 'technicalProjects', label: '技术项目', group: '诊断配置' },
   { key: 'archiveLocations', label: '归档库位', group: '生产配置' },
@@ -39,6 +47,18 @@ const saving = ref(false);
 const error = ref('');
 const notice = ref('');
 const archiveLocations = ref<V2ArchiveLocation[]>([]);
+const assignmentRules = ref<V2AssignmentRule[]>([]);
+const assignmentDraft = ref({
+  campus: 'MAIN',
+  businessTypeCode: 'HISTOLOGY',
+  department: '*',
+  site: '*',
+  diagnosisGroup: '',
+  doctorId: '',
+  priority: 0,
+  dailyCaseLimit: 0,
+  enabled: true,
+});
 const archiveDraft = ref({
   parentId: '',
   locationCode: '',
@@ -54,14 +74,58 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    [snapshot.value, archiveLocations.value] = await Promise.all([
+    [snapshot.value, archiveLocations.value, assignmentRules.value] = await Promise.all([
       getV2Configuration(),
       getV2ArchiveLocations(),
+      getV2AssignmentRules(),
     ]);
   } catch (requestError) {
     error.value = friendlyError(requestError, '配置暂时无法加载，请稍后重试。');
   } finally {
     loading.value = false;
+  }
+}
+
+async function saveAssignmentRule(rule?: V2AssignmentRule) {
+  saving.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const saved = rule
+      ? await updateV2AssignmentRule({
+          ...rule,
+          idempotencyKey: `assignment-rule-update-${crypto.randomUUID()}`,
+        })
+      : await createV2AssignmentRule({
+          ...assignmentDraft.value,
+          idempotencyKey: `assignment-rule-create-${crypto.randomUUID()}`,
+        });
+    const remaining = assignmentRules.value.filter(
+      (item) => item.assignmentRuleId !== saved.assignmentRuleId,
+    );
+    assignmentRules.value = [...remaining, saved].sort(
+      (left, right) =>
+        left.businessTypeCode.localeCompare(right.businessTypeCode) ||
+        left.priority - right.priority,
+    );
+    if (!rule) {
+      assignmentDraft.value = {
+        campus: 'MAIN',
+        businessTypeCode: 'HISTOLOGY',
+        department: '*',
+        site: '*',
+        diagnosisGroup: '',
+        doctorId: '',
+        priority: 0,
+        dailyCaseLimit: 0,
+        enabled: true,
+      };
+    }
+    notice.value = `自动分诊规则已${rule ? '更新' : '创建'}。`;
+  } catch (requestError) {
+    error.value = friendlyError(requestError, '自动分诊规则保存失败，请刷新后重试。');
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -322,6 +386,68 @@ onMounted(() => void load());
                 archiveLocations.find((parent) => parent.locationId === item.parentId)
                   ?.locationName || '顶层'
               }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="activeSection === 'assignmentRules'" class="archive-location-config">
+          <p class="muted">校区、申请科室或取材部位填写 * 表示不限；每日上限为 0 表示不限量。</p>
+          <form class="config-inline-form" @submit.prevent="saveAssignmentRule()">
+            <label>校区<input v-model="assignmentDraft.campus" required /></label>
+            <label>业务类型<input v-model="assignmentDraft.businessTypeCode" required /></label>
+            <label>申请科室<input v-model="assignmentDraft.department" required /></label>
+            <label>取材部位<input v-model="assignmentDraft.site" required /></label>
+            <label>亚专科组<input v-model="assignmentDraft.diagnosisGroup" required /></label>
+            <label>责任医生<input v-model="assignmentDraft.doctorId" required /></label>
+            <label
+              >优先级<input v-model.number="assignmentDraft.priority" type="number" min="0"
+            /></label>
+            <label
+              >每日上限<input v-model.number="assignmentDraft.dailyCaseLimit" type="number" min="0"
+            /></label>
+            <button
+              class="primary-button"
+              type="submit"
+              :disabled="
+                saving || !assignmentDraft.diagnosisGroup.trim() || !assignmentDraft.doctorId.trim()
+              "
+            >
+              新增规则
+            </button>
+          </form>
+          <div class="config-table">
+            <div class="config-row header">
+              <span>业务/范围</span><span>亚专科</span><span>医生</span><span>优先级/上限</span
+              ><span>状态</span><span></span>
+            </div>
+            <div v-for="rule in assignmentRules" :key="rule.assignmentRuleId" class="config-row">
+              <span
+                ><code>{{ rule.businessTypeCode }}</code
+                ><br />{{ rule.campus }} · {{ rule.department }} · {{ rule.site }}</span
+              ><input v-model="rule.diagnosisGroup" aria-label="亚专科组" />
+              <input v-model="rule.doctorId" aria-label="分诊医生" />
+              <span
+                ><input
+                  v-model.number="rule.priority"
+                  type="number"
+                  min="0"
+                  aria-label="规则优先级" />
+                /
+                <input
+                  v-model.number="rule.dailyCaseLimit"
+                  type="number"
+                  min="0"
+                  aria-label="每日上限" /></span
+              ><label class="inline-checkbox"
+                ><input v-model="rule.enabled" type="checkbox" />启用</label
+              >
+              <button
+                class="text-button"
+                type="button"
+                :disabled="saving"
+                @click="saveAssignmentRule(rule)"
+              >
+                保存
+              </button>
             </div>
           </div>
         </div>

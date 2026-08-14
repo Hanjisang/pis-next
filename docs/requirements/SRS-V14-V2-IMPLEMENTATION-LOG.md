@@ -1,5 +1,13 @@
 # SRS V1.4 → PIS V2 实施日志
 
+## 2026-08-14：Diagnosis 自动分诊、亚专科与日容量闭环
+
+关闭 `DX-009`、`DX-012`、`DX-013`。自动分诊从 Case 的业务类型、当前医院校区、申请科室和首个有效标本取材部位形成路由事实，匹配启用规则后按维度精确度、规则优先级、当前未完成责任数、当日初诊接诊数选择医生。命中规则创建真实 INITIAL `ResponsibilityUnit`（`AssignmentSource.AUTO`），并把亚专科、匹配维度、分派前计数和容量上限固化为不可变事实；幂等重放不重复创建责任或占用容量。
+
+规则维护由诊断模块 API 承担，配置中心提供新增、启停、优先级、亚专科与每日上限入口。每日上限 0 表示不限量；容量仅约束自动分诊，不替代有权限的手工指派。规则查询和写入均强制当前医院范围，写操作使用模板管理权限、乐观锁、幂等摘要和审计。
+
+验证证据：`V2DiagnosisWebTest` 新增规则管理、两名医生各上限 1、幂等重放、容量耗尽和不可变分派事实测试；`V2DiagnosisWorkspace.test.ts` 与 `V2ConfigurationHub.test.ts` 覆盖工作区动作和配置入口。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=321 / PARTIAL=129 / MISSING=213 / EXTERNAL_DEPENDENCY=79 / CONFLICT_RESOLVED_BY_V2=0`。
+
 ## 2026-08-14：原子总数与状态表头校准审计
 
 `CONFLICT_RESOLUTION_AUDIT` 结论：不存在可映射到 ATOMIC_ID 的“缺失 46 条”，因此不得伪造 46 条 `CONFLICT_RESOLVED_BY_V2`。校准前提交 `9f2b61feaf4ccc4f69f7801e5d6fd4debb90f28f` 与校准后提交 `b4cc8fa376795916a6ba895fe49f9d916f90e550` 均包含 742 个 `### <ATOMIC_ID>`、742 个唯一 `- ID:`，ID 集合差异为 0、重复为 0。

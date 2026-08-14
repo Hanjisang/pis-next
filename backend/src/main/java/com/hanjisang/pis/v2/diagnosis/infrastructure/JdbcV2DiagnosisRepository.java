@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.ResultSetExtractor;
@@ -340,18 +341,92 @@ public class JdbcV2DiagnosisRepository {
     public List<AssignmentRule> findAssignmentRules(String organizationReference, String businessTypeCode) {
         return jdbcTemplate.query("""
                 SELECT id, organization_reference, campus_code, business_type_code, department_code, site_code,
-                       diagnosis_group_code, doctor_id, priority, enabled, concurrency_version, created_at,
+                       diagnosis_group_code, doctor_id, priority, daily_case_limit, enabled, concurrency_version, created_at,
                        created_by_ref, updated_at, updated_by_ref
                 FROM pis_v2.assignment_rule
                 WHERE organization_reference = ? AND business_type_code = ? AND enabled = TRUE
                 ORDER BY priority, id
-                """, (rs, rowNum) -> new AssignmentRule(rs.getObject("id", UUID.class),
-                rs.getString("organization_reference"), rs.getString("campus_code"),
-                rs.getString("business_type_code"), rs.getString("department_code"), rs.getString("site_code"),
-                rs.getString("diagnosis_group_code"), rs.getString("doctor_id"), rs.getInt("priority"),
-                rs.getBoolean("enabled"), rs.getLong("concurrency_version"), rs.getTimestamp("created_at").toInstant(),
-                rs.getString("created_by_ref"), rs.getTimestamp("updated_at").toInstant(),
-                rs.getString("updated_by_ref")), organizationReference, businessTypeCode);
+                """, assignmentRuleMapper(), organizationReference, businessTypeCode);
+    }
+
+    public List<AssignmentRule> findAllAssignmentRules(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, organization_reference, campus_code, business_type_code, department_code, site_code,
+                       diagnosis_group_code, doctor_id, priority, daily_case_limit, enabled, concurrency_version,
+                       created_at, created_by_ref, updated_at, updated_by_ref
+                  FROM pis_v2.assignment_rule
+                 WHERE organization_reference = ?
+                 ORDER BY business_type_code, diagnosis_group_code, priority, id
+                """, assignmentRuleMapper(), organizationReference);
+    }
+
+    public boolean lockAssignmentRuleConfiguration(String organizationReference) {
+        return !jdbcTemplate.query("""
+                SELECT TRUE
+                  FROM pis_v2.hospital_profile
+                 WHERE profile_code = ?
+                 FOR UPDATE
+                """, (rs, rowNum) -> rs.getBoolean(1), organizationReference).isEmpty();
+    }
+
+    public List<AssignmentRule> lockAllEnabledAssignmentRules(String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT id, organization_reference, campus_code, business_type_code, department_code, site_code,
+                       diagnosis_group_code, doctor_id, priority, daily_case_limit, enabled, concurrency_version,
+                       created_at, created_by_ref, updated_at, updated_by_ref
+                  FROM pis_v2.assignment_rule
+                 WHERE organization_reference = ? AND enabled = TRUE
+                 ORDER BY id
+                 FOR UPDATE
+                """, assignmentRuleMapper(), organizationReference);
+    }
+
+    public RoutingContext findRoutingContext(UUID caseId, String organizationReference) {
+        String campus = jdbcTemplate.query("""
+                SELECT hc.campus_code
+                  FROM pis_v2.hospital_profile hp
+                  JOIN pis_v2.hospital_campus hc ON hc.hospital_profile_id = hp.id
+                 WHERE hp.profile_code = ?
+                 ORDER BY CASE WHEN hc.campus_code = 'MAIN' THEN 0 ELSE 1 END, hc.campus_code
+                 FETCH FIRST 1 ROW ONLY
+                """, rs -> rs.next() ? rs.getString(1) : "MAIN", organizationReference);
+        String department = jdbcTemplate.query("""
+                SELECT application_department
+                  FROM pis_v2.case_context_snapshot
+                 WHERE case_id = ?
+                 ORDER BY snapshot_version_no DESC
+                 FETCH FIRST 1 ROW ONLY
+                """, rs -> rs.next() ? wildcard(rs.getString(1)) : "*", caseId);
+        String site = jdbcTemplate.query("""
+                SELECT collection_site
+                  FROM pis_v2.specimen
+                 WHERE case_id = ? AND organization_reference = ? AND deleted_at IS NULL
+                 ORDER BY created_at, id
+                 FETCH FIRST 1 ROW ONLY
+                """, rs -> rs.next() ? wildcard(rs.getString(1)) : "*", caseId, organizationReference);
+        return new RoutingContext(wildcard(campus), department, site);
+    }
+
+    public int todayAssignmentCount(String doctorId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(DISTINCT r.diagnosis_id)
+                  FROM pis_v2.responsibility_unit r
+                  JOIN pis_v2.diagnosis d ON d.id = r.diagnosis_id
+                 WHERE r.doctor_id = ? AND d.organization_reference = ?
+                   AND r.role_code = 'INITIAL' AND CAST(r.accepted_at AS DATE) = CURRENT_DATE
+                """, Integer.class, doctorId, organizationReference);
+        return count == null ? 0 : count;
+    }
+
+    public int currentAssignmentCount(String doctorId, String organizationReference) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                  FROM pis_v2.responsibility_unit r
+                  JOIN pis_v2.diagnosis d ON d.id = r.diagnosis_id
+                 WHERE r.doctor_id = ? AND d.organization_reference = ?
+                   AND r.completed_at IS NULL AND r.ended_at IS NULL
+                """, Integer.class, doctorId, organizationReference);
+        return count == null ? 0 : count;
     }
 
     public List<PublicPoolCase> findPublicPoolCases(String organizationReference) {
@@ -405,18 +480,79 @@ public class JdbcV2DiagnosisRepository {
         jdbcTemplate.update("""
                 INSERT INTO pis_v2.assignment_rule
                     (id, organization_reference, campus_code, business_type_code, department_code, site_code,
-                     diagnosis_group_code, doctor_id, priority, enabled, concurrency_version, created_at,
+                     diagnosis_group_code, doctor_id, priority, daily_case_limit, enabled, concurrency_version, created_at,
                      created_by_ref, updated_at, updated_by_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, rule.id(), rule.organizationReference(), rule.campus(), rule.businessTypeCode(),
-                rule.department(), rule.site(), rule.diagnosisGroup(), rule.doctorId(), rule.priority(), rule.enabled(),
-                rule.version(), Timestamp.from(rule.createdAt()), rule.createdBy(), Timestamp.from(rule.updatedAt()),
-                rule.updatedBy());
+                rule.department(), rule.site(), rule.diagnosisGroup(), rule.doctorId(), rule.priority(),
+                rule.dailyCaseLimit(), rule.enabled(), rule.version(), Timestamp.from(rule.createdAt()), rule.createdBy(),
+                Timestamp.from(rule.updatedAt()), rule.updatedBy());
+    }
+
+    public boolean updateAssignmentRule(AssignmentRule rule, long expectedVersion) {
+        return jdbcTemplate.update("""
+                UPDATE pis_v2.assignment_rule
+                   SET campus_code = ?, business_type_code = ?, department_code = ?, site_code = ?,
+                       diagnosis_group_code = ?, doctor_id = ?, priority = ?, daily_case_limit = ?, enabled = ?,
+                       concurrency_version = ?, updated_at = ?, updated_by_ref = ?
+                 WHERE id = ? AND organization_reference = ? AND concurrency_version = ?
+                """, rule.campus(), rule.businessTypeCode(), rule.department(), rule.site(), rule.diagnosisGroup(),
+                rule.doctorId(), rule.priority(), rule.dailyCaseLimit(), rule.enabled(), rule.version(),
+                Timestamp.from(rule.updatedAt()), rule.updatedBy(), rule.id(), rule.organizationReference(),
+                expectedVersion) == 1;
+    }
+
+    public void insertAutoAssignmentFact(UUID responsibilityId, AssignmentRule rule, RoutingContext context,
+            int dailyAssignedCountBefore, String actorRef, Instant now) {
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.diagnosis_auto_assignment_fact
+                    (id, responsibility_id, assignment_rule_id, diagnosis_group_code, matched_campus_code,
+                     matched_department_code, matched_site_code, daily_assigned_count_before,
+                     daily_case_limit_snapshot, assigned_at, assigned_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), responsibilityId, rule.id(), rule.diagnosisGroup(), context.campus(),
+                context.department(), context.site(), dailyAssignedCountBefore, rule.dailyCaseLimit(),
+                Timestamp.from(now), actorRef, rule.organizationReference());
+    }
+
+    public Optional<AutoAssignmentRow> findAutoAssignment(UUID responsibilityId, String organizationReference) {
+        return jdbcTemplate.query("""
+                SELECT d.id AS diagnosis_id, d.case_id, r.id AS responsibility_id, r.doctor_id,
+                       f.diagnosis_group_code, f.assignment_rule_id, f.daily_assigned_count_before,
+                       f.daily_case_limit_snapshot
+                  FROM pis_v2.diagnosis_auto_assignment_fact f
+                  JOIN pis_v2.responsibility_unit r ON r.id = f.responsibility_id
+                  JOIN pis_v2.diagnosis d ON d.id = r.diagnosis_id
+                 WHERE f.responsibility_id = ? AND f.organization_reference = ?
+                """, rs -> rs.next() ? Optional.of(new AutoAssignmentRow(rs.getObject("diagnosis_id", UUID.class),
+                rs.getObject("case_id", UUID.class), rs.getObject("responsibility_id", UUID.class),
+                rs.getString("doctor_id"), rs.getString("diagnosis_group_code"),
+                rs.getObject("assignment_rule_id", UUID.class), rs.getInt("daily_assigned_count_before"),
+                rs.getInt("daily_case_limit_snapshot"))) : Optional.empty(), responsibilityId, organizationReference);
     }
 
     public record IdempotencyResult(String payloadDigest, String resultKindCode, UUID resultEntityId) { }
 
     public record PublicPoolCase(UUID caseId, String pathologyNo, String businessTypeCode) { }
+
+    public record RoutingContext(String campus, String department, String site) { }
+
+    public record AutoAssignmentRow(UUID diagnosisId, UUID caseId, UUID responsibilityId, String doctorId,
+            String diagnosisGroupCode, UUID assignmentRuleId, int dailyAssignedCountBefore, int dailyCaseLimit) { }
+
+    private RowMapper<AssignmentRule> assignmentRuleMapper() {
+        return (rs, rowNum) -> new AssignmentRule(rs.getObject("id", UUID.class),
+                rs.getString("organization_reference"), rs.getString("campus_code"),
+                rs.getString("business_type_code"), rs.getString("department_code"), rs.getString("site_code"),
+                rs.getString("diagnosis_group_code"), rs.getString("doctor_id"), rs.getInt("priority"),
+                rs.getInt("daily_case_limit"), rs.getBoolean("enabled"), rs.getLong("concurrency_version"),
+                rs.getTimestamp("created_at").toInstant(), rs.getString("created_by_ref"),
+                rs.getTimestamp("updated_at").toInstant(), rs.getString("updated_by_ref"));
+    }
+
+    private static String wildcard(String value) {
+        return value == null || value.isBlank() ? "*" : value.trim();
+    }
 
     private Diagnosis toDiagnosis(java.sql.ResultSet rs) throws SQLException {
         return Diagnosis.persisted(rs.getObject("id", UUID.class), rs.getObject("case_id", UUID.class),

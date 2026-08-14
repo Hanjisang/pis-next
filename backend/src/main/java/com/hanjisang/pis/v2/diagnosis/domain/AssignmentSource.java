@@ -4,5 +4,6 @@ public enum AssignmentSource {
     PUBLIC_POOL,
     MANUAL,
     SELF_CLAIM,
-    REASSIGN
+    REASSIGN,
+    AUTO
 }

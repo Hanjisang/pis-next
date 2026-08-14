@@ -13,6 +13,7 @@ import { businessTypeName, friendlyError, formatDateTime, responsibilityName } f
 import {
   acknowledgeV2TechnicalResult,
   assignV2Diagnosis,
+  autoAssignV2Diagnosis,
   claimV2Diagnosis,
   completeV2CaseFollowUp,
   completeV2Responsibility,
@@ -783,6 +784,21 @@ async function assign() {
     });
     await loadWorkspace();
     notice.value = `病例已分配给 ${doctorName(assignmentDoctor.value)}。`;
+  });
+}
+
+async function autoAssign(targetCaseId = caseId.value) {
+  await submit(async () => {
+    const result = await autoAssignV2Diagnosis(
+      targetCaseId,
+      requestKey('ux01-diagnosis-auto-assign'),
+    );
+    if (targetCaseId === caseId.value && caseId.value) {
+      await loadWorkspace();
+      notice.value = `已自动分诊至 ${result.diagnosisGroupCode}，责任医生 ${doctorName(result.doctorId)}。`;
+      return;
+    }
+    emit('navigate', `/v2/cases/${targetCaseId}?focus=diagnosis`);
   });
 }
 
@@ -2063,6 +2079,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
           >
             进入诊断
           </button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="submitting"
+            @click="autoAssign(item.caseId)"
+          >
+            自动分诊
+          </button>
         </div>
       </div>
     </section>
@@ -2109,6 +2133,15 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                 @click="assign"
               >
                 分配
+              </button>
+              <button
+                v-if="workspace.actions.canAssign"
+                class="secondary-button"
+                type="button"
+                :disabled="submitting"
+                @click="autoAssign()"
+              >
+                自动分诊
               </button>
             </template>
             <template v-else>

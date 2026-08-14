@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 318 |
-| PARTIAL | 131 |
-| MISSING | 214 |
+| COMPLETE | 321 |
+| PARTIAL | 129 |
+| MISSING | 213 |
 | EXTERNAL_DEPENDENCY | 79 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
@@ -4461,14 +4461,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 L09 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L09 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L09 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L09 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L09 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-009 独立立项、实现和验收。
+- UI Entry: `V2DiagnosisWorkspace.vue` 公共病例池和病例工作区提供自动分诊动作；`V2ConfigurationHub.vue` 提供规则维护入口。
+- Backend Evidence: `V2DiagnosisApplicationService.autoAssignDiagnosis` 以 Case、路由事实和启用规则创建真实 INITIAL `ResponsibilityUnit`；`V2DiagnosisController` 提供自动分诊及规则 API。
+- DB Evidence: `assignment_rule` 与 `V45__diagnosis_auto_assignment_capacity.sql`；命中规则、路由维度和容量快照写入不可变 `diagnosis_auto_assignment_fact`。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue`、`V2ConfigurationHub.vue`、`v2DiagnosisApi.ts`。
+- Test Evidence: `V2DiagnosisWebTest.autoAssignmentUsesSubspecialtyRulesAndEnforcesDailyDoctorCapacity`、`V2DiagnosisWorkspace.test.ts`、`V2ConfigurationHub.test.ts`。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；规则未匹配和容量耗尽均返回明确错误，不宣称医院人员主数据质量已验证。
+- V2 Decision: 自动分诊只创建诊断责任事实，不引入 Generic Task/Workflow；选择过程按维度精确度、规则优先级、当前负载和当日量确定。
 
 ### DX-010 — 手工指派
 
@@ -4527,14 +4527,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 L12 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L12 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L12 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L12 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L12 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-012 独立立项、实现和验收。
+- UI Entry: `V2ConfigurationHub.vue` 的“自动分诊规则”可配置并维护亚专科组、医生和病例匹配维度。
+- Backend Evidence: `AssignmentRule.diagnosisGroup` 参与候选规则和责任医生选择，命中组随自动分诊结果返回。
+- DB Evidence: `assignment_rule.diagnosis_group_code`；`diagnosis_auto_assignment_fact.diagnosis_group_code` 固化当次亚专科归属。
+- Frontend Evidence: 配置中心显示亚专科组，诊断工作区反馈命中的亚专科和责任医生。
+- Test Evidence: `V2DiagnosisWebTest.autoAssignmentUsesSubspecialtyRulesAndEnforcesDailyDoctorCapacity` 断言 GI 组路由与事实保存；配置组件测试覆盖创建入口。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；具体亚专科字典与医生归属由医院配置负责。
+- V2 Decision: 亚专科是诊断分派维度和不可变分派快照，不复制 Diagnosis 或 Case 实体。
 
 ### DX-013 — 每日最大接诊量
 
@@ -4549,14 +4549,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 L13 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L13 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L13 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L13 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md L13 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 DX-013 独立立项、实现和验收。
+- UI Entry: `V2ConfigurationHub.vue` 支持为每条医生分诊规则设置每日上限，0 明确表示不限量。
+- Backend Evidence: 自动分诊在锁定当前医院启用规则后统计医生当日全部 INITIAL 接诊病例；达到上限的候选被排除，全部耗尽返回 `V2-DIAGNOSIS-DAILY-LIMIT-REACHED`。
+- DB Evidence: `assignment_rule.daily_case_limit` 非负约束；自动分诊事实保存分派前计数和上限快照。
+- Frontend Evidence: 配置中心新增/编辑表单提供非负每日上限；自动分诊结果返回本次分派后的当日数量和上限。
+- Test Evidence: `V2DiagnosisWebTest.autoAssignmentUsesSubspecialtyRulesAndEnforcesDailyDoctorCapacity` 验证两位医生各上限 1、顺序分派、幂等重放不重复计数和第三例容量拒绝。
+- Status: COMPLETE
+- Gap: 无当前已知产品闭环缺口；自然日按数据库当前日期计算，跨时区医院策略尚未独立配置。
+- V2 Decision: 容量只约束自动分诊，不阻断有权限人员的显式手工指派；规则行锁用于并发容量判定。
 
 ### DX-014 — 镜下所见
 

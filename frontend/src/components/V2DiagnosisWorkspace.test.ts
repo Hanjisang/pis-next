@@ -364,4 +364,53 @@ describe('V2DiagnosisWorkspace', () => {
       idempotencyKey: expect.any(String),
     });
   });
+
+  it('automatically routes a public-pool case with an idempotent diagnosis command', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.endsWith('/diagnosis-workspaces/public-pool')) {
+        return new Response(
+          JSON.stringify([
+            { caseId: 'CASE-AUTO', pathologyNo: 'P20260088', businessTypeCode: 'HISTOLOGY' },
+          ]),
+        );
+      }
+      if (url.endsWith('/diagnoses/auto-assign') && init?.method === 'POST') {
+        return new Response(
+          JSON.stringify({
+            diagnosisId: 'D-AUTO',
+            caseId: 'CASE-AUTO',
+            responsibilityId: 'R-AUTO',
+            doctorId: 'doctor-a',
+            diagnosisGroupCode: 'GI',
+            assignmentRuleId: 'RULE-A',
+            dailyAssignedCount: 1,
+            dailyCaseLimit: 20,
+            duplicate: false,
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ myWork: [], publicPool: [] }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2DiagnosisWorkspace);
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '自动分诊')
+      ?.trigger('click');
+    await flushPromises();
+
+    const autoCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/diagnoses/auto-assign'),
+    );
+    expect(autoCall).toBeTruthy();
+    expect(JSON.parse(autoCall?.[1]?.body as string)).toMatchObject({
+      caseId: 'CASE-AUTO',
+      idempotencyKey: expect.any(String),
+    });
+    expect(wrapper.emitted('navigate')?.[0]).toEqual(['/v2/cases/CASE-AUTO?focus=diagnosis']);
+  });
 });

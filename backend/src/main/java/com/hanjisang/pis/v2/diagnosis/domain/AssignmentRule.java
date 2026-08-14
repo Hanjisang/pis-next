@@ -5,8 +5,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record AssignmentRule(UUID id, String organizationReference, String campus, String businessTypeCode,
-        String department, String site, String diagnosisGroup, String doctorId, int priority, boolean enabled,
-        long version, Instant createdAt, String createdBy, Instant updatedAt, String updatedBy) {
+        String department, String site, String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit,
+        boolean enabled, long version, Instant createdAt, String createdBy, Instant updatedAt, String updatedBy) {
 
     public AssignmentRule {
         Objects.requireNonNull(id, "分派规则ID不能为空");
@@ -16,7 +16,9 @@ public record AssignmentRule(UUID id, String organizationReference, String campu
         required(department, "科室不能为空");
         required(site, "部位不能为空");
         required(diagnosisGroup, "诊断组不能为空");
+        if (enabled) { required(doctorId, "启用的分派规则必须配置责任医生"); }
         if (priority < 0) { throw new IllegalArgumentException("分派优先级不能为负数"); }
+        if (dailyCaseLimit < 0) { throw new IllegalArgumentException("每日最大接诊量不能为负数"); }
         if (version < 0) { throw new IllegalArgumentException("分派规则版本不能为负数"); }
         Objects.requireNonNull(createdAt, "分派规则创建时间不能为空");
         required(createdBy, "分派规则创建人不能为空");

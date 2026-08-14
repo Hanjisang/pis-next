@@ -275,9 +275,18 @@ CREATE TABLE IF NOT EXISTS pis_v2.assignment_rule (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, campus_code VARCHAR(128) NOT NULL,
     business_type_code VARCHAR(64) NOT NULL, department_code VARCHAR(128) NOT NULL, site_code VARCHAR(256) NOT NULL,
     diagnosis_group_code VARCHAR(128) NOT NULL, doctor_id VARCHAR(128), priority INTEGER NOT NULL,
+    daily_case_limit INTEGER DEFAULT 0 NOT NULL,
     enabled BOOLEAN NOT NULL, concurrency_version BIGINT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by_ref VARCHAR(128) NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_auto_assignment_fact (
+    id UUID PRIMARY KEY, responsibility_id UUID NOT NULL UNIQUE, assignment_rule_id UUID NOT NULL,
+    diagnosis_group_code VARCHAR(128) NOT NULL, matched_campus_code VARCHAR(128) NOT NULL,
+    matched_department_code VARCHAR(256) NOT NULL, matched_site_code VARCHAR(500) NOT NULL,
+    daily_assigned_count_before INTEGER NOT NULL, daily_case_limit_snapshot INTEGER NOT NULL,
+    assigned_at TIMESTAMP WITH TIME ZONE NOT NULL, assigned_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pis_v2.diagnosis_command_idempotency (
     id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
@@ -404,6 +413,7 @@ DELETE FROM pis_v2.technical_order;
 DELETE FROM pis_v2.technical_order_sequence;
 DELETE FROM pis_v2.technical_project;
 DELETE FROM pis_v2.diagnosis_command_idempotency;
+DELETE FROM pis_v2.diagnosis_auto_assignment_fact;
 DELETE FROM pis_v2.responsibility_unit;
 DELETE FROM pis_v2.diagnosis;
 DELETE FROM pis_v2.diagnosis_template_version;

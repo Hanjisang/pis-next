@@ -13,11 +13,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.AssignDiagnosisCommand;
+import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.AutoAssignDiagnosisCommand;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.CompleteResponsibilityCommand;
+import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.CreateAssignmentRuleCommand;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.CreateTemplateCommand;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.CreateTemplateVersionCommand;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.ReassignDiagnosisCommand;
 import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.SaveDiagnosisCommand;
+import com.hanjisang.pis.v2.diagnosis.application.V2DiagnosisApplicationService.UpdateAssignmentRuleCommand;
 import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityRole;
 
 @RestController
@@ -44,6 +47,11 @@ public class V2DiagnosisController {
     public V2DiagnosisApplicationService.AssignmentResult assign(@RequestBody AssignRequest request) {
         return service.assignDiagnosis(new AssignDiagnosisCommand(request.caseId(), request.doctorId(), request.reason(),
                 request.idempotencyKey()));
+    }
+
+    @PostMapping("/diagnoses/auto-assign")
+    public V2DiagnosisApplicationService.AutoAssignmentResult autoAssign(@RequestBody ClaimRequest request) {
+        return service.autoAssignDiagnosis(new AutoAssignDiagnosisCommand(request.caseId(), request.idempotencyKey()));
     }
 
     @PostMapping("/diagnoses/reassign")
@@ -97,6 +105,29 @@ public class V2DiagnosisController {
         return service.publishTemplateVersion(versionId, request.idempotencyKey());
     }
 
+    @GetMapping("/assignment-rules")
+    public List<V2DiagnosisApplicationService.AssignmentRuleView> assignmentRules() {
+        return service.assignmentRules();
+    }
+
+    @PostMapping("/assignment-rules")
+    public V2DiagnosisApplicationService.AssignmentRuleView createAssignmentRule(
+            @RequestBody AssignmentRuleRequest request) {
+        return service.createAssignmentRule(new CreateAssignmentRuleCommand(request.campus(),
+                request.businessTypeCode(), request.department(), request.site(), request.diagnosisGroup(),
+                request.doctorId(), request.priority(), request.dailyCaseLimit(), request.enabled(),
+                request.idempotencyKey()));
+    }
+
+    @PutMapping("/assignment-rules/{ruleId}")
+    public V2DiagnosisApplicationService.AssignmentRuleView updateAssignmentRule(@PathVariable UUID ruleId,
+            @RequestBody UpdateAssignmentRuleRequest request) {
+        return service.updateAssignmentRule(ruleId, new UpdateAssignmentRuleCommand(request.campus(),
+                request.businessTypeCode(), request.department(), request.site(), request.diagnosisGroup(),
+                request.doctorId(), request.priority(), request.dailyCaseLimit(), request.enabled(),
+                request.expectedVersion(), request.idempotencyKey()));
+    }
+
     @GetMapping("/diagnosis-workspaces/{caseId}")
     public V2DiagnosisApplicationService.DiagnosisWorkspaceResult workspace(@PathVariable UUID caseId) {
         return service.workspace(caseId);
@@ -130,5 +161,11 @@ public class V2DiagnosisController {
     public record CreateTemplateRequest(String code, String name, UUID businessTypeId, String scope,
             String idempotencyKey) { }
     public record CreateTemplateVersionRequest(String schemaDefinition, String idempotencyKey) { }
+    public record AssignmentRuleRequest(String campus, String businessTypeCode, String department, String site,
+            String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit, boolean enabled,
+            String idempotencyKey) { }
+    public record UpdateAssignmentRuleRequest(String campus, String businessTypeCode, String department, String site,
+            String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit, boolean enabled,
+            long expectedVersion, String idempotencyKey) { }
     public record IdempotencyRequest(String idempotencyKey) { }
 }

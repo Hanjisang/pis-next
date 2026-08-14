@@ -29,8 +29,10 @@ import com.hanjisang.pis.v2.diagnosis.domain.DiagnosisTemplateVersion;
 import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityRole;
 import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityUnit;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
+import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.AutoAssignmentRow;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.IdempotencyResult;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.PublicPoolCase;
+import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository.RoutingContext;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository.MaterialTreeRow;
 import com.hanjisang.pis.v2.digital.infrastructure.JdbcV2DigitalSlideRepository;
@@ -139,6 +141,69 @@ public class V2DiagnosisApplicationService {
                         + command.doctorId());
         publish("V2-I03-DIAGNOSIS-ASSIGNED", diagnosis.id(), 0, actor, digest);
         return assignmentResult(diagnosis, responsibility, false);
+    }
+
+    @Transactional
+    public AutoAssignmentResult autoAssignDiagnosis(AutoAssignDiagnosisCommand command) {
+        ActorContext actor = authorization.require(DIAGNOSIS_ASSIGN);
+        validateCaseCommand(command.caseId(), command.idempotencyKey());
+        String operation = "PIS-V2-I03-DIAGNOSIS-AUTO-ASSIGN";
+        String commandDigest = digest(command.caseId(), "AUTO");
+        AutoAssignmentResult replay = replayAutoAssignment(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        lockCase(command.caseId(), actor);
+        replay = replayAutoAssignment(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        Case pathologyCase = activeCase(command.caseId(), actor);
+        requireInitialMaterialComplete(command.caseId(), actor);
+        Diagnosis diagnosis = repository.findDiagnosisByCase(command.caseId(), actor.hospitalScope()).orElse(null);
+        ensureNoOpenInitial(diagnosis, actor);
+        RoutingContext context = repository.findRoutingContext(command.caseId(), actor.hospitalScope());
+        List<AssignmentRule> lockedRules = repository.lockAllEnabledAssignmentRules(actor.hospitalScope());
+        List<AssignmentCandidate> candidates = lockedRules.stream()
+                .filter(rule -> pathologyCase.businessTypeCode().equals(rule.businessTypeCode()))
+                .filter(rule -> matches(rule.campus(), context.campus()))
+                .filter(rule -> matches(rule.department(), context.department()))
+                .filter(rule -> matches(rule.site(), context.site()))
+                .map(rule -> new AssignmentCandidate(rule,
+                        repository.todayAssignmentCount(rule.doctorId(), actor.hospitalScope()),
+                        repository.currentAssignmentCount(rule.doctorId(), actor.hospitalScope()),
+                        specificity(rule, context)))
+                .filter(candidate -> candidate.rule().dailyCaseLimit() == 0
+                        || candidate.todayCount() < candidate.rule().dailyCaseLimit())
+                .sorted(java.util.Comparator.comparingInt(AssignmentCandidate::specificity).reversed()
+                        .thenComparingInt(candidate -> candidate.rule().priority())
+                        .thenComparingInt(AssignmentCandidate::openCount)
+                        .thenComparingInt(AssignmentCandidate::todayCount)
+                        .thenComparing(candidate -> candidate.rule().doctorId()))
+                .toList();
+        if (candidates.isEmpty()) {
+            boolean matchingRuleExists = lockedRules.stream()
+                    .filter(rule -> pathologyCase.businessTypeCode().equals(rule.businessTypeCode()))
+                    .anyMatch(rule -> matches(rule.campus(), context.campus())
+                            && matches(rule.department(), context.department()) && matches(rule.site(), context.site()));
+            throw reject(matchingRuleExists ? "V2-DIAGNOSIS-DAILY-LIMIT-REACHED"
+                    : "V2-DIAGNOSIS-ASSIGNMENT-RULE-NOT-FOUND",
+                    matchingRuleExists ? "匹配医生均已达到每日最大接诊量" : "未找到匹配病例事实的自动分诊规则");
+        }
+        AssignmentCandidate selected = candidates.getFirst();
+        if (diagnosis == null) diagnosis = createDiagnosis(pathologyCase, actor);
+        ResponsibilityUnit responsibility = createResponsibility(diagnosis, ResponsibilityRole.INITIAL,
+                selected.rule().doctorId(), AssignmentSource.AUTO,
+                "自动分诊至亚专科 " + selected.rule().diagnosisGroup(), actor);
+        repository.insertResponsibility(responsibility);
+        Instant now = Instant.now();
+        repository.insertAutoAssignmentFact(responsibility.id(), selected.rule(), context, selected.todayCount(),
+                actor.actorId(), now);
+        repository.insertIdempotency(operation, command.idempotencyKey(), commandDigest, "AUTO_RESPONSIBILITY",
+                responsibility.id(), actor.actorId(), now);
+        audit.append(operation, DIAGNOSIS_ASSIGN, actor, "ALLOWED", "COMPLETED", responsibility.id(),
+                "V2-RESPONSIBILITY", UUID.randomUUID().toString(), "rule=" + selected.rule().id() + ";group="
+                        + selected.rule().diagnosisGroup() + ";doctor=" + selected.rule().doctorId());
+        publish("V2-I03-DIAGNOSIS-AUTO-ASSIGNED", diagnosis.id(), 0, actor, commandDigest);
+        return autoAssignmentResult(new AutoAssignmentRow(diagnosis.id(), command.caseId(), responsibility.id(),
+                selected.rule().doctorId(), selected.rule().diagnosisGroup(), selected.rule().id(),
+                selected.todayCount(), selected.rule().dailyCaseLimit()), false);
     }
 
     @Transactional
@@ -298,11 +363,79 @@ public class V2DiagnosisApplicationService {
     }
 
     @Transactional
-    public void createAssignmentRule(AssignmentRule rule) {
+    public AssignmentRuleView createAssignmentRule(CreateAssignmentRuleCommand command) {
         ActorContext actor = authorization.require(TEMPLATE_MANAGE);
+        requireKey(command.idempotencyKey());
+        validateAssignmentRuleNumbers(command.priority(), command.dailyCaseLimit());
+        String operation = "PIS-V2-I03-ASSIGNMENT-RULE-CREATE";
+        String commandDigest = digest(command.campus(), command.businessTypeCode(), command.department(),
+                command.site(), command.diagnosisGroup(), command.doctorId(), command.priority(),
+                command.dailyCaseLimit(), command.enabled());
+        AssignmentRuleView replay = replayAssignmentRule(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        if (!repository.lockAssignmentRuleConfiguration(actor.hospitalScope())) {
+            throw reject("V2-HOSPITAL-PROFILE-NOT-FOUND", "当前医院配置范围不存在");
+        }
+        replay = replayAssignmentRule(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        Instant now = Instant.now();
+        AssignmentRule rule = new AssignmentRule(UUID.randomUUID(), actor.hospitalScope(), wildcard(command.campus()),
+                requiredText(command.businessTypeCode(), "业务类型不能为空"), wildcard(command.department()),
+                wildcard(command.site()), requiredText(command.diagnosisGroup(), "亚专科诊断组不能为空"),
+                requiredText(command.doctorId(), "责任医生不能为空"), command.priority(), command.dailyCaseLimit(),
+                command.enabled(), 0, now, actor.actorId(), now, actor.actorId());
         repository.insertAssignmentRule(rule);
+        repository.insertIdempotency(operation, command.idempotencyKey(), commandDigest, "ASSIGNMENT_RULE", rule.id(),
+                actor.actorId(), now);
         audit.append("PIS-V2-I03-ASSIGNMENT-RULE-CREATE", TEMPLATE_MANAGE, actor, "ALLOWED", "COMPLETED", rule.id(),
-                "V2-ASSIGNMENT-RULE", UUID.randomUUID().toString(), "priority=" + rule.priority());
+                "V2-ASSIGNMENT-RULE", UUID.randomUUID().toString(), "priority=" + rule.priority() + ";group="
+                        + rule.diagnosisGroup() + ";dailyLimit=" + rule.dailyCaseLimit());
+        return assignmentRuleView(rule, false);
+    }
+
+    @Transactional
+    public AssignmentRuleView updateAssignmentRule(UUID ruleId, UpdateAssignmentRuleCommand command) {
+        ActorContext actor = authorization.require(TEMPLATE_MANAGE);
+        requireKey(command.idempotencyKey());
+        validateAssignmentRuleNumbers(command.priority(), command.dailyCaseLimit());
+        String operation = "PIS-V2-I03-ASSIGNMENT-RULE-UPDATE";
+        String commandDigest = digest(ruleId, command.campus(), command.businessTypeCode(), command.department(),
+                command.site(), command.diagnosisGroup(), command.doctorId(), command.priority(),
+                command.dailyCaseLimit(), command.enabled(), command.expectedVersion());
+        AssignmentRuleView replay = replayAssignmentRule(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        if (!repository.lockAssignmentRuleConfiguration(actor.hospitalScope())) {
+            throw reject("V2-HOSPITAL-PROFILE-NOT-FOUND", "当前医院配置范围不存在");
+        }
+        replay = replayAssignmentRule(operation, command.idempotencyKey(), commandDigest, actor);
+        if (replay != null) return replay;
+        AssignmentRule current = repository.findAllAssignmentRules(actor.hospitalScope()).stream()
+                .filter(rule -> rule.id().equals(ruleId)).findFirst()
+                .orElseThrow(() -> reject("V2-ASSIGNMENT-RULE-NOT-FOUND", "自动分诊规则不存在或不在当前数据范围"));
+        if (current.version() != command.expectedVersion()) throw conflict("自动分诊规则版本冲突，请刷新后重试");
+        Instant now = Instant.now();
+        AssignmentRule changed = new AssignmentRule(current.id(), current.organizationReference(),
+                wildcard(command.campus()), requiredText(command.businessTypeCode(), "业务类型不能为空"),
+                wildcard(command.department()), wildcard(command.site()),
+                requiredText(command.diagnosisGroup(), "亚专科诊断组不能为空"),
+                requiredText(command.doctorId(), "责任医生不能为空"), command.priority(), command.dailyCaseLimit(),
+                command.enabled(), current.version() + 1, current.createdAt(), current.createdBy(), now,
+                actor.actorId());
+        if (!repository.updateAssignmentRule(changed, command.expectedVersion())) {
+            throw conflict("自动分诊规则版本冲突，请刷新后重试");
+        }
+        repository.insertIdempotency(operation, command.idempotencyKey(), commandDigest, "ASSIGNMENT_RULE", ruleId,
+                actor.actorId(), now);
+        audit.append(operation, TEMPLATE_MANAGE, actor, "ALLOWED", "COMPLETED", ruleId, "V2-ASSIGNMENT-RULE",
+                UUID.randomUUID().toString(), "version=" + changed.version() + ";enabled=" + changed.enabled());
+        return assignmentRuleView(changed, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssignmentRuleView> assignmentRules() {
+        ActorContext actor = authorization.require(TEMPLATE_MANAGE);
+        return repository.findAllAssignmentRules(actor.hospitalScope()).stream()
+                .map(rule -> assignmentRuleView(rule, false)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -502,6 +635,25 @@ public class V2DiagnosisApplicationService {
         return assignmentResult(diagnosis, responsibility, true);
     }
 
+    private AutoAssignmentResult replayAutoAssignment(String operation, String key, String digest,
+            ActorContext actor) {
+        IdempotencyResult result = existingIdempotency(operation, key, digest);
+        if (result == null) { return null; }
+        AutoAssignmentRow assignment = repository.findAutoAssignment(result.resultEntityId(), actor.hospitalScope())
+                .orElseThrow(() -> reject("V2-IDEMPOTENCY-INVALID", "幂等结果对应自动分诊记录不存在"));
+        return autoAssignmentResult(assignment, true);
+    }
+
+    private AssignmentRuleView replayAssignmentRule(String operation, String key, String digest,
+            ActorContext actor) {
+        IdempotencyResult result = existingIdempotency(operation, key, digest);
+        if (result == null) { return null; }
+        AssignmentRule rule = repository.findAllAssignmentRules(actor.hospitalScope()).stream()
+                .filter(item -> item.id().equals(result.resultEntityId())).findFirst()
+                .orElseThrow(() -> reject("V2-IDEMPOTENCY-INVALID", "幂等结果对应自动分诊规则不存在"));
+        return assignmentRuleView(rule, true);
+    }
+
     private DiagnosisResult replayDiagnosis(String operation, String key, String digest, ActorContext actor) {
         IdempotencyResult result = existingIdempotency(operation, key, digest);
         if (result == null) { return null; }
@@ -624,6 +776,32 @@ public class V2DiagnosisApplicationService {
         if (value == null || value.isBlank()) { throw reject("V2-INVALID-REQUEST", message); }
     }
 
+    private static String requiredText(String value, String message) {
+        requireText(value, message);
+        return value.trim();
+    }
+
+    private static String wildcard(String value) {
+        return value == null || value.isBlank() ? "*" : value.trim();
+    }
+
+    private static boolean matches(String ruleValue, String actualValue) {
+        return "*".equals(ruleValue) || (!"*".equals(actualValue) && ruleValue.equalsIgnoreCase(actualValue));
+    }
+
+    private static int specificity(AssignmentRule rule, RoutingContext context) {
+        int result = 0;
+        if (!"*".equals(rule.campus()) && matches(rule.campus(), context.campus())) result++;
+        if (!"*".equals(rule.department()) && matches(rule.department(), context.department())) result++;
+        if (!"*".equals(rule.site()) && matches(rule.site(), context.site())) result++;
+        return result;
+    }
+
+    private static void validateAssignmentRuleNumbers(int priority, int dailyCaseLimit) {
+        if (priority < 0) throw reject("V2-INVALID-REQUEST", "分诊规则优先级不能为负数");
+        if (dailyCaseLimit < 0) throw reject("V2-INVALID-REQUEST", "每日最大接诊量不能为负数");
+    }
+
     private static P15BusinessException reject(String code, String message) { return new P15BusinessException(code, message); }
     private static P15BusinessException conflict(String message) { return new P15BusinessException("V2-VERSION-CONFLICT", message, 409); }
 
@@ -667,6 +845,18 @@ public class V2DiagnosisApplicationService {
         return new DiagnosisResult(diagnosis.id(), diagnosis.caseId(), diagnosis.templateVersionId(),
                 diagnosis.structuredData(), diagnosis.microscopicDescription(), diagnosis.diagnosisText(), diagnosis.comment(),
                 diagnosis.version(), duplicate);
+    }
+
+    private static AutoAssignmentResult autoAssignmentResult(AutoAssignmentRow assignment, boolean duplicate) {
+        return new AutoAssignmentResult(assignment.diagnosisId(), assignment.caseId(), assignment.responsibilityId(),
+                assignment.doctorId(), assignment.diagnosisGroupCode(), assignment.assignmentRuleId(),
+                assignment.dailyAssignedCountBefore() + 1, assignment.dailyCaseLimit(), duplicate);
+    }
+
+    private static AssignmentRuleView assignmentRuleView(AssignmentRule rule, boolean duplicate) {
+        return new AssignmentRuleView(rule.id(), rule.campus(), rule.businessTypeCode(), rule.department(), rule.site(),
+                rule.diagnosisGroup(), rule.doctorId(), rule.priority(), rule.dailyCaseLimit(), rule.enabled(),
+                rule.version(), duplicate);
     }
 
     private static TemplateVersionResult templateVersionResult(DiagnosisTemplateVersion version, boolean duplicate) {
@@ -782,7 +972,10 @@ public class V2DiagnosisApplicationService {
         private BlockNode build() { return new BlockNode(id, blockCode, blockType, slides); }
     }
 
+    private record AssignmentCandidate(AssignmentRule rule, int todayCount, int openCount, int specificity) { }
+
     public record AssignDiagnosisCommand(UUID caseId, String doctorId, String reason, String idempotencyKey) { }
+    public record AutoAssignDiagnosisCommand(UUID caseId, String idempotencyKey) { }
     public record SelfClaimCommand(UUID caseId, String idempotencyKey) { }
     public record ReassignDiagnosisCommand(UUID caseId, String doctorId, String reason, String idempotencyKey) { }
     public record SaveDiagnosisCommand(String structuredData, String microscopicDescription, String diagnosisText,
@@ -794,6 +987,12 @@ public class V2DiagnosisApplicationService {
     public record CreateTemplateCommand(String code, String name, UUID businessTypeId, String scope,
             String idempotencyKey) { }
     public record CreateTemplateVersionCommand(UUID templateId, String schemaDefinition, String idempotencyKey) { }
+    public record CreateAssignmentRuleCommand(String campus, String businessTypeCode, String department, String site,
+            String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit, boolean enabled,
+            String idempotencyKey) { }
+    public record UpdateAssignmentRuleCommand(String campus, String businessTypeCode, String department, String site,
+            String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit, boolean enabled,
+            long expectedVersion, String idempotencyKey) { }
 
     public record AssignmentResult(UUID diagnosisId, UUID caseId, UUID responsibilityId, ResponsibilityRole role,
             String doctorId, Integer sequence, long diagnosisVersion, boolean duplicate) { }
@@ -804,6 +1003,12 @@ public class V2DiagnosisApplicationService {
     public record TemplateResult(UUID templateId, String code, String name, long version, boolean duplicate) { }
     public record TemplateVersionResult(UUID versionId, UUID templateId, int versionNo, String schemaDefinition,
             String status, Instant publishedAt, boolean duplicate) { }
+    public record AutoAssignmentResult(UUID diagnosisId, UUID caseId, UUID responsibilityId, String doctorId,
+            String diagnosisGroupCode, UUID assignmentRuleId, int dailyAssignedCount, int dailyCaseLimit,
+            boolean duplicate) { }
+    public record AssignmentRuleView(UUID assignmentRuleId, String campus, String businessTypeCode, String department,
+            String site, String diagnosisGroup, String doctorId, int priority, int dailyCaseLimit, boolean enabled,
+            long version, boolean duplicate) { }
 
     public record DiagnosisWorkspaceResult(CaseSummary caseSummary, ApplicationSummary application,
             PatientSnapshot patient, MaterialTreeResult materialTree, DiagnosisView diagnosis,

@@ -5,7 +5,7 @@ export type V2Responsibility = {
   role: V2ResponsibilityRole;
   doctorId: string;
   sequence: number;
-  assignmentSource: 'PUBLIC_POOL' | 'MANUAL' | 'SELF_CLAIM' | 'REASSIGN';
+  assignmentSource: 'PUBLIC_POOL' | 'MANUAL' | 'SELF_CLAIM' | 'REASSIGN' | 'AUTO';
   assignmentReason?: string;
   acceptedAt: string;
   completedAt?: string;
@@ -227,6 +227,21 @@ export type V2MaterialSlide = {
   completed: boolean;
   required: boolean;
   concurrencyVersion: number;
+};
+
+export type V2AssignmentRule = {
+  assignmentRuleId: string;
+  campus: string;
+  businessTypeCode: string;
+  department: string;
+  site: string;
+  diagnosisGroup: string;
+  doctorId: string;
+  priority: number;
+  dailyCaseLimit: number;
+  enabled: boolean;
+  version: number;
+  duplicate: boolean;
 };
 
 async function diagnosisRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -591,6 +606,45 @@ export function assignV2Diagnosis(input: {
   idempotencyKey: string;
 }) {
   return diagnosisRequest('/diagnoses/assign', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function autoAssignV2Diagnosis(caseId: string, idempotencyKey: string) {
+  return diagnosisRequest<{
+    diagnosisId: string;
+    caseId: string;
+    responsibilityId: string;
+    doctorId: string;
+    diagnosisGroupCode: string;
+    assignmentRuleId: string;
+    dailyAssignedCount: number;
+    dailyCaseLimit: number;
+    duplicate: boolean;
+  }>('/diagnoses/auto-assign', {
+    method: 'POST',
+    body: JSON.stringify({ caseId, idempotencyKey }),
+  });
+}
+
+export function getV2AssignmentRules(): Promise<V2AssignmentRule[]> {
+  return diagnosisRequest('/assignment-rules');
+}
+
+export function createV2AssignmentRule(
+  input: Omit<V2AssignmentRule, 'assignmentRuleId' | 'version' | 'duplicate'> & {
+    idempotencyKey: string;
+  },
+): Promise<V2AssignmentRule> {
+  return diagnosisRequest('/assignment-rules', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateV2AssignmentRule(
+  input: Omit<V2AssignmentRule, 'duplicate'> & { idempotencyKey: string },
+): Promise<V2AssignmentRule> {
+  const { assignmentRuleId, version, ...body } = input;
+  return diagnosisRequest(`/assignment-rules/${assignmentRuleId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ ...body, expectedVersion: version }),
+  });
 }
 
 export function reassignV2Diagnosis(input: {

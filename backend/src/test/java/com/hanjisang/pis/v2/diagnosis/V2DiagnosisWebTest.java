@@ -149,6 +149,61 @@ class V2DiagnosisWebTest {
     }
 
     @Test
+    void autoAssignmentUsesSubspecialtyRulesAndEnforcesDailyDoctorCapacity() throws Exception {
+        JsonNode firstRule = createAssignmentRule("GI", "doctor-auto-a", 1, 1, "auto-rule-a");
+        createAssignmentRule("GI", "doctor-auto-b", 2, 1, "auto-rule-b");
+        JsonNode rules = json(mockMvc.perform(get("/api/v2/assignment-rules"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(rules).hasSize(2);
+        assertThat(rules.get(0).get("dailyCaseLimit").asInt()).isEqualTo(1);
+
+        String firstCaseId = createReadyCase("DX-AUTO-A");
+        String secondCaseId = createReadyCase("DX-AUTO-B");
+        String thirdCaseId = createReadyCase("DX-AUTO-C");
+        String firstBody = "{\"caseId\":\"%s\",\"idempotencyKey\":\"auto-assign-a\"}"
+                .formatted(firstCaseId);
+        JsonNode first = json(mockMvc.perform(post("/api/v2/diagnoses/auto-assign")
+                .contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(first.get("doctorId").asText()).isEqualTo("doctor-auto-a");
+        assertThat(first.get("diagnosisGroupCode").asText()).isEqualTo("GI");
+        assertThat(first.get("dailyAssignedCount").asInt()).isEqualTo(1);
+        JsonNode replay = json(mockMvc.perform(post("/api/v2/diagnoses/auto-assign")
+                .contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(replay.get("duplicate").asBoolean()).isTrue();
+        assertThat(replay.get("responsibilityId").asText()).isEqualTo(first.get("responsibilityId").asText());
+
+        JsonNode second = json(mockMvc.perform(post("/api/v2/diagnoses/auto-assign")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"idempotencyKey\":\"auto-assign-b\"}"
+                        .formatted(secondCaseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(second.get("doctorId").asText()).isEqualTo("doctor-auto-b");
+        mockMvc.perform(post("/api/v2/diagnoses/auto-assign")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"idempotencyKey\":\"auto-assign-c\"}"
+                        .formatted(thirdCaseId)))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.diagnosis_auto_assignment_fact", Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.responsibility_unit WHERE assignment_source_code = 'AUTO'",
+                Integer.class)).isEqualTo(2);
+
+        mockMvc.perform(put("/api/v2/assignment-rules/%s".formatted(firstRule.get("assignmentRuleId").asText()))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"campus":"MAIN","businessTypeCode":"HISTOLOGY","department":"*","site":"*",
+                         "diagnosisGroup":"GI","doctorId":"doctor-auto-a","priority":1,"dailyCaseLimit":1,
+                         "enabled":false,"expectedVersion":0,"idempotencyKey":"auto-rule-update-a"}
+                        """))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT enabled FROM pis_v2.assignment_rule WHERE id = ?", Boolean.class,
+                UUID.fromString(firstRule.get("assignmentRuleId").asText()))).isFalse();
+    }
+
+    @Test
     void caseSupportCommandsAreScopedIdempotentAndKeepCompletionHistory() throws Exception {
         String caseId = createReadyCase("DX-CASE-SUPPORT");
         mockMvc.perform(post("/api/v2/case-support/cases/%s/favorite".formatted(caseId)))
@@ -262,6 +317,17 @@ class V2DiagnosisWebTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"caseId\":\"%s\",\"idempotencyKey\":\"%s\"}".formatted(caseId, key)))
                 .andReturn().getResponse().getStatus();
+    }
+
+    private JsonNode createAssignmentRule(String diagnosisGroup, String doctorId, int priority, int dailyLimit,
+            String key) throws Exception {
+        return json(mockMvc.perform(post("/api/v2/assignment-rules")
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"campus":"MAIN","businessTypeCode":"HISTOLOGY","department":"*","site":"*",
+                         "diagnosisGroup":"%s","doctorId":"%s","priority":%d,"dailyCaseLimit":%d,
+                         "enabled":true,"idempotencyKey":"%s"}
+                        """.formatted(diagnosisGroup, doctorId, priority, dailyLimit, key)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
 
     private JsonNode complete(String diagnosisId, String path, String responsibilityId, long responsibilityVersion,
