@@ -43,9 +43,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("CYTOLOGY-DIAGNOSIS-REPORT-CLOSURE");
+                String.class)).isEqualTo("MOLECULAR-WORKFLOW-CLOSURE");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("50");
+                String.class)).isEqualTo("51");
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema = 'pis_v2' AND table_name IN
@@ -71,12 +71,12 @@ class V2RegistrationPostgresIntegrationTest {
                 .isEqualTo("MOCK://SYNTH-PRINTER");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template_version", Integer.class))
-                .isEqualTo(11);
+                .isEqualTo(12);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.technical_project", Integer.class)).isEqualTo(64);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.technical_project WHERE produces_slide", Integer.class))
                 .isEqualTo(48);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template", Integer.class)).isEqualTo(8);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_version", Integer.class)).isEqualTo(11);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_version", Integer.class)).isEqualTo(12);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_preset", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_tat_policy", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("""

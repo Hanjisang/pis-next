@@ -87,10 +87,46 @@ class V2BusinessOperationsWebTest {
 
         String molecularProject = body(post("/api/v2/operations/molecular/projects").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"projectCode\":\"PCR\",\"projectName\":\"合成PCR\",\"projectTypeCode\":\"PCR\"}"));
+        String molecularInstrument = body(post("/api/v2/operations/molecular/instruments").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"instrumentCode\":\"SIM-PCR\",\"name\":\"合成PCR仪\",\"adapterCode\":\"SIMULATOR\"}"));
+        String molecularReagent = body(post("/api/v2/operations/molecular/reagents").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"kitCode\":\"PCR-KIT\",\"manufacturer\":\"SYNTH\",\"batchNo\":\"B-001\",\"expiryDate\":\"2027-12-31\"}"));
+        String specimenId = json(body(post("/api/v2/registration/specimens").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"specimenCode\":\"M-1\",\"specimenKindCode\":\"TISSUE\",\"sourceKindCode\":\"LOCAL\",\"sourceReference\":\"SYNTH-MOL-SOURCE\",\"collectionSite\":\"synthetic site\",\"collectionMethodCode\":\"SURGICAL\",\"idempotencyKey\":\"ops-mol-specimen\"}".formatted(caseId)))).get("specimenId").asText();
         String molecularId = body(post("/api/v2/operations/molecular/tests").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"caseId\":\"%s\",\"projectId\":\"%s\",\"detectionNo\":\"M-001\",\"structuredResult\":\"待检测\"}".formatted(caseId, json(molecularProject).get("id").asText()))).trim();
+                .content("{\"caseId\":\"%s\",\"specimenId\":\"%s\",\"projectId\":\"%s\",\"detectionNo\":\"M-001\",\"instrumentId\":\"%s\",\"reagentKitId\":\"%s\",\"rawDataReference\":\"fixture://molecular/raw-001\"}".formatted(caseId, specimenId, json(molecularProject).get("id").asText(), json(molecularInstrument).get("id").asText(), json(molecularReagent).get("id").asText()))).trim();
+        assertThat(body(get("/api/v2/my-workbench"))).contains("MOLECULAR_PENDING", "M-001", "启动检测");
+        body(post("/api/v2/operations/molecular/tests/%s/start".formatted(json(molecularId).get("id").asText())));
+        body(post("/api/v2/operations/molecular/tests/%s/start".formatted(json(molecularId).get("id").asText())));
         body(post("/api/v2/operations/molecular/tests/%s/complete".formatted(json(molecularId).get("id").asText())).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"structuredResult\":\"阴性\",\"analysisResult\":\"未见异常\"}"));
+        body(post("/api/v2/operations/molecular/tests/%s/complete".formatted(json(molecularId).get("id").asText())).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"structuredResult\":\"阴性\",\"analysisResult\":\"未见异常\"}"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.molecular_result WHERE case_id=?", Integer.class,
+                UUID.fromString(caseId))).isEqualTo(1);
+        assertThat(body(get("/api/v2/molecular/workbench"))).contains("M-001", "COMPLETED", "SIM-PCR", "PCR-KIT");
+        assertThat(body(get("/api/v2/diagnosis-workspaces/%s".formatted(caseId))))
+                .contains("M-001", "structuredResult", "analysisResult");
+        String autoPayload = "{\"caseId\":\"%s\",\"specimenId\":\"%s\",\"projectId\":\"%s\",\"instrumentId\":\"%s\",\"reagentKitId\":\"%s\",\"rawDataReference\":\"fixture://molecular/raw-auto\",\"idempotencyKey\":\"molecular-auto-create\"}".formatted(caseId, specimenId, json(molecularProject).get("id").asText(), json(molecularInstrument).get("id").asText(), json(molecularReagent).get("id").asText());
+        JsonNode autoCreated = json(body(post("/api/v2/molecular/tests").contentType(MediaType.APPLICATION_JSON).content(autoPayload)));
+        JsonNode autoReplay = json(body(post("/api/v2/molecular/tests").contentType(MediaType.APPLICATION_JSON).content(autoPayload)));
+        assertThat(autoReplay.get("id").asText()).isEqualTo(autoCreated.get("id").asText());
+        assertThat(autoReplay.get("duplicate").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT detection_no FROM pis_v2.molecular_test WHERE id=?", String.class,
+                UUID.fromString(autoCreated.get("id").asText()))).startsWith("MOL-");
+        body(post("/api/v2/molecular/tests/%s/attachments".formatted(autoCreated.get("id").asText()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"attachmentReference\":\"fixture://molecular/support-auto.pdf\",\"description\":\"合成附件\"}"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.molecular_test_attachment WHERE molecular_test_id=?", Integer.class,
+                UUID.fromString(autoCreated.get("id").asText()))).isEqualTo(1);
+        String externalInstrument = body(post("/api/v2/operations/molecular/instruments").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"instrumentCode\":\"REAL-PCR\",\"name\":\"待联调PCR仪\",\"adapterCode\":\"VENDOR-A\"}"));
+        String externalTest = body(post("/api/v2/operations/molecular/tests").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"specimenId\":\"%s\",\"projectId\":\"%s\",\"detectionNo\":\"M-EXT-001\",\"instrumentId\":\"%s\",\"reagentKitId\":\"%s\",\"rawDataReference\":\"fixture://molecular/raw-ext\"}".formatted(caseId, specimenId, json(molecularProject).get("id").asText(), json(externalInstrument).get("id").asText(), json(molecularReagent).get("id").asText())));
+        mockMvc.perform(post("/api/v2/operations/molecular/tests/%s/start".formatted(json(externalTest).get("id").asText())))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.molecular_instrument_attempt WHERE molecular_test_id=? AND status_code='FAILED'", Integer.class,
+                UUID.fromString(json(externalTest).get("id").asText()))).isEqualTo(1);
 
         String job = body(post("/api/v2/operations/migration/jobs").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"sourceCode\":\"LEGACY-SYNTH\",\"modeCode\":\"READ_ONLY\",\"statusCode\":\"READ_ONLY\"}"));

@@ -14,6 +14,7 @@ import V2Home from './components/V2Home.vue';
 import V2Login from './components/V2Login.vue';
 import V2DigitalSlideWorkbench from './components/V2DigitalSlideWorkbench.vue';
 import V2MaterialCustodyWorkbench from './components/V2MaterialCustodyWorkbench.vue';
+import V2MolecularWorkbench from './components/V2MolecularWorkbench.vue';
 import V2QualityWorkbench from './components/V2QualityWorkbench.vue';
 import V2RegistrationWorkbench from './components/V2RegistrationWorkbench.vue';
 import V2ReportCenter from './components/V2ReportCenter.vue';
@@ -64,6 +65,7 @@ const routeTitles: Record<V2RouteName, string> = {
   'technical-orders': '技术医嘱',
   reports: '报告',
   'digital-slides': '数字切片',
+  molecular: '分子病理',
   'material-custody': '归档借阅',
   search: '查询',
   quality: '质控统计',
@@ -404,6 +406,7 @@ onUnmounted(() => {
           :selected-slide-id="route.slideId"
           @navigate="navigate"
         />
+        <V2MolecularWorkbench v-else-if="route.name === 'molecular'" />
         <V2MaterialCustodyWorkbench
           v-else-if="route.name === 'material-custody'"
           :case-id="route.caseId"

@@ -11,6 +11,7 @@ export type V2RouteName =
   | 'technical-orders'
   | 'reports'
   | 'digital-slides'
+  | 'molecular'
   | 'material-custody'
   | 'search'
   | 'quality'
@@ -67,6 +68,7 @@ const segmentToRoute: Record<string, V2RouteName> = {
   'technical-orders': 'technical-orders',
   reports: 'reports',
   'digital-slides': 'digital-slides',
+  molecular: 'molecular',
   'material-custody': 'material-custody',
   search: 'search',
   quality: 'quality',

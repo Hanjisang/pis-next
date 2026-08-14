@@ -1146,7 +1146,28 @@ CREATE TABLE IF NOT EXISTS pis_v2.molecular_test (
     detection_no VARCHAR(128) NOT NULL, instrument_id UUID, reagent_kit_id UUID, raw_data_reference VARCHAR(1024),
     structured_result VARCHAR(20000), analysis_result VARCHAR(20000), status_code VARCHAR(32) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL, completed_at TIMESTAMP WITH TIME ZONE,
-    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL
+    created_by_ref VARCHAR(128) NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    result_id UUID, started_at TIMESTAMP WITH TIME ZONE, started_by_ref VARCHAR(128),
+    completed_by_ref VARCHAR(128), concurrency_version BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_test_attachment (
+    id UUID PRIMARY KEY, molecular_test_id UUID NOT NULL, digital_slide_id UUID,
+    attachment_reference VARCHAR(1024), description VARCHAR(512), organization_reference VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_instrument_attempt (
+    id UUID PRIMARY KEY, molecular_test_id UUID NOT NULL, instrument_id UUID NOT NULL,
+    adapter_code VARCHAR(128) NOT NULL, attempt_no INTEGER NOT NULL, request_reference VARCHAR(256) NOT NULL,
+    status_code VARCHAR(32) NOT NULL, response_reference VARCHAR(512), error_code VARCHAR(128),
+    error_message VARCHAR(2000), requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE NOT NULL, requested_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pis_v2.molecular_command_idempotency (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, operation_code VARCHAR(128) NOT NULL,
+    idempotency_key VARCHAR(256) NOT NULL, payload_digest VARCHAR(128) NOT NULL, result_entity_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, operation_code, idempotency_key)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.digital_slide_archive (
     id UUID PRIMARY KEY, digital_slide_id UUID NOT NULL, storage_path VARCHAR(2048) NOT NULL,

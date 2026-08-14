@@ -27,6 +27,7 @@ import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationSer
 import com.hanjisang.pis.v2.registration.application.V2ApplicationApplicationService.ApplicationQueueResult;
 import com.hanjisang.pis.v2.production.application.V2ProductionWorkbenchApplicationService;
 import com.hanjisang.pis.v2.production.application.V2ProductionWorkbenchApplicationService.ProductionItem;
+import com.hanjisang.pis.v2.molecular.infrastructure.JdbcV2MolecularWorkflowRepository;
 
 @Service
 public class V2WorkbenchApplicationService {
@@ -44,15 +45,18 @@ public class V2WorkbenchApplicationService {
     private final CaseProgressProjectionApplicationService progressProjection;
     private final V2ApplicationApplicationService applications;
     private final V2ProductionWorkbenchApplicationService production;
+    private final JdbcV2MolecularWorkflowRepository molecular;
 
     public V2WorkbenchApplicationService(JdbcV2WorkbenchRepository repository,
             P15AuthorizationService authorization, CaseProgressProjectionApplicationService progressProjection,
-            V2ApplicationApplicationService applications, V2ProductionWorkbenchApplicationService production) {
+            V2ApplicationApplicationService applications, V2ProductionWorkbenchApplicationService production,
+            JdbcV2MolecularWorkflowRepository molecular) {
         this.repository = repository;
         this.authorization = authorization;
         this.progressProjection = progressProjection;
         this.applications = applications;
         this.production = production;
+        this.molecular = molecular;
     }
 
     @Transactional(readOnly = true)
@@ -95,6 +99,17 @@ public class V2WorkbenchApplicationService {
     private List<CapabilityQueue> capabilityQueues(ActorContext actor, AuthenticatedUser user,
             List<WorkItem> myWork, List<WorkItem> publicPool) {
         List<CapabilityQueue> result = new ArrayList<>();
+        if (hasAny(user, "P14-PERM-014")) {
+            result.add(queue("MOLECULAR_PENDING", "分子检测", "PENDING",
+                    molecular.tests(actor.hospitalScope()).stream()
+                            .filter(item -> "REQUESTED".equals(item.statusCode()) || "RUNNING".equals(item.statusCode()))
+                            .map(item -> new QueueItem(item.id().toString(), item.caseId(), null, null,
+                                    item.detectionNo(), "", null, null, "分子病理",
+                                    "REQUESTED".equals(item.statusCode()) ? "启动检测" : "录入检测结果",
+                                    item.projectCode() + " · " + (item.instrumentCode() == null ? "未绑定设备" : item.instrumentCode()),
+                                    item.createdAt(), waiting(item.createdAt()), false, Set.of("OPEN"), "/v2/molecular"))
+                            .toList()));
+        }
         if (hasAny(user, REGISTRATION)) {
             List<QueueItem> pending = applications.queue().stream()
                     .filter(item -> "PENDING".equals(item.itemStatusCode()))

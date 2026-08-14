@@ -33,6 +33,7 @@ import com.hanjisang.pis.v2.diagnosis.domain.ResponsibilityUnit;
 import com.hanjisang.pis.v2.diagnosis.infrastructure.JdbcV2DiagnosisRepository;
 import com.hanjisang.pis.v2.frozen.application.V2FrozenApplicationService;
 import com.hanjisang.pis.v2.material.infrastructure.JdbcV2MaterialRepository;
+import com.hanjisang.pis.v2.molecular.infrastructure.JdbcV2MolecularResultRepository;
 import com.hanjisang.pis.v2.registration.domain.Case;
 import com.hanjisang.pis.v2.registration.infrastructure.JdbcV2RegistrationRepository;
 import com.hanjisang.pis.v2.report.domain.Report;
@@ -60,6 +61,7 @@ public class V2ReportApplicationService {
     private final JdbcV2RegistrationRepository registrationRepository;
     private final JdbcV2MaterialRepository materialRepository;
     private final JdbcV2TechnicalOrderRepository technicalRepository;
+    private final JdbcV2MolecularResultRepository molecularRepository;
     private final V2TechnicalOrderApplicationService technicalOrderService;
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
@@ -73,6 +75,7 @@ public class V2ReportApplicationService {
             JdbcV2ReportCenterRepository reportCenterRepository,
             JdbcV2DiagnosisRepository diagnosisRepository, JdbcV2RegistrationRepository registrationRepository,
             JdbcV2MaterialRepository materialRepository, JdbcV2TechnicalOrderRepository technicalRepository,
+            JdbcV2MolecularResultRepository molecularRepository,
             V2TechnicalOrderApplicationService technicalOrderService, P15AuthorizationService authorization,
             JdbcAuditEventRepository audit, OutboxPort outbox,
             V2ReportPdfRenderer pdfRenderer, V2FrozenApplicationService frozenService) {
@@ -82,6 +85,7 @@ public class V2ReportApplicationService {
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
         this.technicalRepository = technicalRepository;
+        this.molecularRepository = molecularRepository;
         this.technicalOrderService = technicalOrderService;
         this.authorization = authorization;
         this.audit = audit;
@@ -461,12 +465,19 @@ public class V2ReportApplicationService {
             materialRows = materialRows.stream().filter(row -> roundSpecimenIds.contains(row.specimenId())).toList();
         }
         String materialSnapshot = json(materialRows.stream().map(this::materialRowSnapshot).toList());
-        String technicalSnapshot = json(technicalOrders.stream().map(item -> Map.of("orderId", item.order().id(),
+        List<Object> supportingResults = new ArrayList<>(technicalOrders.stream().map(item -> Map.of("kind", "TECHNICAL_ORDER", "orderId", item.order().id(),
                 "orderNo", item.order().orderNo(), "status", item.derivedStatus().name(), "blocking", item.blocking(),
                 "items", item.items().stream().map(detail -> Map.of("projectCode", detail.item().project().code(),
                         "status", detail.status().name(), "completedCount", detail.completedCount(), "expectedCount",
                         detail.expectedCount(), "result", value(detail.result() == null ? null : detail.result().data())))
-                        .toList())).toList());
+                        .toList())).map(item -> (Object) item).toList());
+        var molecularResults = molecularRepository.findByCase(pathologyCase.id(), actor.hospitalScope());
+        List<Map<String, Object>> molecularSnapshot = molecularResults.stream().map(item -> Map.<String, Object>of(
+                "kind", "MOLECULAR_RESULT", "resultId", item.id(), "specimenId", value(item.specimenId()),
+                "resultCode", item.resultCode(), "resultData", item.resultData(), "status", item.statusCode(),
+                "completedAt", value(item.completedAt()), "completedBy", item.completedBy())).toList();
+        supportingResults.addAll(molecularSnapshot);
+        String technicalSnapshot = json(supportingResults);
         Map<String, Object> model = new LinkedHashMap<>();
         model.put("templateVersionId", template.id());
         model.put("templateVersionNo", template.versionNo());
@@ -477,6 +488,7 @@ public class V2ReportApplicationService {
         model.put("responsibility", object(responsibilitySnapshot));
         model.put("material", object(materialSnapshot));
         model.put("technicalResults", object(technicalSnapshot));
+        model.put("molecularResults", molecularSnapshot);
         model.put("signedBy", actor.actorId());
         model.put("signedAt", Instant.now().toString());
         if (supplementalContent != null) model.put("supplementalContent", supplementalContent);

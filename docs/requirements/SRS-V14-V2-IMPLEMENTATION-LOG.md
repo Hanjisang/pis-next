@@ -104,3 +104,10 @@ V48 新增版本化 `report_template_preset` 和医院模板的 `source_preset_c
 - 当前设备、打印机和计费调用仍使用产品内 Simulator/Mock 适配器；真实厂商协议、真实硬件和医院计费回执未验证。
 - 工作台目前不直接选择耗材批次；批次消耗 API 已有后端权限和数据范围校验，库存选择入口需在后续库存工作区补齐。
 - 统计、批量设备下发、扫码和完整质控表不属于本次已关闭范围。
+## 2026-08-14 — Molecular 全流程闭环（V51）
+
+关闭 `MOL-001`–`MOL-008`、`MOL-010`–`MOL-018`；`MOL-009` 在完成产品内端口、Simulator、设备配置/绑定、不可变 attempt、失败语义和审计后转为 `EXTERNAL_DEPENDENCY`。V51 将 MolecularTest 明确为申请与执行事实，实施 REQUESTED → RUNNING → COMPLETED 状态机、乐观锁、幂等命令、自动/人工检测号、病例标本校验、设备与未过期试剂绑定、raw data、结构化结果、分析结果、数字切片/附件支持；完成时只生成一个不可变 MolecularResult。独立 Molecular BusinessType 与常规病例均复用统一 Diagnosis、ResponsibilityUnit、Report 和不可变报告快照，版本化分子诊断/报告模板不预填患者结论。产品工作台新增权限感知分子队列与独立分子工作台，旧科室运行接口委托同一应用服务，不保留平行结果链。
+
+验证证据：后端全量 157 tests、0 failures、0 errors，通过架构检查、H2 业务链及全部 PostgreSQL/Testcontainers 迁移链；`V2BusinessOperationsWebTest` 覆盖项目、设备、试剂、标本绑定、队列、Simulator 启动、重复启动/完成的幂等回放、唯一结果、诊断工作区、自动检测号幂等、附件和真实适配器未连接的失败 attempt；`V2ReportWebTest` 覆盖常规报告包含分子结果并进入不可变快照；`V51MolecularWorkflowExistingDatabaseUpgradeTest` 在 PostgreSQL 18.4 完成 V50→V51 顺序升级并验证列、表和版本化模板。前端 format、typecheck、lint、18 个测试文件共 40 tests 和 production build 全部通过；`molecular-workbench.spec.ts` 在 1920/1366 两档共 2 个浏览器用例通过。真实厂商协议及现场设备回执不宣称已联调。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=360 / PARTIAL=104 / MISSING=197 / EXTERNAL_DEPENDENCY=81 / CONFLICT_RESOLVED_BY_V2=0`。
+
+下一步按闭环顺序处理 G 组 Consultation / Critical Value，再处理 H 组 Archive / Loan / Logistics；每组继续执行需求证据核对、实现、全量验证、覆盖矩阵复算和独立 Git 提交，不把剩余 `PARTIAL=104`、`MISSING=197` 误报为已完成。

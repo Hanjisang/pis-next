@@ -8,10 +8,10 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 343 |
-| PARTIAL | 117 |
-| MISSING | 202 |
-| EXTERNAL_DEPENDENCY | 80 |
+| COMPLETE | 360 |
+| PARTIAL | 104 |
+| MISSING | 197 |
+| EXTERNAL_DEPENDENCY | 81 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
 
@@ -25,6 +25,8 @@ FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转�
 FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 COMPLETE；`FROZEN-012` 保持 EXTERNAL_DEPENDENCY。通知失败/重试仅验证 Simulator、不可变 attempt history、权限和报告身份边界，不宣称真实 OR/HIS 联调完成；Frozen/常规对照仅并列展示事实，不自动判定医学一致性。TOTAL 不变。
 
 细胞学诊断与报告闭环更新：`CYTO-010`、`CYTO-011` 由 PARTIAL 转为 COMPLETE。妇科、非妇科及细针穿刺细胞学复用统一 Diagnosis、ResponsibilityUnit、Report 与不可变版本链；版本化结构模板和报告模板由医院配置替换，迁移只提供不含患者结论的初始结构。TOTAL 不变。
+
+分子病理闭环更新：`MOL-001`–`MOL-008`、`MOL-010`–`MOL-018` 转为 COMPLETE；`MOL-009` 在产品内 Port、Simulator、不可变 attempt、失败语义和审计闭环后转为 EXTERNAL_DEPENDENCY。MolecularTest 作为申请/执行事实，完成后只生成一个不可变 MolecularResult，并复用统一 Diagnosis、Report 和 DigitalSlide；真实厂商设备协议与现场回执仍待生产联调。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -6316,9 +6318,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q01 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q01 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q01 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-001 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-002 — 独立检测号
 
@@ -6338,9 +6340,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q02 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q02 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q02 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-002 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-003 — 分子申请
 
@@ -6360,9 +6362,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q03 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q03 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q03 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-003 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-004 — 检测项目
 
@@ -6382,9 +6384,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q04 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q04 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q04 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-004 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-005 — 标本
 
@@ -6404,9 +6406,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q05 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q05 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q05 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-005 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-006 — raw data
 
@@ -6426,9 +6428,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q06 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q06 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q06 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-006 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-007 — structured result
 
@@ -6448,9 +6450,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q07 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q07 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q07 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-007 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-008 — analysis result
 
@@ -6470,9 +6472,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q08 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q08 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q08 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-008 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-009 — instrument
 
@@ -6492,9 +6494,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q09 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q09 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q09 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-009 独立立项、实现和验收。
+- Status: EXTERNAL_DEPENDENCY
+- Gap: 产品内 MolecularInstrumentPort、Simulator、设备配置、绑定、不可变 attempt、失败语义和审计已闭环；真实厂商协议、设备回执和现场异常恢复尚未生产联调。
+- V2 Decision: 保留真实设备为外部依赖，不以 Simulator 冒充生产验证。
 
 ### MOL-010 — reagent kit
 
@@ -6514,9 +6516,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q10 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q10 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q10 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-010 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-011 — equipment binding
 
@@ -6536,9 +6538,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q11 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q11 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q11 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-011 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-012 — reagent kit binding
 
@@ -6558,9 +6560,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q12 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q12 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q12 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-012 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-013 — molecular diagnosis
 
@@ -6580,9 +6582,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q13 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q13 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q13 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-013 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-014 — molecular report template
 
@@ -6602,9 +6604,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q14 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q14 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q14 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-014 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-015 — molecular report
 
@@ -6624,9 +6626,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q15 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q15 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q15 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-015 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-016 — routine report linkage
 
@@ -6646,9 +6648,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q16 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q16 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q16 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-016 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-017 — DigitalSlide/附件支持
 
@@ -6668,9 +6670,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q17 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q17 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q17 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-017 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### MOL-018 — workbench queue
 
@@ -6690,9 +6692,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q18 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q18 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md Q18 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 MOL-018 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 当前产品内业务事实、权限、医院范围、API、数据库、UI 与自动化测试证据已闭环。
+- V2 Decision: 复用统一 MolecularTest → MolecularResult → Diagnosis → Report 链，不创建 Generic Task/Workflow 或第二套结果事实。
 
 ### PERM-001 — Account
 

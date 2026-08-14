@@ -61,6 +61,16 @@ class V2ReportWebTest {
                 "AUDIT", 1, "complete-i05-initial").get("nextResponsibilityId").asText();
         complete(diagnosisId, "/complete-audit", auditId, 0, 1, null, 2, "complete-i05-audit");
 
+        UUID molecularResultId = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO pis_v2.molecular_result
+                  (id, case_id, result_code, result_data, status_code, completed_at, completed_by_ref,
+                   concurrency_version, organization_reference, created_at, created_by_ref)
+                VALUES (?, ?, 'ROUTINE-MOL-01', CAST(? AS JSON), 'COMPLETED', CURRENT_TIMESTAMP,
+                        'SYNTH-MOLECULAR-DOCTOR', 0, 'LOCAL_HOSPITAL', CURRENT_TIMESTAMP, 'SYNTH-MOLECULAR-DOCTOR')
+                """, molecularResultId, UUID.fromString(caseId),
+                "{\"structuredResult\":\"合成结构化结果\",\"analysisResult\":\"合成分析结果\"}");
+
         JsonNode configured = json(mockMvc.perform(put("/api/v2/configuration/tat-policies/{businessTypeId}",
                         "00000000-0000-0000-0000-00000000b001")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -160,7 +170,8 @@ class V2ReportWebTest {
                 .param("templateVersionId", designedVersionId))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(preview.get("valid").asBoolean()).isTrue();
-        assertThat(preview.get("renderedContent").asText()).contains("合成肺肿瘤专科报告", "tumorSiteCode");
+        assertThat(preview.get("renderedContent").asText()).contains("合成肺肿瘤专科报告", "tumorSiteCode",
+                "ROUTINE-MOL-01", "合成结构化结果", "molecularResults");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report", Integer.class)).isZero();
 
         JsonNode first = json(mockMvc.perform(post("/api/v2/diagnoses/%s/sign-out".formatted(diagnosisId))

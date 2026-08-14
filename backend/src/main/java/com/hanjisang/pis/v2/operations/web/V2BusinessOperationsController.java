@@ -148,6 +148,8 @@ public class V2BusinessOperationsController {
     public IdResponse molecularTest(@RequestBody MolecularTestRequest request) { return new IdResponse(service.createMolecularTest(new JdbcV2BusinessOperationsRepository.MolecularTestCommand(request.caseId(), request.specimenId(), request.projectId(), request.detectionNo(), request.instrumentId(), request.reagentKitId(), request.rawDataReference(), request.structuredResult(), request.analysisResult()))); }
     @PostMapping("/molecular/tests/{id}/complete")
     public void molecularComplete(@PathVariable UUID id, @RequestBody MolecularCompleteRequest request) { service.completeMolecularTest(id, request.structuredResult(), request.analysisResult()); }
+    @PostMapping("/molecular/tests/{id}/start")
+    public void molecularStart(@PathVariable UUID id) { service.startMolecularTest(id); }
 
     @PostMapping("/digital-archive")
     public IdResponse digitalArchive(@RequestBody ArchiveRequest request) { return new IdResponse(service.archiveDigitalSlide(new JdbcV2BusinessOperationsRepository.ArchiveCommand(request.digitalSlideId(), request.storagePath(), request.storageTier(), request.filename(), request.formatCode(), request.pathologyNo(), request.slideNo(), request.patientReference(), request.organReference(), request.integrityDigest()))); }

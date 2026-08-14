@@ -19,6 +19,7 @@ import com.hanjisang.pis.security.JdbcAuditEventRepository;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.operations.api.ReportOutputPort;
+import com.hanjisang.pis.v2.molecular.application.V2MolecularApplicationService;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository.AddressCommand;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository.ArchiveCommand;
@@ -59,14 +60,16 @@ public class V2BusinessOperationsApplicationService {
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
     private final ReportOutputPort reportOutputPort;
+    private final V2MolecularApplicationService molecularService;
 
     public V2BusinessOperationsApplicationService(JdbcV2BusinessOperationsRepository repository,
             P15AuthorizationService authorization, JdbcAuditEventRepository audit,
-            ReportOutputPort reportOutputPort) {
+            ReportOutputPort reportOutputPort, V2MolecularApplicationService molecularService) {
         this.repository = repository;
         this.authorization = authorization;
         this.audit = audit;
         this.reportOutputPort = reportOutputPort;
+        this.molecularService = molecularService;
     }
 
     @Transactional(readOnly = true)
@@ -426,15 +429,22 @@ public class V2BusinessOperationsApplicationService {
     }
 
     @Transactional
-    public UUID createMolecularProject(MolecularProjectCommand command) { ActorContext actor = authorization.require(ADMIN); require(command.projectCode(), "项目编码不能为空"); require(command.projectName(), "项目名称不能为空"); UUID id = repository.insertMolecularProject(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-PROJECT", ADMIN, actor, id, "分子项目已保存"); return id; }
+    public UUID createMolecularProject(MolecularProjectCommand command) { ActorContext actor = authorization.require(ADMIN); require(command.projectCode(), "项目编码不能为空"); require(command.projectName(), "项目名称不能为空"); require(command.projectTypeCode(), "项目类型不能为空"); UUID id = repository.insertMolecularProject(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-PROJECT", ADMIN, actor, id, "分子项目已保存"); return id; }
     @Transactional
-    public UUID createMolecularInstrument(MolecularInstrumentCommand command) { ActorContext actor = authorization.require(ADMIN); UUID id = repository.insertMolecularInstrument(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-INSTRUMENT", ADMIN, actor, id, "分子设备已保存"); return id; }
+    public UUID createMolecularInstrument(MolecularInstrumentCommand command) { ActorContext actor = authorization.require(ADMIN); require(command.instrumentCode(), "设备编码不能为空"); require(command.name(), "设备名称不能为空"); require(command.adapterCode(), "设备适配器不能为空"); UUID id = repository.insertMolecularInstrument(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-INSTRUMENT", ADMIN, actor, id, "分子设备已保存"); return id; }
     @Transactional
-    public UUID createMolecularReagent(MolecularReagentCommand command) { ActorContext actor = authorization.require(ADMIN); UUID id = repository.insertMolecularReagent(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-REAGENT", ADMIN, actor, id, "分子试剂批次已保存"); return id; }
+    public UUID createMolecularReagent(MolecularReagentCommand command) { ActorContext actor = authorization.require(ADMIN); require(command.kitCode(), "试剂盒编码不能为空"); require(command.batchNo(), "试剂批号不能为空"); require(command.expiryDate(), "试剂有效期不能为空"); if (command.expiryDate().isBefore(LocalDate.now())) throw reject("V2-MOLECULAR-REAGENT-EXPIRED", "不能新增已过期试剂批次"); UUID id = repository.insertMolecularReagent(command, actor.hospitalScope()); append("PIS-V2-MOLECULAR-REAGENT", ADMIN, actor, id, "分子试剂批次已保存"); return id; }
     @Transactional
-    public UUID createMolecularTest(MolecularTestCommand command) { ActorContext actor = authorization.require(MATERIAL); require(command.detectionNo(), "检测编号不能为空"); requireReference("CASE", command.caseId(), actor, "病例不存在或不在当前医院范围内"); requireReference("MOLECULAR_PROJECT", command.projectId(), actor, "分子项目不存在或不在当前医院范围内"); UUID id = repository.insertMolecularTest(command, actor.hospitalScope(), actor.actorId(), Instant.now()); append("PIS-V2-MOLECULAR-TEST-CREATE", MATERIAL, actor, id, "分子检测已登记"); return id; }
+    public UUID createMolecularTest(MolecularTestCommand command) { return molecularService.createTest(
+            new V2MolecularApplicationService.CreateTestCommand(command.caseId(), command.specimenId(), command.projectId(),
+                    command.detectionNo(), command.instrumentId(), command.reagentKitId(), command.rawDataReference(),
+                    "LEGACY-CREATE-" + UUID.randomUUID())).id(); }
+    @Transactional(noRollbackFor = P15BusinessException.class)
+    public void startMolecularTest(UUID id) { molecularService.startTest(id,
+            new V2MolecularApplicationService.StartTestCommand("LEGACY-START-" + id)); }
     @Transactional
-    public void completeMolecularTest(UUID id, String structuredResult, String analysisResult) { ActorContext actor = authorization.require(MATERIAL); if (!repository.completeMolecularTest(id, structuredResult, analysisResult, actor.hospitalScope(), Instant.now())) throw reject("V2-MOLECULAR-TEST-CONFLICT", "分子检测不可完成"); append("PIS-V2-MOLECULAR-TEST-COMPLETE", MATERIAL, actor, id, "分子检测结果已保存"); }
+    public void completeMolecularTest(UUID id, String structuredResult, String analysisResult) { molecularService.completeTest(id,
+            new V2MolecularApplicationService.CompleteTestCommand(structuredResult, analysisResult, "LEGACY-COMPLETE-" + id)); }
 
     @Transactional
     public UUID archiveDigitalSlide(ArchiveCommand command) { ActorContext actor = authorization.require(MATERIAL); require(command.storagePath(), "存储路径不能为空"); requireReference("DIGITAL_SLIDE", command.digitalSlideId(), actor, "数字切片不存在或不在当前医院范围内"); UUID id = repository.archiveDigitalSlide(command, actor.hospitalScope(), Instant.now()); append("PIS-V2-DIGITAL-ARCHIVE", MATERIAL, actor, id, "数字切片已归档"); return id; }
