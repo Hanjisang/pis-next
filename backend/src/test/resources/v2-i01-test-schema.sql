@@ -460,15 +460,23 @@ VALUES
 INSERT INTO pis_v2.diagnosis_template
     (id, organization_reference, template_code, template_name, business_type_id, scope_code, enabled,
      concurrency_version, created_at, created_by_ref, updated_at, updated_by_ref)
-VALUES ('00000000-0000-0000-0000-00000000b020', 'LOCAL_HOSPITAL', 'DEFAULT-HISTOLOGY', 'V2默认诊断模板',
-        '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL', TRUE, 0, CURRENT_TIMESTAMP, 'TEST',
-        CURRENT_TIMESTAMP, 'TEST');
+VALUES
+    ('00000000-0000-0000-0000-00000000b020', 'LOCAL_HOSPITAL', 'DEFAULT-HISTOLOGY', 'V2默认诊断模板',
+     '00000000-0000-0000-0000-00000000b001', 'LOCAL_HOSPITAL', TRUE, 0, CURRENT_TIMESTAMP, 'TEST',
+     CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b022', 'LOCAL_HOSPITAL', 'DEFAULT-CYTOLOGY_NON_GYN',
+     '非妇科细胞学结构化诊断模板', '00000000-0000-0000-0000-00000000b102', 'LOCAL_HOSPITAL', TRUE, 0,
+     CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.diagnosis_template_version
     (id, template_id, version_no, schema_definition, status_code, published_at, published_by_ref,
      created_at, created_by_ref, concurrency_version)
-VALUES ('00000000-0000-0000-0000-00000000b021', '00000000-0000-0000-0000-00000000b020', 1,
-        '{"components":[{"type":"TEXTAREA","code":"diagnosisText"}],"version":1}', 'PUBLISHED',
-        CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
+VALUES
+    ('00000000-0000-0000-0000-00000000b021', '00000000-0000-0000-0000-00000000b020', 1,
+     '{"components":[{"type":"TEXTAREA","code":"diagnosisText"}],"version":1}', 'PUBLISHED',
+     CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0),
+    ('00000000-0000-0000-0000-00000000b023', '00000000-0000-0000-0000-00000000b022', 2,
+     '{"version":2,"standardCode":"CYTOLOGY-NON-GYN-STRUCTURED","components":[{"type":"TEXT","code":"specimenType","required":true},{"type":"SINGLE_SELECT","code":"specimenAdequacy","required":true,"options":[{"value":"SATISFACTORY","label":"满意"},{"value":"UNSATISFACTORY","label":"不满意"}]},{"type":"TEXT","code":"diagnosticCategory","required":true},{"type":"TEXTAREA","code":"interpretationResult","required":true},{"type":"TEXTAREA","code":"microscopicDescription","required":true},{"type":"TEXTAREA","code":"diagnosisText","required":true}]}',
+     'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
 INSERT INTO pis_v2.technical_project
     (id, organization_reference, business_type_id, project_code, project_name, capability_code, output_type_code, enabled,
      allowed_target_types, produces_slide, produces_block, produces_structured_result, default_slide_type,
@@ -701,14 +709,22 @@ VALUES ('00000000-0000-0000-0000-00000000b601', 'TUMOR-LUNG', '肺肿瘤报告�
 INSERT INTO pis_v2.report_template
     (id, organization_reference, business_type_id, template_code, template_name, enabled,
      configuration_version, created_at, created_by_ref, updated_at, updated_by_ref)
-VALUES ('00000000-0000-0000-0000-00000000b501', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
-        'DEFAULT-REPORT-HISTOLOGY', 'V2报告模板', TRUE, 1, CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST');
+VALUES
+    ('00000000-0000-0000-0000-00000000b501', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b001',
+     'DEFAULT-REPORT-HISTOLOGY', 'V2报告模板', TRUE, 1, CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST'),
+    ('00000000-0000-0000-0000-00000000b503', 'LOCAL_HOSPITAL', '00000000-0000-0000-0000-00000000b102',
+     'DEFAULT-REPORT-CYTOLOGY_NON_GYN', '非妇科细胞学报告', TRUE, 1, CURRENT_TIMESTAMP, 'TEST',
+     CURRENT_TIMESTAMP, 'TEST');
 INSERT INTO pis_v2.report_template_version
     (id, template_id, version_no, definition, status_code, published_at, published_by_ref,
      created_at, created_by_ref, concurrency_version)
-VALUES ('00000000-0000-0000-0000-00000000b502', '00000000-0000-0000-0000-00000000b501', 1,
-        '{"sections":["CASE","PATIENT","MATERIAL","DIAGNOSIS","RESPONSIBILITY","TECHNICAL_RESULTS","SIGN_OUT"]}',
-        'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
+VALUES
+    ('00000000-0000-0000-0000-00000000b502', '00000000-0000-0000-0000-00000000b501', 1,
+     '{"sections":["CASE","PATIENT","MATERIAL","DIAGNOSIS","RESPONSIBILITY","TECHNICAL_RESULTS","SIGN_OUT"]}',
+     'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0),
+    ('00000000-0000-0000-0000-00000000b504', '00000000-0000-0000-0000-00000000b503', 2,
+     '{"schemaVersion":1,"title":"非妇科细胞学报告","category":"GENERAL","page":{"size":"A4","showPageNumber":true},"sections":[{"code":"CYTOLOGY","label":"细胞学结构化结果","source":"DIAGNOSIS","fields":["structuredData","microscopicDescription"]},{"code":"DIAGNOSIS","label":"细胞学诊断","source":"DIAGNOSIS","fields":["diagnosisText"]},{"code":"SIGNATURE","label":"签发信息","source":"SIGNATURE","fields":["signedBy","signedAt"]}]}',
+     'PUBLISHED', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP, 'TEST', 0);
 
 CREATE TABLE IF NOT EXISTS pis_v2.frozen_round (
     id UUID PRIMARY KEY, case_id UUID NOT NULL, round_no INTEGER NOT NULL,

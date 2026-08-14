@@ -275,12 +275,15 @@ class V2DiagnosisWebTest {
         String templateId = jdbcTemplate.queryForObject("SELECT template_id FROM pis_v2.diagnosis_template_version WHERE id = ?",
                 String.class, UUID.fromString(jdbcTemplate.queryForObject("SELECT template_version_id FROM pis_v2.diagnosis WHERE id = ?",
                         String.class, UUID.fromString(first.get("diagnosisId").asText()))));
+        String versionBody = objectMapper.createObjectNode()
+                .put("schemaDefinition", """
+                        {"components":[{"code":"diagnosisText","label":"病理诊断","type":"TEXTAREA"}]}
+                        """)
+                .put("idempotencyKey", "template-v2-i03")
+                .toString();
         JsonNode draft = json(mockMvc.perform(post("/api/v2/diagnosis-templates/%s/versions".formatted(templateId))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                        {"schemaDefinition":"{}",
-                         "idempotencyKey":"template-v2-i03"}
-                        """))
+                .content(versionBody))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         mockMvc.perform(post("/api/v2/diagnosis-template-versions/%s/publish".formatted(draft.get("versionId").asText()))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -289,8 +292,32 @@ class V2DiagnosisWebTest {
         String firstVersion = jdbcTemplate.queryForObject("SELECT template_version_id FROM pis_v2.diagnosis WHERE id = ?",
                 String.class, UUID.fromString(first.get("diagnosisId").asText()));
         assertThat(firstVersion).isNotEqualTo(draft.get("versionId").asText());
-        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.diagnosis_template_version WHERE status_code = 'PUBLISHED'",
-                Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.diagnosis_template_version
+                WHERE template_id = ? AND status_code = 'PUBLISHED'
+                """, Integer.class, UUID.fromString(templateId))).isEqualTo(2);
+    }
+
+    @Test
+    void rejectsInvalidDiagnosisTemplateSchemaBeforeCreatingVersion() throws Exception {
+        String templateId = jdbcTemplate.queryForObject(
+                "SELECT id FROM pis_v2.diagnosis_template WHERE template_code = 'DEFAULT-HISTOLOGY'",
+                String.class);
+        String invalidVersionBody = objectMapper.createObjectNode()
+                .put("schemaDefinition", """
+                        {"components":[{"code":"category","type":"SINGLE_SELECT","options":[]}]}
+                        """)
+                .put("idempotencyKey", "template-invalid-options")
+                .toString();
+
+        mockMvc.perform(post("/api/v2/diagnosis-templates/%s/versions".formatted(templateId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invalidVersionBody))
+                .andExpect(status().isUnprocessableEntity());
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM pis_v2.diagnosis_template_version WHERE template_id = ?",
+                Integer.class, UUID.fromString(templateId))).isEqualTo(1);
     }
 
     @Test

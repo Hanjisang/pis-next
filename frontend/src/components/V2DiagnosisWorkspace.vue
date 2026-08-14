@@ -113,7 +113,12 @@ type ReportPreviewDocument = {
     visitReference?: string;
     businessTypeCode?: string;
   };
-  diagnosis?: { microscopicDescription?: string; diagnosisText?: string; comment?: string };
+  diagnosis?: {
+    structuredData?: string;
+    microscopicDescription?: string;
+    diagnosisText?: string;
+    comment?: string;
+  };
   material?: Array<{
     specimenCode?: string;
     blockCode?: string;
@@ -250,9 +255,8 @@ const templateComponents = computed(() =>
 );
 
 function templateComponentLabel(component: TemplateComponent) {
-  return component.code.toLowerCase() === 'diagnosistext'
-    ? '病理诊断'
-    : component.label || component.code;
+  if (component.label?.trim() && component.label !== component.code) return component.label;
+  return component.code.toLowerCase() === 'diagnosistext' ? '病理诊断' : component.code;
 }
 const canEdit = computed(() => {
   if (!workspace.value?.diagnosis || !currentRole.value) return false;
@@ -379,6 +383,23 @@ const previewDocument = computed<ReportPreviewDocument | null>(() => {
 const previewSlides = computed(
   () => previewDocument.value?.material?.filter((item) => item.slideCode) ?? [],
 );
+const previewStructuredItems = computed(() => {
+  const values = parseStructuredValues(previewDocument.value?.diagnosis?.structuredData ?? '{}');
+  return templateComponents.value.flatMap((component) => {
+    const value = values[component.code];
+    if (value === undefined || value === null || value === '') return [];
+    const option = templateOptions(component).find((item) => item.value === String(value));
+    const displayValue =
+      componentType(component) === 'BOOLEAN'
+        ? value === true
+          ? '是'
+          : '否'
+        : option?.label || String(value);
+    return [
+      { code: component.code, label: templateComponentLabel(component), value: displayValue },
+    ];
+  });
+});
 
 function reportSectionLabel(code: string, fallback: string) {
   return (
@@ -1560,6 +1581,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                       <select
                         :value="stringValue(component)"
                         :disabled="component.readOnly"
+                        :required="component.required"
                         @change="updateStructuredValue(component.code, eventValue($event))"
                       >
                         <option value="">请选择</option>
@@ -2118,6 +2140,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
               <span>业务类型：{{ businessTypeName(previewDocument.case?.businessTypeCode) }}</span>
             </div>
           </header>
+          <section v-if="previewStructuredItems.length">
+            <h3>{{ reportSectionLabel('CYTOLOGY', '结构化诊断') }}</h3>
+            <p v-for="item in previewStructuredItems" :key="item.code">
+              <strong>{{ item.label }}：</strong>{{ item.value }}
+            </p>
+          </section>
           <section>
             <h3>{{ reportSectionLabel('MICROSCOPY', '镜下所见') }}</h3>
             <p>{{ previewDocument.diagnosis?.microscopicDescription || '未填写' }}</p>
@@ -2593,6 +2621,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
                     <select
                       :value="stringValue(component)"
                       :disabled="component.readOnly"
+                      :required="component.required"
                       @change="updateStructuredValue(component.code, eventValue($event))"
                     >
                       <option value="">请选择</option>
@@ -3100,6 +3129,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
             >
           </div>
         </header>
+        <section v-if="previewStructuredItems.length">
+          <h3>{{ reportSectionLabel('CYTOLOGY', '结构化诊断') }}</h3>
+          <p v-for="item in previewStructuredItems" :key="item.code">
+            <strong>{{ item.label }}：</strong>{{ item.value }}
+          </p>
+        </section>
         <section>
           <h3>{{ reportSectionLabel('MICROSCOPY', '镜下所见') }}</h3>
           <p>{{ previewDocument.diagnosis?.microscopicDescription || '未填写' }}</p>

@@ -8,8 +8,8 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 341 |
-| PARTIAL | 119 |
+| COMPLETE | 343 |
+| PARTIAL | 117 |
 | MISSING | 202 |
 | EXTERNAL_DEPENDENCY | 80 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
@@ -23,6 +23,8 @@ FC02B 仅更新 Specimen → Grossing → Block 连续链：`SPEC-011` 由 PARTI
 FC03A 仅更新常规组织 Block → Slide 主链：`PROD-014`、`SLIDE-013`、`SLIDE-015` 由 PARTIAL 转为 COMPLETE。统一 Slide、可选技术记录、物理返工、编号历史、软失效、打印、权限和数据隔离已形成闭环；自动脱水机、染色机、封片机等真实设备联调仍由既有 DEVICE/INT 外部依赖项承载。`QC-004` 仍为 PARTIAL，当前异常与返工事实不冒充完整玻片质控闭环。TOTAL 不变。
 FC03B 仅更新直接细胞制片链：`CYTO-002`、`CYTO-003` 由 PARTIAL 转为 COMPLETE。统一 Case/Specimen/Slide 支持零玻片进入队列、多标本规则投影、直接 Specimen → Slide、制片方式审计、打印/重打和 PostgreSQL 并发唯一性；液基制片仪、细胞染色机、封片机及扫码硬件真实联调仍保持 EXTERNAL_DEPENDENCY。TBS、细胞诊断模板和细胞报告不在本轮关闭范围。TOTAL 不变。
 FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 COMPLETE；`FROZEN-012` 保持 EXTERNAL_DEPENDENCY。通知失败/重试仅验证 Simulator、不可变 attempt history、权限和报告身份边界，不宣称真实 OR/HIS 联调完成；Frozen/常规对照仅并列展示事实，不自动判定医学一致性。TOTAL 不变。
+
+细胞学诊断与报告闭环更新：`CYTO-010`、`CYTO-011` 由 PARTIAL 转为 COMPLETE。妇科、非妇科及细针穿刺细胞学复用统一 Diagnosis、ResponsibilityUnit、Report 与不可变版本链；版本化结构模板和报告模板由医院配置替换，迁移只提供不含患者结论的初始结构。TOTAL 不变。
 
 ## 2. Atomic requirements
 
@@ -3868,13 +3870,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 J10 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J10 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J10 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J10 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J10 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CYTO-010 独立立项、实现和验收。
+- Backend Evidence: `V2DiagnosisApplicationService` 在模板版本创建时校验组件编码、类型和选项，在责任完成时按固化模板版本校验必填项和字典值；草稿保存仍允许未完成数据。
+- DB Evidence: `V50__cytology_diagnosis_and_report_templates.sql` 为妇科、非妇科和细针穿刺细胞学追加医院级 PUBLISHED v2 模板；妇科模板按 TBS-2014 的标本类型、满意度、总体分类和解释/结果结构初始化。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 根据固化 schema 渲染文本、字典、单选和布尔组件，并在报告预览中以业务标签展示结构化结果。
+- Test Evidence: `CytologyProductionWebTest`、`V2DiagnosisWebTest`、`V50CytologyDiagnosisReportExistingDatabaseUpgradeTest`、`V2DiagnosisWorkspace.test.ts`、`cytology-diagnosis-report.spec.ts`。
+- Status: COMPLETE
+- Gap: 当前无产品内闭环缺口；医院需通过新模板版本完成本地细胞学分类、术语及审核确认。
+- V2 Decision: 复用统一 Diagnosis/ResponsibilityUnit，结构化模板按医院和版本管理；不得将模板默认值写成患者医学结论。
 
 ### CYTO-011 — 细胞报告
 
@@ -3890,13 +3892,13 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
 - UI Entry: SRS V1.4 J11 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J11 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J11 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J11 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md J11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CYTO-011 独立立项、实现和验收。
+- Backend Evidence: 细胞学沿用 `V2ReportApplicationService` 的预览、审核完成阻断、版本选择、签发、不可变诊断快照、PDF及报告版本链。
+- DB Evidence: `V50__cytology_diagnosis_and_report_templates.sql` 为三类细胞学追加 v2 A4 报告模板，包含基本信息、标本/玻片、结构化细胞学结果、诊断和签发版块。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 在同一诊断路由内完成细胞学录入、报告模板选择、专科标题/版块预览和既有签发动作。
+- Test Evidence: `CytologyProductionWebTest` 覆盖制片完成后接诊、必填拒绝、初诊/审核、预览、签发和快照；`cytology-diagnosis-report.spec.ts` 覆盖 1920/1366 双视口。
+- Status: COMPLETE
+- Gap: 当前无产品内闭环缺口；真实医院报告模板版式和术语仍需本地业务验收后发布新版本。
+- V2 Decision: 细胞报告是统一 Report 的业务类型模板，不建立并行报告实体；签发后仍遵守不可覆盖和完整版本链规则。
 
 ### FROZEN-001 — Frozen Case
 

@@ -5,15 +5,20 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hanjisang.pis.integration.OutboxPort;
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
@@ -67,6 +72,7 @@ public class V2DiagnosisApplicationService {
     private final V2ReportApplicationService reportService;
     private final JdbcV2MolecularResultRepository molecularResultRepository;
     private final JdbcV2DigitalSlideRepository digitalSlideRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public V2DiagnosisApplicationService(JdbcV2DiagnosisRepository repository,
             JdbcV2RegistrationRepository registrationRepository, JdbcV2MaterialRepository materialRepository,
@@ -330,6 +336,7 @@ public class V2DiagnosisApplicationService {
     public TemplateVersionResult createTemplateVersion(CreateTemplateVersionCommand command) {
         ActorContext actor = authorization.require(TEMPLATE_MANAGE);
         requireText(command.schemaDefinition(), "模板Schema不能为空");
+        validateTemplateSchema(command.schemaDefinition());
         requireKey(command.idempotencyKey());
         if (!repository.lockTemplate(command.templateId(), actor.hospitalScope())) {
             throw reject("V2-TEMPLATE-NOT-FOUND", "诊断模板不存在或不在当前数据范围");
@@ -562,6 +569,9 @@ public class V2DiagnosisApplicationService {
         if (command.diagnosisExpectedVersion() != diagnosis.version()) {
             throw conflict("诊断版本冲突，请重新读取后重试");
         }
+        DiagnosisTemplateVersion template = repository.findTemplateVersion(diagnosis.templateVersionId(),
+                actor.hospitalScope()).orElseThrow(() -> reject("V2-TEMPLATE-VERSION-NOT-FOUND", "诊断模板版本不存在"));
+        validateStructuredDiagnosis(template.schemaDefinition(), command.structuredData());
         validateNextResponsibility(role, command.nextRole());
         String before = contentDigest(diagnosis);
         diagnosis.updateContent(diagnosis.templateVersionId(), command.structuredData(),
@@ -800,6 +810,89 @@ public class V2DiagnosisApplicationService {
     private static void validateAssignmentRuleNumbers(int priority, int dailyCaseLimit) {
         if (priority < 0) throw reject("V2-INVALID-REQUEST", "分诊规则优先级不能为负数");
         if (dailyCaseLimit < 0) throw reject("V2-INVALID-REQUEST", "每日最大接诊量不能为负数");
+    }
+
+    private void validateTemplateSchema(String schemaDefinition) {
+        try {
+            JsonNode schema = objectMapper.readTree(schemaDefinition);
+            JsonNode components = schema == null ? null : schema.path("components");
+            if (schema == null || !schema.isObject() || !components.isArray() || components.isEmpty()
+                    || components.size() > 100) {
+                throw reject("V2-TEMPLATE-SCHEMA-INVALID", "诊断模板必须包含1至100个组件");
+            }
+            Set<String> codes = new HashSet<>();
+            for (JsonNode component : components) {
+                String code = component.path("code").asText();
+                String type = component.path("type").asText().toUpperCase();
+                if (!code.matches("[A-Za-z][A-Za-z0-9]{0,63}") || !codes.add(code)) {
+                    throw reject("V2-TEMPLATE-SCHEMA-INVALID", "诊断模板组件编码无效或重复");
+                }
+                if (!Set.of("TEXT", "TEXTAREA", "SINGLE_SELECT", "DICTIONARY", "BOOLEAN").contains(type)) {
+                    throw reject("V2-TEMPLATE-SCHEMA-INVALID", "诊断模板组件类型无效");
+                }
+                if (Set.of("SINGLE_SELECT", "DICTIONARY").contains(type)) validateOptions(component.path("options"));
+            }
+        } catch (JsonProcessingException exception) {
+            throw reject("V2-TEMPLATE-SCHEMA-INVALID", "诊断模板Schema不是有效JSON");
+        }
+    }
+
+    private static void validateOptions(JsonNode options) {
+        if (!options.isArray() || options.isEmpty() || options.size() > 100) {
+            throw reject("V2-TEMPLATE-SCHEMA-INVALID", "选择组件必须包含1至100个选项");
+        }
+        Set<String> values = new HashSet<>();
+        for (JsonNode option : options) {
+            String value = option.isTextual() ? option.asText() : option.path("value").asText();
+            if (value.isBlank() || !values.add(value)) {
+                throw reject("V2-TEMPLATE-SCHEMA-INVALID", "选择组件选项值不能为空或重复");
+            }
+        }
+    }
+
+    private void validateStructuredDiagnosis(String schemaDefinition, String structuredData) {
+        try {
+            JsonNode schema = objectMapper.readTree(schemaDefinition);
+            JsonNode data = objectMapper.readTree(structuredData == null ? "{}" : structuredData);
+            if (schema == null || !schema.isObject()) {
+                throw reject("V2-TEMPLATE-SCHEMA-INVALID", "诊断模板Schema无效");
+            }
+            if (data == null || !data.isObject()) {
+                throw reject("V2-DIAGNOSIS-STRUCTURED-INVALID", "结构化诊断必须是JSON对象");
+            }
+            for (JsonNode component : schema.path("components")) {
+                String code = component.path("code").asText();
+                JsonNode value = data.path(code);
+                if (component.path("required").asBoolean() && (value.isMissingNode() || value.isNull()
+                        || (value.isTextual() && value.asText().isBlank())
+                        || (value.isArray() && value.isEmpty()))) {
+                    throw reject("V2-DIAGNOSIS-STRUCTURED-REQUIRED", "结构化诊断必填项未完成：" + code);
+                }
+                String type = component.path("type").asText().toUpperCase();
+                if (!value.isMissingNode() && !value.isNull()
+                        && Set.of("TEXT", "TEXTAREA").contains(type) && !value.isTextual()) {
+                    throw reject("V2-DIAGNOSIS-STRUCTURED-TYPE", "结构化诊断字段类型无效：" + code);
+                }
+                if (!value.isMissingNode() && !value.isNull() && type.equals("BOOLEAN") && !value.isBoolean()) {
+                    throw reject("V2-DIAGNOSIS-STRUCTURED-TYPE", "结构化诊断字段类型无效：" + code);
+                }
+                if (!value.isMissingNode() && !value.isNull()
+                        && Set.of("SINGLE_SELECT", "DICTIONARY").contains(type)) {
+                    if (!value.isTextual()) {
+                        throw reject("V2-DIAGNOSIS-STRUCTURED-TYPE", "结构化诊断字段类型无效：" + code);
+                    }
+                    Set<String> allowed = new HashSet<>();
+                    for (JsonNode option : component.path("options")) {
+                        allowed.add(option.isTextual() ? option.asText() : option.path("value").asText());
+                    }
+                    if (!allowed.contains(value.asText())) {
+                        throw reject("V2-DIAGNOSIS-STRUCTURED-OPTION", "结构化诊断选项无效：" + code);
+                    }
+                }
+            }
+        } catch (JsonProcessingException exception) {
+            throw reject("V2-DIAGNOSIS-STRUCTURED-INVALID", "结构化诊断不是有效JSON");
+        }
     }
 
     private static P15BusinessException reject(String code, String message) { return new P15BusinessException(code, message); }

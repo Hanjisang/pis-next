@@ -205,6 +205,94 @@ describe('V2DiagnosisWorkspace', () => {
     expect(wrapper.text()).not.toContain('{"conclusion"');
   });
 
+  it('renders the versioned TBS cytology fields and writes their structured values', async () => {
+    const cytologyWorkspace = {
+      ...workspace,
+      caseSummary: { ...workspace.caseSummary, businessTypeCode: 'CYTOLOGY_GYN' },
+      templateVersion: {
+        ...workspace.templateVersion,
+        versionNo: 2,
+        schemaDefinition: JSON.stringify({
+          version: 2,
+          standardCode: 'TBS-2014',
+          components: [
+            {
+              code: 'specimenAdequacy',
+              label: '标本满意度',
+              type: 'SINGLE_SELECT',
+              required: true,
+              options: [
+                { value: 'SATISFACTORY', label: '满意' },
+                { value: 'UNSATISFACTORY', label: '不满意' },
+              ],
+            },
+            {
+              code: 'generalCategory',
+              label: '总体分类',
+              type: 'SINGLE_SELECT',
+              required: true,
+              options: [{ value: 'NILM', label: '未见上皮内病变或恶性病变' }],
+            },
+            {
+              code: 'diagnosisText',
+              label: '细胞学诊断',
+              type: 'TEXTAREA',
+              required: true,
+            },
+          ],
+        }),
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/auth/doctors')) return new Response(JSON.stringify(doctors));
+      if (url.includes('/content') && init?.method === 'PUT') {
+        return new Response(JSON.stringify({ ...cytologyWorkspace.diagnosis, version: 1 }));
+      }
+      if (url.includes('/case-support') && url.endsWith('/favorite')) {
+        return new Response(JSON.stringify({ caseId: 'CASE-1', favorite: false }));
+      }
+      if (url.includes('/case-support')) return new Response(JSON.stringify([]));
+      return new Response(JSON.stringify(cytologyWorkspace));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2DiagnosisWorkspace, { props: { caseId: 'CASE-1' } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('标本满意度');
+    expect(wrapper.text()).toContain('总体分类');
+    expect(wrapper.text()).toContain('细胞学诊断');
+    const adequacyField = wrapper
+      .findAll('label')
+      .find((label) => label.text().includes('标本满意度'));
+    const categoryField = wrapper
+      .findAll('label')
+      .find((label) => label.text().includes('总体分类'));
+    const diagnosisField = wrapper
+      .findAll('label')
+      .find((label) => label.text().includes('细胞学诊断'));
+    await adequacyField?.find('select').setValue('SATISFACTORY');
+    await categoryField?.find('select').setValue('NILM');
+    await diagnosisField?.find('textarea').setValue('合成妇科细胞学诊断');
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '保存')
+      ?.trigger('click');
+    await flushPromises();
+
+    const contentCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/content'));
+    expect(JSON.parse(contentCall?.[1]?.body as string)).toMatchObject({
+      diagnosisText: '合成妇科细胞学诊断',
+      expectedVersion: 0,
+    });
+    expect(JSON.parse(JSON.parse(contentCall?.[1]?.body as string).structuredData)).toMatchObject({
+      specimenAdequacy: 'SATISFACTORY',
+      generalCategory: 'NILM',
+      diagnosisText: '合成妇科细胞学诊断',
+    });
+  });
+
   it('saves with optimistic version and explains a conflict in user language', async () => {
     const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
       const input = args[0];

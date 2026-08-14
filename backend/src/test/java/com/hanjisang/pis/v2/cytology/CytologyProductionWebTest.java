@@ -119,6 +119,49 @@ class CytologyProductionWebTest {
         JsonNode after = productionWorkbench();
         assertThat(after.path("queues").path("cytologyProduction").path("count").asInt()).isZero();
         assertThat(materials(caseId).path("initialProductionComplete").asBoolean()).isTrue();
+
+        JsonNode claimed = json(mockMvc.perform(post("/api/v2/diagnoses/claim")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"caseId\":\"%s\",\"idempotencyKey\":\"cytology-diagnosis-claim\"}".formatted(caseId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String diagnosisId = claimed.path("diagnosisId").asText();
+        JsonNode diagnosisWorkspace = json(mockMvc.perform(get("/api/v2/diagnosis-workspaces/{caseId}", caseId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(diagnosisWorkspace.path("templateVersion").path("schemaDefinition").asText())
+                .contains("CYTOLOGY-NON-GYN-STRUCTURED", "specimenAdequacy", "diagnosticCategory");
+        mockMvc.perform(post("/api/v2/diagnoses/{diagnosisId}/complete-initial", diagnosisId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"responsibilityId":"%s","responsibilityExpectedVersion":0,"structuredData":"{}",
+                         "microscopicDescription":"合成镜下所见","diagnosisText":"合成细胞学诊断",
+                         "diagnosisExpectedVersion":0,"nextRole":"AUDIT",
+                         "nextDoctorId":"p15-local-registration-actor","nextReason":"合成提交审核",
+                         "idempotencyKey":"cytology-incomplete-initial"}
+                        """.formatted(claimed.path("responsibilityId").asText())))
+                .andExpect(status().isUnprocessableEntity());
+        String structured = """
+                {"specimenType":"BODY_FLUID","specimenAdequacy":"SATISFACTORY",
+                 "diagnosticCategory":"NEGATIVE","interpretationResult":"合成解释结果",
+                 "microscopicDescription":"合成镜下所见","diagnosisText":"合成细胞学诊断"}
+                """;
+        JsonNode initial = completeDiagnosis(diagnosisId, "complete-initial",
+                claimed.path("responsibilityId").asText(), 0, structured, 0, "AUDIT",
+                "cytology-complete-initial");
+        completeDiagnosis(diagnosisId, "complete-audit", initial.path("nextResponsibilityId").asText(), 0,
+                structured, 1, null, "cytology-complete-audit");
+        JsonNode preview = json(mockMvc.perform(get("/api/v2/diagnoses/{diagnosisId}/report-preview", diagnosisId))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(preview.path("valid").asBoolean()).isTrue();
+        assertThat(preview.path("renderedContent").asText()).contains("非妇科细胞学报告", "diagnosticCategory");
+        JsonNode report = json(mockMvc.perform(post("/api/v2/diagnoses/{diagnosisId}/sign-out", diagnosisId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"idempotencyKey\":\"cytology-report-sign\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(report.path("status").asText()).isEqualTo("EFFECTIVE");
+        assertThat(report.path("templateVersionId").asText())
+                .isEqualTo("00000000-0000-0000-0000-00000000b504");
+        assertThat(jdbc.queryForObject("SELECT diagnosis_snapshot FROM pis_v2.report WHERE id = ?", String.class,
+                UUID.fromString(report.path("reportId").asText()))).contains("diagnosticCategory", "NEGATIVE");
     }
 
     @Test
@@ -158,6 +201,25 @@ class CytologyProductionWebTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"expectedVersion\":0,\"idempotencyKey\":\"complete-" + slide.path("slideId").asText() + "\"}"))
                 .andExpect(status().isOk());
+    }
+
+    private JsonNode completeDiagnosis(String diagnosisId, String action, String responsibilityId,
+            long responsibilityVersion, String structuredData, long diagnosisVersion, String nextRole,
+            String idempotencyKey) throws Exception {
+        String nextRoleValue = nextRole == null ? "null" : "\"" + nextRole + "\"";
+        String nextDoctorValue = nextRole == null ? "null" : "\"p15-local-registration-actor\"";
+        return json(mockMvc.perform(post("/api/v2/diagnoses/{diagnosisId}/{action}", diagnosisId, action)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"responsibilityId":"%s","responsibilityExpectedVersion":%d,
+                         "structuredData":%s,"microscopicDescription":"合成镜下所见",
+                         "diagnosisText":"合成细胞学诊断","comment":"合成备注",
+                         "diagnosisExpectedVersion":%d,"nextRole":%s,"nextDoctorId":%s,
+                         "nextReason":"合成责任流转","idempotencyKey":"%s"}
+                        """.formatted(responsibilityId, responsibilityVersion,
+                        objectMapper.writeValueAsString(structuredData), diagnosisVersion, nextRoleValue,
+                        nextDoctorValue, idempotencyKey)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
 
     private JsonNode cytologyQueueItem(String caseId) throws Exception {

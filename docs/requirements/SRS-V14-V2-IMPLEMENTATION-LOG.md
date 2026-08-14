@@ -1,5 +1,13 @@
 # SRS V1.4 → PIS V2 实施日志
 
+## 2026-08-14：细胞学结构化诊断与报告闭环
+
+关闭 `CYTO-010`、`CYTO-011`。V50 在既有医院级诊断模板和报告模板上，为妇科、非妇科及细针穿刺细胞学追加 PUBLISHED v2；不新增平行的 CytologyDiagnosis/CytologyReport 实体。妇科初始结构参考 IARC/WHO 发布的 [2014 Bethesda 报告结构](https://publications.iarc.who.int/media/download/6556)，包含标本类型、标本满意度、转化区成分、总体分类、解释/结果、镜下所见、细胞学诊断和备注；初始模板不含患者结论，医院可通过不可变新版本完成本地术语和分类审核。非妇科及细针穿刺使用可替换的通用结构，未把特定器官分类推测为通用医学规则。
+
+模板发布前由服务端校验组件数、唯一编码、支持类型和选择项；初诊、复诊或审核责任完成时，按 Diagnosis 固化的模板版本校验 JSON 对象、必填项和字典值，草稿阶段仍允许暂存不完整内容。诊断工作区保留统一路由，根据版本化 schema 渲染结构字段，并在报告预览中以模板业务标签展示结构化结果；细胞报告继续复用审核阻断、模板版本选择、不可变诊断快照、签发 PDF、撤回/补充和完整报告版本链。
+
+验证证据：`CytologyProductionWebTest` 覆盖多标本直接制片、完成后接诊、不完整结构拒绝、初诊/审核、细胞报告预览、签发和不可变快照；`V2DiagnosisWebTest` 覆盖非法模板拒绝与已有诊断不随新版本漂移；16 个 PostgreSQL/Testcontainers 测试类共 21 tests 通过，其中 `V50CytologyDiagnosisReportExistingDatabaseUpgradeTest` 在 PostgreSQL 18.4 完成 V49→V50 顺序升级，并复核 V34–V49 升级链和并发约束。前端 format、typecheck、lint、17 个测试文件共 39 tests 和 production build 全部通过；`V2DiagnosisWorkspace.test.ts` 覆盖 TBS 字段、结构化保存与预览，`cytology-diagnosis-report.spec.ts` 在 1920/1366 两档验证录入和专科报告预览。Flyway 当前仅声明已测试至 PostgreSQL 17，因此保留 PostgreSQL 18.4 兼容告警。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=343 / PARTIAL=117 / MISSING=202 / EXTERNAL_DEPENDENCY=80 / CONFLICT_RESOLVED_BY_V2=0`。
+
 ## 2026-08-14：临床报告查询、患者核验与自助终端闭环
 
 关闭 `RPT-028`、`RPT-029`、`RPT-032`。报告中心新增临床查询和患者自助终端两个真实入口：临床人员可按报告号、病理号或患者引用精确查询当前医院生效报告，查看签发时间、PDF摘要及受控PDF；患者终端必须同时匹配报告号、病理号和患者身份引用，失败统一返回不匹配且不暴露报告是否存在，成功响应不回显患者身份字段。两类查询均受 `P14-PERM-055` 与医院数据范围约束并记录允许/拒绝审计，撤回报告不参与任何查询。
