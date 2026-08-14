@@ -94,13 +94,50 @@ class V2BusinessOperationsSecurityTest {
         Cookie reporter = cookie("reporter", organization, Set.of("P14-PERM-055", "P14-PERM-048"));
         UUID reportId = insertSignedReport(organization);
         String distributionId = id(mockMvc.perform(post("/api/v2/operations/reports/{id}/distribution", reportId).cookie(reporter)
-                .contentType(MediaType.APPLICATION_JSON).content("{\"targetCode\":\"EXTERNAL_CHANNEL\"}"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetCode\":\"EXTERNAL_CHANNEL\",\"idempotencyKey\":\"report-delivery-failure\"}"))
                 .andExpect(status().isOk()).andReturn());
         mockMvc.perform(post("/api/v2/operations/report-distributions/{id}/status", distributionId).cookie(reporter)
                 .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"FAILED\",\"error\":\"模拟通道超时\"}"))
                 .andExpect(status().isOk());
-        assertThat(jdbc.queryForObject("SELECT status_code FROM pis_v2.report WHERE id = ?", String.class, reportId)).isEqualTo("SIGNED");
+        assertThat(jdbc.queryForObject("SELECT status_code FROM pis_v2.report WHERE id = ?", String.class, reportId)).isEqualTo("EFFECTIVE");
         assertThat(jdbc.queryForObject("SELECT last_error FROM pis_v2.report_distribution WHERE id = ?", String.class, UUID.fromString(distributionId))).isEqualTo("模拟通道超时");
+
+        String printBody = """
+                {"identityReference":"SYNTHETIC-IDENTITY","terminalReference":"SELF-SERVICE-01",
+                 "printerReference":"MOCK://REPORT-PRINTER","copyCount":1,
+                 "idempotencyKey":"report-print-success"}
+                """;
+        mockMvc.perform(post("/api/v2/operations/reports/{id}/print", reportId).cookie(reporter)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"identityReference\":\"WRONG-IDENTITY\",\"terminalReference\":\"SELF-SERVICE-01\",\"printerReference\":\"MOCK://REPORT-PRINTER\",\"copyCount\":1,\"idempotencyKey\":\"report-print-denied\"}"))
+                .andExpect(status().isUnprocessableEntity());
+        String firstPrint = mockMvc.perform(post("/api/v2/operations/reports/{id}/print", reportId).cookie(reporter)
+                .contentType(MediaType.APPLICATION_JSON).content(printBody)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(firstPrint).contains("SUCCESS").contains("\"duplicate\":false");
+        String replayPrint = mockMvc.perform(post("/api/v2/operations/reports/{id}/print", reportId).cookie(reporter)
+                .contentType(MediaType.APPLICATION_JSON).content(printBody)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(replayPrint).contains("REPLAYED").contains("\"duplicate\":true");
+        assertThat(mockMvc.perform(get("/api/v2/operations/reports/{id}/prints", reportId).cookie(reporter))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .contains("SIM-PRINT-").contains("SELF-SERVICE-01");
+        String simulatedDelivery = mockMvc.perform(post("/api/v2/operations/reports/{id}/distribution", reportId)
+                .cookie(reporter).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetCode\":\"SIMULATOR_PATIENT_PORTAL\",\"idempotencyKey\":\"report-delivery-success\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(simulatedDelivery).contains("SENT").contains("\"duplicate\":false");
+        assertThat(mockMvc.perform(get("/api/v2/operations/reports/{id}/distributions", reportId).cookie(reporter))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .contains("EXTERNAL_CHANNEL").contains("模拟通道超时")
+                .contains("SIMULATOR_PATIENT_PORTAL").contains("SIM-DISTRIBUTION-");
+        assertThat(mockMvc.perform(get("/api/v2/operations/report-printer-status")
+                .param("printerReference", "MOCK://REPORT-PRINTER").cookie(reporter))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains("READY");
+        Cookie otherHospital = cookie("reporter-b", "HOSPITAL_REPORT_B", Set.of("P14-PERM-055", "P14-PERM-048"));
+        mockMvc.perform(get("/api/v2/operations/reports/{id}/prints", reportId).cookie(otherHospital))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     private Cookie cookie(String username, String hospital, Set<String> permissions) {
@@ -120,8 +157,12 @@ class V2BusinessOperationsSecurityTest {
                 businessType, "BT-" + caseId, "测试", "HISTOLOGY");
         jdbc.update("INSERT INTO pis_v2.pathology_case (id,case_no,source_system_code,external_application_id,application_item_code,business_type_id,lifecycle_state_code,number_binding_active,concurrency_version,organization_reference,created_at,created_by_ref) VALUES (?,?,?,?,?,?,'ACTIVE',TRUE,0,?,CURRENT_TIMESTAMP,'TEST')",
                 caseId, "CASE-" + caseId, "TEST", "APP-" + caseId, "ITEM", businessType, organization);
-        jdbc.update("INSERT INTO pis_v2.report (id,report_no,organization_reference,case_id,diagnosis_id,template_version_id,report_nature_code,status_code,diagnosis_snapshot,responsibility_snapshot,case_snapshot,material_snapshot,technical_result_snapshot,rendered_content,rendered_content_hash,pdf_file_reference,pdf_content_hash,signed_by_ref,signed_at,concurrency_version,created_at,created_by_ref) VALUES (?,?,?,?,?,?,'ORIGINAL','SIGNED','{}','{}','{}','{}','{}','signed','h','fixture://report','p','TEST',CURRENT_TIMESTAMP,0,CURRENT_TIMESTAMP,'TEST')",
+        jdbc.update("INSERT INTO pis_v2.case_context_snapshot (id, case_id, patient_reference, snapshot_version_no, captured_at, captured_by_ref) VALUES (?, ?, 'SYNTHETIC-IDENTITY', 1, CURRENT_TIMESTAMP, 'TEST')",
+                UUID.randomUUID(), caseId);
+        jdbc.update("INSERT INTO pis_v2.report (id,report_no,organization_reference,case_id,diagnosis_id,template_version_id,report_nature_code,status_code,diagnosis_snapshot,responsibility_snapshot,case_snapshot,material_snapshot,technical_result_snapshot,rendered_content,rendered_content_hash,pdf_file_reference,pdf_content_hash,signed_by_ref,signed_at,concurrency_version,created_at,created_by_ref) VALUES (?,?,?,?,?,?,'ORIGINAL','EFFECTIVE','{}','{}','{}','{}','{}','signed','h','fixture://report','p','TEST',CURRENT_TIMESTAMP,0,CURRENT_TIMESTAMP,'TEST')",
                 reportId, "R-" + reportId, organization, caseId, UUID.randomUUID(), UUID.randomUUID());
+        jdbc.update("INSERT INTO pis_v2.report_pdf_output (id, report_id, file_reference, content, content_hash, created_at, created_by_ref) VALUES (?, ?, ?, ?, 'p', CURRENT_TIMESTAMP, 'TEST')",
+                UUID.randomUUID(), reportId, "fixture://report/" + reportId, "%PDF-1.4 synthetic".getBytes());
         return reportId;
     }
 }

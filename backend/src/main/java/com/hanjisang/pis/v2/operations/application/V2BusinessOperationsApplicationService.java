@@ -1,8 +1,12 @@
 package com.hanjisang.pis.v2.operations.application;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -14,6 +18,7 @@ import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
+import com.hanjisang.pis.v2.operations.api.ReportOutputPort;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository.AddressCommand;
 import com.hanjisang.pis.v2.operations.infrastructure.JdbcV2BusinessOperationsRepository.ArchiveCommand;
@@ -53,12 +58,15 @@ public class V2BusinessOperationsApplicationService {
     private final JdbcV2BusinessOperationsRepository repository;
     private final P15AuthorizationService authorization;
     private final JdbcAuditEventRepository audit;
+    private final ReportOutputPort reportOutputPort;
 
     public V2BusinessOperationsApplicationService(JdbcV2BusinessOperationsRepository repository,
-            P15AuthorizationService authorization, JdbcAuditEventRepository audit) {
+            P15AuthorizationService authorization, JdbcAuditEventRepository audit,
+            ReportOutputPort reportOutputPort) {
         this.repository = repository;
         this.authorization = authorization;
         this.audit = audit;
+        this.reportOutputPort = reportOutputPort;
     }
 
     @Transactional(readOnly = true)
@@ -299,11 +307,31 @@ public class V2BusinessOperationsApplicationService {
     }
 
     @Transactional
-    public UUID distributeReport(UUID reportId, String target) {
-        ActorContext actor = authorization.require("P14-PERM-055"); require(reportId, "报告不能为空"); require(target, "发放目标不能为空");
-        requireReference("REPORT", reportId, actor, "报告不存在或不在当前医院范围内");
-        UUID id = repository.insertDistribution(reportId, target, actor.hospitalScope(), Instant.now());
-        append("PIS-V2-REPORT-DISTRIBUTION-REQUEST", "P14-PERM-055", actor, id, "报告发放请求已记录"); return id;
+    public OutputActionResult distributeReport(UUID reportId, String target, String idempotencyKey) {
+        ActorContext actor = authorization.require("P14-PERM-055");
+        require(reportId, "报告不能为空"); require(target, "发放目标不能为空");
+        require(idempotencyKey, "幂等键不能为空");
+        String operation = "REPORT_DISTRIBUTION";
+        String payloadDigest = digest(reportId, target);
+        UUID replay = replayOutput(operation, idempotencyKey, payloadDigest, actor);
+        if (replay != null) return new OutputActionResult(replay, "REPLAYED", true, null);
+        if (!repository.lockEffectiveReport(reportId, actor.hospitalScope())) {
+            throw reject("V2-REPORT-OUTPUT-NOT-EFFECTIVE", "只有当前医院范围内的生效报告可以发放");
+        }
+        replay = replayOutput(operation, idempotencyKey, payloadDigest, actor);
+        if (replay != null) return new OutputActionResult(replay, "REPLAYED", true, null);
+        var report = repository.reportOutput(reportId, actor.hospitalScope()).orElseThrow();
+        var delivery = reportOutputPort.distribute(new ReportOutputPort.DistributionCommand(report.reportId(),
+                report.reportNo(), target, report.pdfContentHash()));
+        Instant now = Instant.now();
+        UUID id = repository.insertDistribution(reportId, target, delivery.statusCode(),
+                delivery.deliveryReference(), delivery.errorCode(), delivery.errorMessage(), actor.hospitalScope(),
+                actor.actorId(), now);
+        repository.insertOutputIdempotency(operation, idempotencyKey, payloadDigest, id, actor.hospitalScope(),
+                actor.actorId(), now);
+        append("PIS-V2-REPORT-DISTRIBUTION-REQUEST", "P14-PERM-055", actor, id,
+                "报告发放结果=" + delivery.statusCode());
+        return new OutputActionResult(id, delivery.statusCode(), false, delivery.errorMessage());
     }
 
     @Transactional
@@ -314,10 +342,61 @@ public class V2BusinessOperationsApplicationService {
     }
 
     @Transactional
-    public UUID printReport(UUID reportId, PrintCommand command) {
-        ActorContext actor = authorization.require("P14-PERM-055"); require(command.identityReference(), "身份凭据不能为空");
-        UUID id = repository.insertPrintRecord(reportId, command.identityReference(), command.terminalReference(), command.printerReference(), command.resultCode(), command.copyCount(), actor.hospitalScope(), Instant.now());
-        append("PIS-V2-REPORT-PRINT", "P14-PERM-055", actor, id, "报告打印记录已保存"); return id;
+    public OutputActionResult printReport(UUID reportId, PrintCommand command) {
+        ActorContext actor = authorization.require("P14-PERM-055");
+        require(command.identityReference(), "身份凭据不能为空");
+        require(command.terminalReference(), "终端标识不能为空");
+        require(command.printerReference(), "打印机配置不能为空");
+        require(command.idempotencyKey(), "幂等键不能为空");
+        if (command.copyCount() < 1 || command.copyCount() > 10) {
+            throw reject("V2-REPORT-PRINT-COPIES", "单次报告打印份数必须为1至10份");
+        }
+        String operation = "REPORT_PRINT";
+        String payloadDigest = digest(reportId, command.identityReference(), command.terminalReference(),
+                command.printerReference(), command.copyCount());
+        UUID replay = replayOutput(operation, command.idempotencyKey(), payloadDigest, actor);
+        if (replay != null) return new OutputActionResult(replay, "REPLAYED", true, null);
+        if (!repository.lockEffectiveReport(reportId, actor.hospitalScope())) {
+            throw reject("V2-REPORT-OUTPUT-NOT-EFFECTIVE", "只有当前医院范围内的生效报告可以打印");
+        }
+        replay = replayOutput(operation, command.idempotencyKey(), payloadDigest, actor);
+        if (replay != null) return new OutputActionResult(replay, "REPLAYED", true, null);
+        var report = repository.reportOutput(reportId, actor.hospitalScope()).orElseThrow();
+        if (report.patientReference() == null || !report.patientReference().equals(command.identityReference())) {
+            throw reject("V2-REPORT-PRINT-IDENTITY-MISMATCH", "身份核验未通过，不得打印报告");
+        }
+        var print = reportOutputPort.print(new ReportOutputPort.PrintCommand(report.reportId(), report.reportNo(),
+                command.identityReference(), command.terminalReference(), command.printerReference(),
+                command.copyCount(), report.pdfContent(), report.pdfContentHash()));
+        Instant now = Instant.now();
+        UUID id = repository.insertPrintRecord(reportId, command.identityReference(), command.terminalReference(),
+                command.printerReference(), print.resultCode(), command.copyCount(), print.deviceJobReference(),
+                print.errorCode(), print.errorMessage(), actor.hospitalScope(), actor.actorId(), now);
+        repository.insertOutputIdempotency(operation, command.idempotencyKey(), payloadDigest, id,
+                actor.hospitalScope(), actor.actorId(), now);
+        append("PIS-V2-REPORT-PRINT", "P14-PERM-055", actor, id, "报告打印结果=" + print.resultCode());
+        return new OutputActionResult(id, print.resultCode(), false, print.errorMessage());
+    }
+
+    @Transactional(readOnly = true)
+    public List<JdbcV2BusinessOperationsRepository.ReportDistributionRow> reportDistributions(UUID reportId) {
+        ActorContext actor = authorization.require("P14-PERM-055");
+        requireReference("REPORT", reportId, actor, "报告不存在或不在当前医院范围内");
+        return repository.reportDistributions(reportId, actor.hospitalScope());
+    }
+
+    @Transactional(readOnly = true)
+    public List<JdbcV2BusinessOperationsRepository.ReportPrintRow> reportPrints(UUID reportId) {
+        ActorContext actor = authorization.require("P14-PERM-055");
+        requireReference("REPORT", reportId, actor, "报告不存在或不在当前医院范围内");
+        return repository.reportPrints(reportId, actor.hospitalScope());
+    }
+
+    @Transactional(readOnly = true)
+    public ReportOutputPort.PrinterStatus reportPrinterStatus(String printerReference) {
+        authorization.require("P14-PERM-055");
+        require(printerReference, "打印机配置不能为空");
+        return reportOutputPort.printerStatus(printerReference);
     }
 
     @Transactional
@@ -383,7 +462,29 @@ public class V2BusinessOperationsApplicationService {
     private void requireReference(String entity, UUID id, ActorContext actor, String message) {
         if (!repository.belongs(entity, id, actor.hospitalScope())) throw reject("V2-OPERATIONS-REFERENCE-NOT-FOUND", message);
     }
+    private UUID replayOutput(String operation, String key, String payloadDigest, ActorContext actor) {
+        var prior = repository.findOutputIdempotency(operation, key, actor.hospitalScope()).orElse(null);
+        if (prior == null) return null;
+        if (!prior.payloadDigest().equals(payloadDigest)) {
+            throw reject("V2-REPORT-OUTPUT-IDEMPOTENCY-CONFLICT", "同一幂等键对应的报告输出内容冲突");
+        }
+        return prior.resultEntityId();
+    }
+    private static String digest(Object... values) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (Object value : values) {
+                digest.update(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256不可用", exception);
+        }
+    }
     private static P15BusinessException reject(String code, String message) { return new P15BusinessException(code, message); }
 
-    public record PrintCommand(String identityReference, String terminalReference, String printerReference, String resultCode, int copyCount) { }
+    public record PrintCommand(String identityReference, String terminalReference, String printerReference,
+            int copyCount, String idempotencyKey) { }
+    public record OutputActionResult(UUID id, String statusCode, boolean duplicate, String errorMessage) { }
 }

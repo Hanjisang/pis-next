@@ -49,6 +49,37 @@ export type OperationsCriticalValue = OperationsRow & {
   statusCode: string;
   createdAt: string;
 };
+export type OperationsReportDistribution = {
+  id: string;
+  reportId: string;
+  targetCode: string;
+  requestedAt: string;
+  sentAt?: string | null;
+  statusCode: string;
+  retryCount: number;
+  lastError?: string | null;
+  deliveryReference?: string | null;
+  errorCode?: string | null;
+};
+export type OperationsReportPrint = {
+  id: string;
+  reportId: string;
+  identityReference: string;
+  terminalReference: string;
+  printerReference: string;
+  printedAt: string;
+  resultCode: string;
+  copyCount: number;
+  deviceJobReference?: string | null;
+  errorCode?: string | null;
+  failureReason?: string | null;
+};
+export type OperationsReportOutputResult = {
+  id: string;
+  statusCode: string;
+  duplicate: boolean;
+  errorMessage?: string | null;
+};
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/v2/operations${path}`, {
@@ -117,12 +148,35 @@ export const acknowledgeOperationsCriticalValue = (id: string) =>
   post<void>(`/critical-value-notifications/${id}/acknowledge`);
 export const feedbackOperationsCriticalValue = (id: string, content: string) =>
   post<{ id: string }>(`/critical-values/${id}/feedback`, { content });
-export const distributeOperationsReport = (reportId: string, targetCode: string) =>
-  post<{ id: string }>(`/reports/${reportId}/distribution`, { targetCode });
+export const distributeOperationsReport = (
+  reportId: string,
+  targetCode: string,
+  idempotencyKey: string,
+) =>
+  post<OperationsReportOutputResult>(`/reports/${reportId}/distribution`, {
+    targetCode,
+    idempotencyKey,
+  });
 export const updateOperationsDistribution = (id: string, status: string, error?: string) =>
   post<void>(`/report-distributions/${id}/status`, { status, error });
-export const printOperationsReport = (reportId: string, body: unknown) =>
-  post<{ id: string }>(`/reports/${reportId}/print`, body);
+export const printOperationsReport = (
+  reportId: string,
+  body: {
+    identityReference: string;
+    terminalReference: string;
+    printerReference: string;
+    copyCount: number;
+    idempotencyKey: string;
+  },
+) => post<OperationsReportOutputResult>(`/reports/${reportId}/print`, body);
+export const getOperationsReportDistributions = (reportId: string) =>
+  request<OperationsReportDistribution[]>(`/reports/${reportId}/distributions`);
+export const getOperationsReportPrints = (reportId: string) =>
+  request<OperationsReportPrint[]>(`/reports/${reportId}/prints`);
+export const getOperationsReportPrinterStatus = (printerReference: string) =>
+  request<{ printerReference: string; statusCode: string; detail: string }>(
+    `/report-printer-status?printerReference=${encodeURIComponent(printerReference)}`,
+  );
 export const getOperationsAddresses = () => request<OperationsRow[]>('/logistics/addresses');
 export const createOperationsAddress = (body: unknown) =>
   post<{ id: string }>('/logistics/addresses', body);

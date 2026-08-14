@@ -65,7 +65,9 @@ onMounted(() => {
         ><small>{{ item.description }}</small>
       </button>
     </nav>
-    <div v-if="loading" class="list-skeleton"><span></span><span></span><span></span></div>
+    <div v-if="loading && !Object.keys(overview).length" class="list-skeleton">
+      <span></span><span></span><span></span>
+    </div>
     <V2DepartmentOperations
       v-else-if="module === 'department'"
       :overview="overview"

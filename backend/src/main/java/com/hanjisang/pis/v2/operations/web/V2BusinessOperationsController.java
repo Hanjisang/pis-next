@@ -102,11 +102,32 @@ public class V2BusinessOperationsController {
     public IdResponse criticalFeedback(@PathVariable UUID id, @RequestBody FeedbackRequest request) { return new IdResponse(service.addCriticalFeedback(id, request.content())); }
 
     @PostMapping("/reports/{reportId}/distribution")
-    public IdResponse distribution(@PathVariable UUID reportId, @RequestBody DistributionRequest request) { return new IdResponse(service.distributeReport(reportId, request.targetCode())); }
+    public V2BusinessOperationsApplicationService.OutputActionResult distribution(@PathVariable UUID reportId,
+            @RequestBody DistributionRequest request) {
+        return service.distributeReport(reportId, request.targetCode(), request.idempotencyKey());
+    }
+    @GetMapping("/reports/{reportId}/distributions")
+    public List<JdbcV2BusinessOperationsRepository.ReportDistributionRow> distributions(@PathVariable UUID reportId) {
+        return service.reportDistributions(reportId);
+    }
     @PostMapping("/report-distributions/{id}/status")
     public void distributionStatus(@PathVariable UUID id, @RequestBody DistributionStatusRequest request) { service.updateDistribution(id, request.status(), request.error()); }
     @PostMapping("/reports/{reportId}/print")
-    public IdResponse print(@PathVariable UUID reportId, @RequestBody PrintRequest request) { return new IdResponse(service.printReport(reportId, new V2BusinessOperationsApplicationService.PrintCommand(request.identityReference(), request.terminalReference(), request.printerReference(), request.resultCode(), request.copyCount()))); }
+    public V2BusinessOperationsApplicationService.OutputActionResult print(@PathVariable UUID reportId,
+            @RequestBody PrintRequest request) {
+        return service.printReport(reportId, new V2BusinessOperationsApplicationService.PrintCommand(
+                request.identityReference(), request.terminalReference(), request.printerReference(),
+                request.copyCount(), request.idempotencyKey()));
+    }
+    @GetMapping("/reports/{reportId}/prints")
+    public List<JdbcV2BusinessOperationsRepository.ReportPrintRow> prints(@PathVariable UUID reportId) {
+        return service.reportPrints(reportId);
+    }
+    @GetMapping("/report-printer-status")
+    public com.hanjisang.pis.v2.operations.api.ReportOutputPort.PrinterStatus printerStatus(
+            @RequestParam String printerReference) {
+        return service.reportPrinterStatus(printerReference);
+    }
 
     @GetMapping("/logistics/addresses")
     public List<JdbcV2BusinessOperationsRepository.AddressRow> addresses() { return service.addresses(); }
@@ -168,9 +189,10 @@ public class V2BusinessOperationsController {
     public record CriticalValueRequest(String valueTypeCode, String gradeCode, String triggerReference, Instant dueAt) { }
     public record CriticalNotificationRequest(String departmentReference, String recipientReference, String methodCode, String message, String businessPath) { }
     public record FeedbackRequest(String content) { }
-    public record DistributionRequest(String targetCode) { }
+    public record DistributionRequest(String targetCode, String idempotencyKey) { }
     public record DistributionStatusRequest(String status, String error) { }
-    public record PrintRequest(String identityReference, String terminalReference, String printerReference, String resultCode, int copyCount) { }
+    public record PrintRequest(String identityReference, String terminalReference, String printerReference,
+            int copyCount, String idempotencyKey) { }
     public record AddressRequest(String addressName, String recipientName, String phone, String addressText) { }
     public record PackageRequest(UUID caseId, UUID consultationId, String courierCompany, String trackingNo, String senderReference, String recipientReference, String addressText, List<PackageItemRequest> items) { }
     public record PackageItemRequest(UUID blockId, UUID slideId, String documentReference) { }

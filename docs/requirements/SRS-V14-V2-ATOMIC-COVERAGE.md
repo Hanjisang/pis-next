@@ -8,10 +8,10 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 324 |
-| PARTIAL | 129 |
-| MISSING | 210 |
-| EXTERNAL_DEPENDENCY | 79 |
+| COMPLETE | 329 |
+| PARTIAL | 126 |
+| MISSING | 207 |
+| EXTERNAL_DEPENDENCY | 80 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
 
@@ -5737,14 +5737,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 N17 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N17 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N17 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N17 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N17 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-017 独立立项、实现和验收。
+- UI Entry: 诊断工作区报告区撤回生效报告；原 Diagnosis 与重新打开的审核责任仍在同一工作区编辑、完成并再次签发。
+- Backend Evidence: `V2ReportApplicationService.withdraw` 重开最后审核责任；再次 `signOut` 仅在无生效 ORIGINAL 时创建新的 Report。
+- DB Evidence: 撤回的 R001 保持 `WITHDRAWN`，重新签发追加 R002 及独立 PDF；禁止更新旧签发快照或引入 ReportVersion。
+- Frontend Evidence: `V2DiagnosisWorkspace.vue` 依据工作区动作重新开放编辑、审核和签发入口，并显示完整报告历史。
+- Test Evidence: `V2ReportWebTest.previewDoesNotPersistAndSignOutWithdrawResignAndSupplementPreserveHistory` 断言 R001 撤回后同 Diagnosis 产生 R002，历史均保留。
+- Status: COMPLETE
+- Gap: 当前证据闭合；任何后续更正继续追加新 Report，不覆盖已签发报告。
+- V2 Decision: re-sign 是同一 Diagnosis 的新 Report 事实，不是 ReportVersion。
 
 ### RPT-018 — supplemental report
 
@@ -5891,14 +5891,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 N24 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N24 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N24 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N24 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N24 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-024 独立立项、实现和验收。
+- UI Entry: 业务管理 → 报告发放 → 报告自助打印；输入报告、身份核验引用、终端、打印机和份数。
+- Backend Evidence: `printReport` 仅接受生效报告，身份引用必须匹配病例最新快照；份数、范围和幂等校验后调用 `ReportOutputPort`，客户端不能伪造打印结果。
+- DB Evidence: 复用 `report_print_record`，V47 增加请求人、设备任务、错误码和失败原因；独立幂等表防止终端重复提交。
+- Frontend Evidence: `V2ClinicalOperations.vue` 提供自助终端打印表单、打印机检查与逐报告历史。
+- Test Evidence: `V2BusinessOperationsSecurityTest` 覆盖身份拒绝、Simulator 成功、幂等和跨医院拒绝；`V2ClinicalOperations.test.ts` 与 `report-output.spec.ts` 覆盖 UI。
+- Status: COMPLETE
+- Gap: 产品内自助打印闭环完成；真实打印硬件状态与联调由 RPT-037 的外部依赖承担。
+- V2 Decision: 身份核验失败不得调用打印端口，也不得生成成功记录。
 
 ### RPT-025 — report distribution
 
@@ -5913,14 +5913,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 N25 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N25 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N25 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N25 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N25 行及对应测试；缺口状态不得视为通过
+- UI Entry: 业务管理报告发放入口可选择产品内 Simulator 或已配置外部目标，并查看每次结果。
+- Backend Evidence: `ReportOutputPort` 隔离真实通道；仅生效报告可发放，Simulator、未配置失败、幂等和审计语义已实现。
+- DB Evidence: `report_distribution` 保存每次请求、状态、通道引用和错误；V47 增加输出幂等证据。
+- Frontend Evidence: `V2ClinicalOperations.vue` 执行发放并回显 SENT/FAILED 历史，不把“已建立请求”冒充已送达。
+- Test Evidence: `V2BusinessOperationsSecurityTest` 覆盖 Simulator 成功、未配置通道失败且不改变 Report；浏览器测试覆盖结果回显。
 - Status: EXTERNAL_DEPENDENCY
-- Gap: 依赖真实外部系统、设备或临床环境；当前不得声明生产验证完成。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-025 独立立项、实现和验收。
+- Gap: 产品内 Port/Simulator/Attempt/History 已闭环；真实 HIS、EMR、患者平台地址、凭据和回执仍未联调。
+- V2 Decision: 外部发放失败是独立尝试事实，不回滚或改写生效报告。
 
 ### CASE-015 — Case Header
 
@@ -14471,14 +14471,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 AK08 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK08 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK08 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK08 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK08 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-033 独立立项、实现和验收。
+- UI Entry: 同 RPT-024 的报告自助打印入口；终端和身份核验均为必填。
+- Backend Evidence: 有效报告锁、病例身份引用匹配、`ReportOutputPort`、幂等和审计形成完整命令边界。
+- DB Evidence: `report_print_record` 保存每次成功或失败尝试，不覆盖历史。
+- Frontend Evidence: 自助打印表单展示打印机状态和真实服务端执行结果。
+- Test Evidence: `V2BusinessOperationsSecurityTest`、`V2ClinicalOperations.test.ts`、`report-output.spec.ts`。
+- Status: COMPLETE
+- Gap: 无当前已知产品内缺口；真实硬件联调不伪装为 Simulator 成功。
+- V2 Decision: AK08 与 N24 复用同一自助打印业务能力，不复制第二套打印模型。
 
 ### RPT-034 — OR frozen delivery
 
@@ -14537,14 +14537,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 AK11 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK11 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK11 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK11 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK11 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-036 独立立项、实现和验收。
+- UI Entry: 报告发放入口按报告查询并显示通道、请求时间、状态、失败原因和重试次数。
+- Backend Evidence: `reportDistributions` 强制报告组织范围，按请求时间稳定倒序返回追加式历史。
+- DB Evidence: `report_distribution` 保存 SENT/FAILED/RETRY_PENDING 全部尝试，V47 增加通道回执和错误码。
+- Frontend Evidence: `V2ClinicalOperations.vue` 在发放后立即刷新逐报告历史。
+- Test Evidence: 后端安全测试覆盖成功、失败、历史和跨医院范围；Playwright 在 1920/1366 验证历史可见。
+- Status: COMPLETE
+- Gap: 无产品内历史缺口；外部通道真实性仍由 RPT-025 标记。
+- V2 Decision: 发放历史是输出尝试事实，绝不修改 Report 医疗内容或状态。
 
 ### RPT-037 — printer status
 
@@ -14559,14 +14559,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 AK12 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK12 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK12 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK12 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK12 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-037 独立立项、实现和验收。
+- UI Entry: 报告自助打印区“检查打印机”。
+- Backend Evidence: `ReportOutputPort.printerStatus` 返回 READY 或 UNCONFIGURED；Simulator 可测，未配置真实打印机不会伪报在线。
+- DB Evidence: 打印尝试保存设备任务或错误证据；打印机实时状态本身不写入核心医疗表。
+- Frontend Evidence: UI 显示端口返回的打印机状态和说明。
+- Test Evidence: 后端测试断言 Simulator READY；Playwright 断言状态回显。
+- Status: EXTERNAL_DEPENDENCY
+- Gap: 产品内端口、错误语义和 Simulator 已有；真实医院报告打印机型号、地址和在线状态协议未提供。
+- V2 Decision: 真实硬件状态只能由医院适配器提供，Simulator 不等同生产验证。
 
 ### RPT-038 — print history
 
@@ -14581,14 +14581,14 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - Business Rule: 遵循 V2 已确认领域不变量；禁止 Generic Task/Workflow 替代业务事实
 - Permission: 以 authoritative permission catalog 和后端授权为准
 - Data Scope: hospital/campus/department 按当前 V2 Data Permission 语义
-- UI Entry: SRS V1.4 AK13 对应产品入口
-- Backend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK13 行及对应仓库模块
-- DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK13 行及对应 migration
-- Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK13 行及对应前端入口
-- Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK13 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-038 独立立项、实现和验收。
+- UI Entry: 报告自助打印区按报告查询打印历史，显示时间、终端、份数和 SUCCESS/FAILED。
+- Backend Evidence: `reportPrints` 强制权限与医院范围；打印命令只能保存端口返回结果，并支持幂等重放。
+- DB Evidence: `report_print_record` 追加保存身份引用、终端、打印机、设备任务、份数和失败原因。
+- Frontend Evidence: `V2ClinicalOperations.vue` 打印后刷新历史并明确显示失败说明。
+- Test Evidence: 后端测试覆盖成功、拒绝、重放、历史和跨医院拒绝；组件及双视口浏览器测试覆盖入口。
+- Status: COMPLETE
+- Gap: 无产品内历史缺口；真实打印机联调状态见 RPT-037。
+- V2 Decision: 重复命令不产生重复打印记录；业务重打必须使用新的幂等键并追加历史。
 
 ### SEC-009 — authentication
 

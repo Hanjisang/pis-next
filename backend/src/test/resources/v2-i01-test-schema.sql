@@ -1042,12 +1042,22 @@ CREATE TABLE IF NOT EXISTS pis_v2.report_distribution (
     id UUID PRIMARY KEY, report_id UUID NOT NULL, target_code VARCHAR(64) NOT NULL,
     requested_at TIMESTAMP WITH TIME ZONE NOT NULL, sent_at TIMESTAMP WITH TIME ZONE,
     status_code VARCHAR(32) NOT NULL, retry_count INTEGER NOT NULL, last_error VARCHAR(2000),
-    organization_reference VARCHAR(128) NOT NULL
+    organization_reference VARCHAR(128) NOT NULL, requested_by_ref VARCHAR(128),
+    delivery_reference VARCHAR(256), error_code VARCHAR(128)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.report_print_record (
     id UUID PRIMARY KEY, report_id UUID NOT NULL, identity_reference VARCHAR(256) NOT NULL,
     terminal_reference VARCHAR(256), printer_reference VARCHAR(256), printed_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    result_code VARCHAR(32) NOT NULL, copy_count INTEGER NOT NULL, organization_reference VARCHAR(128) NOT NULL
+    result_code VARCHAR(32) NOT NULL, copy_count INTEGER NOT NULL, organization_reference VARCHAR(128) NOT NULL,
+    requested_by_ref VARCHAR(128), device_job_reference VARCHAR(256), error_code VARCHAR(128),
+    failure_reason VARCHAR(2000)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_output_command_idempotency (
+    id UUID PRIMARY KEY, operation_code VARCHAR(128) NOT NULL, idempotency_key VARCHAR(256) NOT NULL,
+    payload_digest VARCHAR(64) NOT NULL, result_entity_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    organization_reference VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, operation_code, idempotency_key)
 );
 CREATE TABLE IF NOT EXISTS pis_v2.common_address (
     id UUID PRIMARY KEY, address_name VARCHAR(256) NOT NULL, recipient_name VARCHAR(256) NOT NULL,

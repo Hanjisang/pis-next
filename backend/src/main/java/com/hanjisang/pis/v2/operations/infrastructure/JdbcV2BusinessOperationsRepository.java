@@ -456,12 +456,38 @@ public class JdbcV2BusinessOperationsRepository {
         return id;
     }
 
-    public UUID insertDistribution(UUID reportId, String target, String organization, Instant now) {
+    public boolean lockEffectiveReport(UUID reportId, String organization) {
+        return !jdbc.query("""
+                SELECT id FROM pis_v2.report
+                 WHERE id = ? AND organization_reference = ? AND status_code = 'EFFECTIVE'
+                 FOR UPDATE
+                """, (rs, rowNum) -> rs.getObject("id", UUID.class), reportId, organization).isEmpty();
+    }
+
+    public Optional<ReportOutputRow> reportOutput(UUID reportId, String organization) {
+        return jdbc.query("""
+                SELECT r.id, r.report_no, r.status_code, r.pdf_content_hash, p.content,
+                       (SELECT s.patient_reference FROM pis_v2.case_context_snapshot s
+                         WHERE s.case_id = r.case_id ORDER BY s.snapshot_version_no DESC LIMIT 1) AS patient_reference
+                  FROM pis_v2.report r
+                  JOIN pis_v2.report_pdf_output p ON p.report_id = r.id
+                 WHERE r.id = ? AND r.organization_reference = ? AND r.status_code = 'EFFECTIVE'
+                """, rs -> rs.next() ? Optional.of(new ReportOutputRow(rs.getObject("id", UUID.class),
+                rs.getString("report_no"), rs.getString("status_code"), rs.getString("pdf_content_hash"),
+                rs.getBytes("content"), rs.getString("patient_reference"))) : Optional.empty(), reportId,
+                organization);
+    }
+
+    public UUID insertDistribution(UUID reportId, String target, String status, String deliveryReference,
+            String errorCode, String errorMessage, String organization, String actor, Instant now) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO pis_v2.report_distribution
-                (id, report_id, target_code, requested_at, status_code, retry_count, organization_reference)
-                VALUES (?, ?, ?, ?, 'REQUESTED', 0, ?)""", id, reportId, target, Timestamp.from(now), organization);
+                (id, report_id, target_code, requested_at, sent_at, status_code, retry_count, last_error,
+                 organization_reference, requested_by_ref, delivery_reference, error_code)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)""", id, reportId, target, Timestamp.from(now),
+                "SENT".equals(status) ? Timestamp.from(now) : null, status, errorMessage, organization, actor,
+                deliveryReference, errorCode);
         return id;
     }
 
@@ -474,14 +500,66 @@ public class JdbcV2BusinessOperationsRepository {
                 status, id, organization) == 1;
     }
 
-    public UUID insertPrintRecord(UUID reportId, String identity, String terminal, String printer, String result, int copies,
-            String organization, Instant now) {
+    public UUID insertPrintRecord(UUID reportId, String identity, String terminal, String printer, String result,
+            int copies, String deviceJobReference, String errorCode, String failureReason, String organization,
+            String actor, Instant now) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO pis_v2.report_print_record
-                (id, report_id, identity_reference, terminal_reference, printer_reference, printed_at, result_code, copy_count, organization_reference)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", id, reportId, identity, terminal, printer, Timestamp.from(now), result, copies, organization);
+                (id, report_id, identity_reference, terminal_reference, printer_reference, printed_at, result_code,
+                 copy_count, organization_reference, requested_by_ref, device_job_reference, error_code, failure_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", id, reportId, identity, terminal, printer,
+                Timestamp.from(now), result, copies, organization, actor, deviceJobReference, errorCode, failureReason);
         return id;
+    }
+
+    public List<ReportDistributionRow> reportDistributions(UUID reportId, String organization) {
+        return jdbc.query("""
+                SELECT id, report_id, target_code, requested_at, sent_at, status_code, retry_count, last_error,
+                       requested_by_ref, delivery_reference, error_code
+                  FROM pis_v2.report_distribution
+                 WHERE report_id = ? AND organization_reference = ?
+                 ORDER BY requested_at DESC, id DESC
+                """, (rs, rowNum) -> new ReportDistributionRow(rs.getObject("id", UUID.class),
+                rs.getObject("report_id", UUID.class), rs.getString("target_code"), instant(rs, "requested_at"),
+                instant(rs, "sent_at"), rs.getString("status_code"), rs.getInt("retry_count"),
+                rs.getString("last_error"), rs.getString("requested_by_ref"),
+                rs.getString("delivery_reference"), rs.getString("error_code")), reportId, organization);
+    }
+
+    public List<ReportPrintRow> reportPrints(UUID reportId, String organization) {
+        return jdbc.query("""
+                SELECT id, report_id, identity_reference, terminal_reference, printer_reference, printed_at,
+                       result_code, copy_count, requested_by_ref, device_job_reference, error_code, failure_reason
+                  FROM pis_v2.report_print_record
+                 WHERE report_id = ? AND organization_reference = ?
+                 ORDER BY printed_at DESC, id DESC
+                """, (rs, rowNum) -> new ReportPrintRow(rs.getObject("id", UUID.class),
+                rs.getObject("report_id", UUID.class), rs.getString("identity_reference"),
+                rs.getString("terminal_reference"), rs.getString("printer_reference"), instant(rs, "printed_at"),
+                rs.getString("result_code"), rs.getInt("copy_count"), rs.getString("requested_by_ref"),
+                rs.getString("device_job_reference"), rs.getString("error_code"),
+                rs.getString("failure_reason")), reportId, organization);
+    }
+
+    public Optional<OutputIdempotencyRow> findOutputIdempotency(String operation, String key, String organization) {
+        return jdbc.query("""
+                SELECT payload_digest, result_entity_id
+                  FROM pis_v2.report_output_command_idempotency
+                 WHERE organization_reference = ? AND operation_code = ? AND idempotency_key = ?
+                """, rs -> rs.next() ? Optional.of(new OutputIdempotencyRow(rs.getString("payload_digest"),
+                rs.getObject("result_entity_id", UUID.class))) : Optional.empty(), organization, operation, key);
+    }
+
+    public void insertOutputIdempotency(String operation, String key, String digest, UUID resultEntityId,
+            String organization, String actor, Instant now) {
+        jdbc.update("""
+                INSERT INTO pis_v2.report_output_command_idempotency
+                    (id, operation_code, idempotency_key, payload_digest, result_entity_id, created_at,
+                     created_by_ref, organization_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), operation, key, digest, resultEntityId, Timestamp.from(now), actor,
+                organization);
     }
 
     public UUID insertAddress(AddressCommand item, String organization, String actor, Instant now) {
@@ -711,6 +789,15 @@ public class JdbcV2BusinessOperationsRepository {
             String statusCode, Instant dueAt, Instant createdAt, String createdByRef) { }
     public record CriticalNotificationCommand(String departmentReference, String recipientReference, String methodCode,
             String message, String businessPath) { }
+    public record ReportOutputRow(UUID reportId, String reportNo, String statusCode, String pdfContentHash,
+            byte[] pdfContent, String patientReference) { }
+    public record ReportDistributionRow(UUID id, UUID reportId, String targetCode, Instant requestedAt, Instant sentAt,
+            String statusCode, int retryCount, String lastError, String requestedByRef, String deliveryReference,
+            String errorCode) { }
+    public record ReportPrintRow(UUID id, UUID reportId, String identityReference, String terminalReference,
+            String printerReference, Instant printedAt, String resultCode, int copyCount, String requestedByRef,
+            String deviceJobReference, String errorCode, String failureReason) { }
+    public record OutputIdempotencyRow(String payloadDigest, UUID resultEntityId) { }
     public record AddressCommand(String addressName, String recipientName, String phone, String addressText) { }
     public record AddressRow(UUID id, String addressName, String recipientName, String phone, String addressText, boolean active) { }
     public record PackageCommand(UUID caseId, UUID consultationId, String courierCompany, String trackingNo,

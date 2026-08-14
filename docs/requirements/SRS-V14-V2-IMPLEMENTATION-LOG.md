@@ -1,5 +1,15 @@
 # SRS V1.4 → PIS V2 实施日志
 
+## 2026-08-14：报告重签、自助打印与输出历史闭环
+
+关闭 `RPT-017`、`RPT-024`、`RPT-033`、`RPT-036`、`RPT-038`；`RPT-037` 在完成产品内端口、Simulator、状态查询和错误语义后转为 `EXTERNAL_DEPENDENCY`。撤回后的同一 Diagnosis 继续编辑和重新审核，再签发追加 R002，R001 及 PDF 保持不可变，不引入 ReportVersion。
+
+报告打印和发放复用 V34 的 `report_print_record`、`report_distribution`，不建立第二套输出事实。V47 增加请求人、设备/通道回执、错误证据和按医院唯一的输出幂等记录。自助打印只接受生效报告，身份引用必须匹配病例最新快照；服务端调用 `ReportOutputPort` 决定 SUCCESS/FAILED，客户端不再提交结果码。发放同样由端口执行，未配置真实通道明确记录 FAILED，且不改变 Report。业务管理入口提供身份、终端、打印机、份数、打印机状态以及逐报告打印/发放历史。
+
+验证证据：`V2BusinessOperationsSecurityTest` 与 `V2ReportWebTest` 共 5 tests 通过；覆盖身份拒绝、Simulator 成功、外部通道失败、幂等、历史、数据隔离及撤回后重签。`V2ClinicalOperations.test.ts` 通过；`report-output.spec.ts` 在 1920/1366 两种浏览器视口均通过，并发现、修复后台刷新时卸载业务组件而丢失当前页和输出历史的问题。PostgreSQL V46→V47 升级测试已编译，Docker 不可用时保持 `POSTGRES_REVALIDATION_REQUIRED=YES`。覆盖矩阵复算为 `TOTAL=742 / COMPLETE=329 / PARTIAL=126 / MISSING=207 / EXTERNAL_DEPENDENCY=80 / CONFLICT_RESOLVED_BY_V2=0`。
+
+待业务确认：单次自助打印暂设 1–10 份技术安全边界，目的是防止终端误操作造成无界打印；超过 10 份需拆分为新的、有独立幂等键的打印命令。该边界未来应由 P09 参数确认并配置化，不影响每次打印事实、身份核验和历史追踪语义。
+
 ## 2026-08-14：Viewer 标注、测量与截图证据闭环
 
 关闭 `WSI-015`、`WSI-016`、`WSI-017`。原实现虽已有 API/表/按钮，但标注和测量写死中心坐标，截图仅保存 `browser://` 临时引用，因此没有提前提升状态。本次由 Viewer 真实鼠标点选生成归一化标注坐标和两点测量；普通图像按实际图像边界定位，分层 WSI 保存视口归一化坐标及当时视口状态，未取得扫描仪物理标定时只记录坐标系内比例，不伪造毫米/微米。Regular Image 与 OpenSeadragon Adapter 导出当前视野 PNG，后端验证 PNG 签名和大小，保存二进制内容、SHA-256、视口和创建人，并通过受控 API 读取。

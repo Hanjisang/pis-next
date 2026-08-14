@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { friendlyError } from '../uiText';
+import { friendlyError, formatDateTime } from '../uiText';
 import {
   acknowledgeOperationsCriticalValue,
   addOperationsPackageEvent,
@@ -11,9 +11,15 @@ import {
   feedbackOperationsCriticalValue,
   getOperationsAddresses,
   getOperationsCriticalValues,
+  getOperationsReportDistributions,
+  getOperationsReportPrinterStatus,
+  getOperationsReportPrints,
   notifyOperationsCriticalValue,
+  printOperationsReport,
   updateOperationsDistribution,
   type OperationsOverview,
+  type OperationsReportDistribution,
+  type OperationsReportPrint,
   type OperationsRow,
 } from '../v2BusinessOperationsApi';
 
@@ -36,7 +42,16 @@ const criticalAction = ref({
   notificationId: '',
   feedback: '',
 });
-const distribution = ref({ reportId: '', targetCode: 'PATIENT_PORTAL' });
+const distribution = ref({ reportId: '', targetCode: 'SIMULATOR_PATIENT_PORTAL' });
+const reportPrint = ref({
+  identityReference: '',
+  terminalReference: 'SELF-SERVICE-01',
+  printerReference: 'MOCK://REPORT-PRINTER',
+  copyCount: 1,
+});
+const reportDistributions = ref<OperationsReportDistribution[]>([]);
+const reportPrints = ref<OperationsReportPrint[]>([]);
+const printerStatus = ref('');
 const address = ref({ addressName: '', recipientName: '', phone: '', addressText: '' });
 const parcel = ref({
   caseId: '',
@@ -110,9 +125,49 @@ function feedback() {
 }
 function sendReport() {
   return run(
-    () => distributeOperationsReport(distribution.value.reportId, distribution.value.targetCode),
-    '报告发放请求已建立。',
+    async () => {
+      const result = await distributeOperationsReport(
+        distribution.value.reportId,
+        distribution.value.targetCode,
+        outputKey('report-distribution'),
+      );
+      await loadReportOutput();
+      if (result.errorMessage) throw new Error(result.errorMessage);
+    },
+    '报告发放结果已记录。',
   );
+}
+function printReport() {
+  return run(
+    async () => {
+      const result = await printOperationsReport(distribution.value.reportId, {
+        ...reportPrint.value,
+        idempotencyKey: outputKey('report-print'),
+      });
+      await loadReportOutput();
+      if (result.errorMessage) throw new Error(result.errorMessage);
+    },
+    '报告打印结果已记录。',
+  );
+}
+async function loadReportOutput() {
+  const reportId = distribution.value.reportId.trim();
+  if (!reportId) {
+    reportDistributions.value = [];
+    reportPrints.value = [];
+    return;
+  }
+  [reportDistributions.value, reportPrints.value] = await Promise.all([
+    getOperationsReportDistributions(reportId),
+    getOperationsReportPrints(reportId),
+  ]);
+}
+async function checkPrinter() {
+  const status = await getOperationsReportPrinterStatus(reportPrint.value.printerReference);
+  printerStatus.value = `${status.statusCode} · ${status.detail}`;
+}
+function outputKey(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`;
 }
 function retryDistribution(id: string) {
   return run(() => updateOperationsDistribution(id, 'RETRY_PENDING'), '失败发放已进入重试队列。');
@@ -208,14 +263,47 @@ onMounted(() => void load());
     <section v-else-if="section === 'distribution'" class="workspace-panel">
       <h3>报告发放</h3>
       <form class="operations-form" @submit.prevent="sendReport">
-        <input v-model="distribution.reportId" required placeholder="已签发报告记录标识" /><select
+        <input
+          v-model="distribution.reportId"
+          required
+          placeholder="已签发报告记录标识"
+          @change="loadReportOutput"
+        /><select
           v-model="distribution.targetCode"
         >
-          <option value="PATIENT_PORTAL">患者服务</option>
-          <option value="HIS">院内系统</option>
-          <option value="PRINT">打印</option></select
-        ><button :disabled="saving">建立发放请求</button>
+          <option value="SIMULATOR_PATIENT_PORTAL">产品内患者服务模拟通道</option>
+          <option value="HIS">院内系统（需真实适配器）</option></select
+        ><button :disabled="saving">执行发放</button
+        ><button class="secondary-button" type="button" :disabled="saving" @click="loadReportOutput">
+          查询历史
+        </button>
       </form>
+      <h4>报告自助打印</h4>
+      <form class="operations-form" aria-label="报告自助打印" @submit.prevent="printReport">
+        <input v-model="reportPrint.identityReference" required placeholder="身份核验凭据引用" />
+        <input v-model="reportPrint.terminalReference" required placeholder="自助终端标识" />
+        <input v-model="reportPrint.printerReference" required placeholder="打印机配置" />
+        <input v-model.number="reportPrint.copyCount" type="number" min="1" max="10" required />
+        <button :disabled="saving">打印报告</button>
+        <button class="secondary-button" type="button" @click="checkPrinter">检查打印机</button>
+      </form>
+      <p v-if="printerStatus" class="muted">打印机：{{ printerStatus }}</p>
+      <div v-for="item in reportPrints" :key="item.id" class="operations-row">
+        <div>
+          <strong>打印 · {{ item.resultCode }}</strong>
+          <p>{{ formatDateTime(item.printedAt) }} · {{ item.terminalReference }} · {{ item.copyCount }} 份</p>
+          <small v-if="item.failureReason">{{ item.failureReason }}</small>
+        </div>
+        <span class="status-pill">{{ item.resultCode }}</span>
+      </div>
+      <div v-for="item in reportDistributions" :key="item.id" class="operations-row">
+        <div>
+          <strong>发放 · {{ item.targetCode }}</strong>
+          <p>{{ formatDateTime(item.requestedAt) }}</p>
+          <small v-if="item.lastError">{{ item.lastError }}</small>
+        </div>
+        <span class="status-pill">{{ item.statusCode }}</span>
+      </div>
       <div
         v-for="item in overview.distributions ?? []"
         :key="String(item.id)"
