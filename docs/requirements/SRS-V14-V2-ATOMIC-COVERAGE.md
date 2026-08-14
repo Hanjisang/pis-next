@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 338 |
-| PARTIAL | 120 |
-| MISSING | 204 |
+| COMPLETE | 341 |
+| PARTIAL | 119 |
+| MISSING | 202 |
 | EXTERNAL_DEPENDENCY | 80 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
@@ -14366,9 +14366,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK03 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK03 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK03 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-028 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。报告中心提供按报告号、病理号或患者引用精确查询当前医院生效报告的临床入口，显示报告身份、签发时间、PDF摘要和受控查看入口。
+- V2 Decision: 临床查询只读不可变Report/PDF事实，撤回报告不返回；查询受P14-PERM-055、医院数据范围和审计约束。
 
 ### RPT-029 — patient query
 
@@ -14388,9 +14388,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK04 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK04 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK04 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-029 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。患者查询要求报告号、病理号和患者身份引用全部精确匹配，只返回生效报告且不回显患者身份字段，失败使用统一不匹配语义并记录拒绝审计。
+- V2 Decision: 患者查询由已认证的医院自助终端服务身份执行；产品不创建匿名公网报告接口，终端与操作者均可追责。
 
 ### RPT-030 — APP extension
 
@@ -14454,9 +14454,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK07 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK07 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK07 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-032 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。报告中心提供患者自助终端入口，完成身份核验后列出生效报告，并复用统一ReportOutputPort、打印机配置、幂等打印与打印历史执行输出。
+- V2 Decision: 终端不复制报告或打印模型；撤回报告不能查询/打印，真实终端和打印机联调仍由既有设备外部依赖项承担。
 
 ### RPT-033 — self-service print
 

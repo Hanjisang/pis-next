@@ -117,4 +117,104 @@ describe('V2ReportCenter', () => {
       idempotencyKey: expect.any(String),
     });
   });
+
+  it('queries effective reports for clinicians and verifies a patient before terminal printing', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/report-center') && !init?.method) {
+        return new Response(
+          JSON.stringify({
+            items: [],
+            counts: {
+              waitingSign: 0,
+              signed: 0,
+              withdrawn: 0,
+              supplemental: 0,
+              recentSigned: 0,
+              warning: 0,
+              overdue: 0,
+              delayed: 0,
+            },
+            refreshedAt: '2026-08-14T00:00:00Z',
+          }),
+        );
+      }
+      if (url.includes('/report-center/access/clinician?')) {
+        return new Response(
+          JSON.stringify([
+            {
+              reportId: 'REPORT-1',
+              reportNo: 'R001',
+              caseId: 'CASE-1',
+              pathologyNo: 'H-2026-001',
+              patientReference: 'SYNTH-PATIENT',
+              reportNature: 'ORIGINAL',
+              signedAt: '2026-08-14T00:00:00Z',
+              pdfContentHash: 'abcdef0123456789abcdef0123456789',
+            },
+          ]),
+        );
+      }
+      if (url.endsWith('/report-center/access/patient') && init?.method === 'POST') {
+        return new Response(
+          JSON.stringify([
+            {
+              reportId: 'REPORT-1',
+              reportNo: 'R001',
+              caseId: 'CASE-1',
+              pathologyNo: 'H-2026-001',
+              reportNature: 'ORIGINAL',
+              signedAt: '2026-08-14T00:00:00Z',
+              pdfContentHash: 'abcdef0123456789abcdef0123456789',
+            },
+          ]),
+        );
+      }
+      if (url.endsWith('/operations/reports/REPORT-1/print') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ statusCode: 'SUCCESS', duplicate: false }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2ReportCenter);
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '临床查询')
+      ?.trigger('click');
+    const clinicianForm = wrapper.get('form[aria-label="临床报告查询"]');
+    await clinicianForm.findAll('input')[1].setValue('H-2026-001');
+    await clinicianForm.trigger('submit');
+    await flushPromises();
+    expect(wrapper.text()).toContain('SYNTH-PATIENT');
+    expect(wrapper.get('a').attributes('href')).toBe('/api/v2/reports/REPORT-1/pdf');
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '患者自助终端')
+      ?.trigger('click');
+    const terminalForm = wrapper.get('form[aria-label="患者报告自助查询"]');
+    const inputs = terminalForm.findAll('input');
+    await inputs[0].setValue('R001');
+    await inputs[1].setValue('H-2026-001');
+    await inputs[2].setValue('SYNTH-PATIENT');
+    await inputs[3].setValue('TERMINAL-01');
+    await terminalForm.trigger('submit');
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '打印报告')
+      ?.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('报告已发送至打印机');
+    const printRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/operations/reports/REPORT-1/print'),
+    );
+    expect(JSON.parse(printRequest?.[1]?.body as string)).toMatchObject({
+      identityReference: 'SYNTH-PATIENT',
+      terminalReference: 'TERMINAL-01',
+      copyCount: 1,
+    });
+  });
 });

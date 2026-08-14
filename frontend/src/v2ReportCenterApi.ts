@@ -47,12 +47,49 @@ export type V2ReportCenter = {
   refreshedAt: string;
 };
 
+export type V2ClinicianReportResult = {
+  reportId: string;
+  reportNo: string;
+  caseId: string;
+  pathologyNo: string;
+  patientReference: string;
+  reportNature: 'ORIGINAL' | 'SUPPLEMENTAL' | string;
+  signedAt: string;
+  pdfContentHash: string;
+};
+
+export type V2PatientReportResult = Omit<V2ClinicianReportResult, 'patientReference'>;
+
 export async function getV2ReportCenter(): Promise<V2ReportCenter> {
   const response = await fetch('/api/v2/report-center');
   const body = (await response.json()) as V2ReportCenter | { message?: string };
   if (!response.ok)
     throw new Error((body as { message?: string }).message ?? '报告队列暂时无法加载');
   return body as V2ReportCenter;
+}
+
+export async function queryV2ClinicianReports(criteria: {
+  reportNo?: string;
+  pathologyNo?: string;
+  patientReference?: string;
+}): Promise<V2ClinicianReportResult[]> {
+  const parameters = new URLSearchParams();
+  Object.entries(criteria).forEach(([key, value]) => {
+    if (value?.trim()) parameters.set(key, value.trim());
+  });
+  const response = await fetch(`/api/v2/report-center/access/clinician?${parameters}`);
+  const body = (await response.json()) as V2ClinicianReportResult[] | { message?: string };
+  if (!response.ok) throw new Error((body as { message?: string }).message ?? '临床报告查询失败');
+  return body as V2ClinicianReportResult[];
+}
+
+export function queryV2PatientReports(input: {
+  reportNo: string;
+  pathologyNo: string;
+  identityReference: string;
+  terminalReference: string;
+}) {
+  return reportCenterRequest<V2PatientReportResult[]>('/access/patient', input);
 }
 
 async function reportCenterRequest<T>(path: string, body: unknown): Promise<T> {

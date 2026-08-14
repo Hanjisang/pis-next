@@ -4089,6 +4089,57 @@ textarea:focus {
   margin: 0 var(--space-5) var(--space-3);
 }
 
+.report-access-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0 var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.report-access-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0 var(--space-3);
+}
+
+.report-access-tabs button.active {
+  border-bottom-color: var(--brand-700);
+  color: var(--brand-800);
+  font-weight: 700;
+}
+
+.report-access-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.report-access-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.report-access-form.terminal {
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.report-access-form label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.report-access-results {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .dense-report-table {
   overflow-x: auto;
 }
@@ -4232,6 +4283,11 @@ textarea:focus {
 @media (max-width: 1100px) {
   .dense-report-row {
     min-width: 760px;
+  }
+
+  .report-access-form,
+  .report-access-form.terminal {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
 }
 /* PX02B production workstation refinements */

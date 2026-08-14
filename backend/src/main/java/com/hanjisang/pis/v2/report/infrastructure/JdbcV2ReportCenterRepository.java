@@ -76,6 +76,30 @@ public class JdbcV2ReportCenterRepository {
         return rows;
     }
 
+    public List<ReportAccessRow> searchEffectiveReports(String organizationReference, String reportNo,
+            String pathologyNo, String patientReference) {
+        return jdbc.query("""
+                SELECT r.id AS report_id, r.report_no, r.case_id, c.case_no,
+                       COALESCE(s.patient_reference, '') AS patient_reference,
+                       r.report_nature_code, r.signed_at, r.pdf_content_hash
+                FROM pis_v2.report r
+                JOIN pis_v2.pathology_case c ON c.id = r.case_id
+                LEFT JOIN pis_v2.case_context_snapshot s ON s.case_id = c.id
+                    AND s.snapshot_version_no = (SELECT MAX(s2.snapshot_version_no)
+                        FROM pis_v2.case_context_snapshot s2 WHERE s2.case_id = c.id)
+                WHERE r.organization_reference = ? AND r.status_code = 'EFFECTIVE'
+                  AND (? IS NULL OR UPPER(r.report_no) = UPPER(?))
+                  AND (? IS NULL OR UPPER(c.case_no) = UPPER(?))
+                  AND (? IS NULL OR s.patient_reference = ?)
+                ORDER BY r.signed_at DESC, r.id DESC
+                LIMIT 100
+                """, (rs, rowNum) -> new ReportAccessRow(rs.getObject("report_id", UUID.class),
+                        rs.getString("report_no"), rs.getObject("case_id", UUID.class), rs.getString("case_no"),
+                        rs.getString("patient_reference"), rs.getString("report_nature_code"),
+                        instant(rs, "signed_at"), rs.getString("pdf_content_hash")), organizationReference,
+                reportNo, reportNo, pathologyNo, pathologyNo, patientReference, patientReference);
+    }
+
     public Optional<TatContext> findTatContextForUpdate(UUID diagnosisId, String organizationReference) {
         List<UUID> locked = jdbc.query("""
                 SELECT d.id FROM pis_v2.diagnosis d
@@ -209,4 +233,7 @@ public class JdbcV2ReportCenterRepository {
             Instant tatDueAt, String reasonCode, String reasonDetail, Instant expectedSignAt, Instant declaredAt,
             String declaredByRef, String idempotencyKey, Instant resolvedAt, String resolvedByRef,
             String resolutionNote, String resolutionIdempotencyKey, long concurrencyVersion) { }
+
+    public record ReportAccessRow(UUID reportId, String reportNo, UUID caseId, String pathologyNo,
+            String patientReference, String reportNature, Instant signedAt, String pdfContentHash) { }
 }

@@ -9,6 +9,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class JdbcAuditEventRepository {
@@ -47,6 +49,7 @@ public class JdbcAuditEventRepository {
                 serialize(changes), Timestamp.from(Instant.now()));
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void appendDenied(String operationCode, String permissionCode, ActorContext actor, String correlationId,
             String reason) {
         jdbcTemplate.update("""

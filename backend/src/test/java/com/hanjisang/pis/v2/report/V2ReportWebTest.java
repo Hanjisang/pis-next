@@ -176,6 +176,42 @@ class V2ReportWebTest {
                 """, Integer.class, UUID.fromString(diagnosisId))).isEqualTo(2);
         String reportId = first.get("reportId").asText();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report_pdf_output", Integer.class)).isEqualTo(1);
+        String pathologyNo = jdbcTemplate.queryForObject("SELECT case_no FROM pis_v2.pathology_case WHERE id = ?",
+                String.class, UUID.fromString(caseId));
+        JsonNode clinicianQuery = json(mockMvc.perform(get("/api/v2/report-center/access/clinician")
+                .param("pathologyNo", pathologyNo))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(clinicianQuery).hasSize(1);
+        assertThat(clinicianQuery.get(0).get("reportId").asText()).isEqualTo(reportId);
+        assertThat(clinicianQuery.get(0).get("patientReference").asText()).isEqualTo("SYNTH-I05-LOOP");
+        mockMvc.perform(post("/api/v2/report-center/access/patient")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"reportNo":"R001","pathologyNo":"%s","identityReference":"WRONG-IDENTITY",
+                         "terminalReference":"SYNTH-TERMINAL"}
+                        """.formatted(pathologyNo)))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis.audit_event
+                WHERE operation_code = 'PIS-V2-REPORT-PATIENT-QUERY' AND authorization_outcome = 'DENIED'
+                """, Integer.class)).isEqualTo(1);
+        JsonNode patientQuery = json(mockMvc.perform(post("/api/v2/report-center/access/patient")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"reportNo":"R001","pathologyNo":"%s","identityReference":"SYNTH-I05-LOOP",
+                         "terminalReference":"SYNTH-TERMINAL"}
+                        """.formatted(pathologyNo)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(patientQuery).hasSize(1);
+        assertThat(patientQuery.get(0).has("patientReference")).isFalse();
+        mockMvc.perform(post("/api/v2/operations/reports/%s/print".formatted(reportId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"identityReference":"SYNTH-I05-LOOP","terminalReference":"SYNTH-TERMINAL",
+                         "printerReference":"SIMULATOR_REPORT_PRINTER","copyCount":1,
+                         "idempotencyKey":"terminal-print-i05"}
+                        """))
+                .andExpect(status().isOk());
         byte[] formalPdf = mockMvc.perform(get("/api/v2/reports/%s/pdf".formatted(reportId)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
         assertThat(new String(formalPdf, 0, 5, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
@@ -207,6 +243,13 @@ class V2ReportWebTest {
                 .content("{\"reason\":\"synthetic correction\",\"idempotencyKey\":\"withdraw-i05\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(withdrawn.get("status").asText()).isEqualTo("WITHDRAWN");
+        mockMvc.perform(post("/api/v2/report-center/access/patient")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"reportNo":"R001","pathologyNo":"%s","identityReference":"SYNTH-I05-LOOP",
+                         "terminalReference":"SYNTH-TERMINAL"}
+                        """.formatted(pathologyNo)))
+                .andExpect(status().isUnprocessableEntity());
         mockMvc.perform(post("/api/v2/reports/%s/pdf-encrypted".formatted(reportId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"accessPassword\":\"synthetic-safe-2026\",\"reason\":\"synthetic delivery\"}"))

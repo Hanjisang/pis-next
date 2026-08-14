@@ -16,6 +16,7 @@ import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportCenterRepository;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportCenterRepository.DelayRow;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportCenterRepository.QueueRow;
+import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportCenterRepository.ReportAccessRow;
 
 @Service
 public class V2ReportCenterApplicationService {
@@ -48,6 +49,46 @@ public class V2ReportCenterApplicationService {
                         countTat(items, "WARNING"), countTat(items, "OVERDUE"),
                         items.stream().filter(item -> item.delay() != null).count()),
                 now);
+    }
+
+    @Transactional
+    public List<ClinicianReportResult> clinicianQuery(ClinicianQueryCommand command) {
+        ActorContext actor = authorization.require(V2ReportApplicationService.REPORT_QUERY);
+        String reportNo = optionalCriterion(command.reportNo(), 64, "报告号");
+        String pathologyNo = optionalCriterion(command.pathologyNo(), 128, "病理号");
+        String patientReference = optionalCriterion(command.patientReference(), 128, "患者引用");
+        if (reportNo == null && pathologyNo == null && patientReference == null) {
+            throw reject("V2-REPORT-CLINICIAN-CRITERIA", "至少输入报告号、病理号或患者引用之一");
+        }
+        List<ReportAccessRow> rows = repository.searchEffectiveReports(actor.hospitalScope(), reportNo,
+                pathologyNo, patientReference);
+        audit.append("PIS-V2-REPORT-CLINICIAN-QUERY", V2ReportApplicationService.REPORT_QUERY, actor, "ALLOWED",
+                "COMPLETED", rows.isEmpty() ? UUID.randomUUID() : rows.get(0).reportId(), "V2-REPORT-QUERY",
+                UUID.randomUUID().toString(), "effective report query; resultCount=" + rows.size());
+        return rows.stream().map(row -> new ClinicianReportResult(row.reportId(), row.reportNo(), row.caseId(),
+                row.pathologyNo(), row.patientReference(), row.reportNature(), row.signedAt(),
+                row.pdfContentHash())).toList();
+    }
+
+    @Transactional
+    public List<PatientReportResult> patientQuery(PatientQueryCommand command) {
+        ActorContext actor = authorization.require(V2ReportApplicationService.REPORT_QUERY);
+        String reportNo = requiredCriterion(command.reportNo(), 64, "报告号");
+        String pathologyNo = requiredCriterion(command.pathologyNo(), 128, "病理号");
+        String identityReference = requiredCriterion(command.identityReference(), 128, "身份核验凭据");
+        String terminalReference = requiredCriterion(command.terminalReference(), 128, "终端标识");
+        List<ReportAccessRow> rows = repository.searchEffectiveReports(actor.hospitalScope(), reportNo,
+                pathologyNo, identityReference);
+        if (rows.isEmpty()) {
+            audit.appendDenied("PIS-V2-REPORT-PATIENT-QUERY", V2ReportApplicationService.REPORT_QUERY, actor,
+                    UUID.randomUUID().toString(), "terminal=" + terminalReference + "; criteria did not match");
+            throw reject("V2-REPORT-PATIENT-QUERY-NOT-MATCHED", "身份信息或报告查询条件不匹配");
+        }
+        audit.append("PIS-V2-REPORT-PATIENT-QUERY", V2ReportApplicationService.REPORT_QUERY, actor, "ALLOWED",
+                "COMPLETED", rows.get(0).reportId(), "V2-REPORT-PATIENT-QUERY", UUID.randomUUID().toString(),
+                "terminal=" + terminalReference + "; verified report query; resultCount=" + rows.size());
+        return rows.stream().map(row -> new PatientReportResult(row.reportId(), row.reportNo(), row.caseId(),
+                row.pathologyNo(), row.reportNature(), row.signedAt(), row.pdfContentHash())).toList();
     }
 
     @Transactional
@@ -178,6 +219,19 @@ public class V2ReportCenterApplicationService {
         }
     }
 
+    private static String optionalCriterion(String value, int maxLength, String label) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim();
+        if (normalized.length() > maxLength) throw reject("V2-REPORT-QUERY-INVALID", label + "长度超限");
+        return normalized;
+    }
+
+    private static String requiredCriterion(String value, int maxLength, String label) {
+        String normalized = optionalCriterion(value, maxLength, label);
+        if (normalized == null) throw reject("V2-REPORT-QUERY-INVALID", label + "不能为空");
+        return normalized;
+    }
+
     private static P15BusinessException reject(String code, String message) {
         return new P15BusinessException(code, message, 422);
     }
@@ -198,4 +252,11 @@ public class V2ReportCenterApplicationService {
             String reasonCode, String reasonDetail, Instant expectedSignAt, Instant declaredAt, String declaredBy,
             Instant resolvedAt, String resolvedBy, String resolutionNote, long concurrencyVersion,
             boolean duplicate) { }
+    public record ClinicianQueryCommand(String reportNo, String pathologyNo, String patientReference) { }
+    public record PatientQueryCommand(String reportNo, String pathologyNo, String identityReference,
+            String terminalReference) { }
+    public record ClinicianReportResult(UUID reportId, String reportNo, UUID caseId, String pathologyNo,
+            String patientReference, String reportNature, Instant signedAt, String pdfContentHash) { }
+    public record PatientReportResult(UUID reportId, String reportNo, UUID caseId, String pathologyNo,
+            String reportNature, Instant signedAt, String pdfContentHash) { }
 }
