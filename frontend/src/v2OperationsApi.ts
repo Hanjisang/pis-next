@@ -111,6 +111,30 @@ export type QcEvaluation = {
 export type StatisticsSummary = {
   counts: Record<string, number>;
   businessTypeDistribution: Array<{ businessTypeCode: string; count: number }>;
+  reportTat?: {
+    policyCaseCount: number;
+    completedCount: number;
+    completedOnTime: number;
+    completedOverdue: number;
+    activeWarning: number;
+    activeOverdue: number;
+    activeDelayed: number;
+    averageCompletedMinutes: number;
+    complianceRate: number;
+    overdueCases: Array<{
+      caseId: string;
+      pathologyNo: string;
+      patientReference: string;
+      businessTypeCode: string;
+      status: string;
+      elapsedMinutes: number;
+      startedAt: string;
+      warningAt: string;
+      dueAt: string;
+      signedAt?: string;
+      delayed: boolean;
+    }>;
+  };
 };
 
 export async function operationsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {

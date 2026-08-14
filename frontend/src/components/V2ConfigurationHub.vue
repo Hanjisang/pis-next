@@ -35,6 +35,7 @@ type ConfigSection =
   | 'assignmentRules'
   | 'diagnosisTemplates'
   | 'reportTemplates'
+  | 'tatPolicies'
   | 'archiveLocations';
 
 type ReportSectionSource =
@@ -60,6 +61,7 @@ const sectionOptions: Array<{ key: ConfigSection; label: string; group: string }
   { key: 'diagnosisTemplates', label: '诊断模板', group: '诊断配置' },
   { key: 'assignmentRules', label: '自动分诊规则', group: '诊断配置' },
   { key: 'reportTemplates', label: '报告模板', group: '诊断配置' },
+  { key: 'tatPolicies', label: '报告时效策略', group: '诊断配置' },
   { key: 'technicalProjects', label: '技术项目', group: '诊断配置' },
   { key: 'archiveLocations', label: '归档库位', group: '生产配置' },
 ];
@@ -221,6 +223,15 @@ async function save(path: string, body: unknown) {
   } finally {
     saving.value = false;
   }
+}
+
+function saveTatPolicy(item: V2ConfigurationSnapshot['reportTatPolicies'][number]) {
+  return save(`/tat-policies/${item.businessTypeId}`, {
+    warningMinutes: item.warningMinutes,
+    targetMinutes: item.targetMinutes,
+    enabled: item.enabled,
+    expectedVersion: item.configurationVersion,
+  });
 }
 
 const reportTemplateChoices = computed(() => {
@@ -739,7 +750,7 @@ onMounted(() => void load());
             </button>
           </div>
         </div>
-        <div v-else class="report-template-designer">
+        <div v-else-if="activeSection === 'reportTemplates'" class="report-template-designer">
           <section class="report-template-create-panel" aria-label="新建报告模板">
             <header>
               <div>
@@ -948,6 +959,60 @@ onMounted(() => void load());
             <div v-else class="empty-state">
               <strong>选择一个报告模板开始设计</strong>
               <span>已发布版本保持不可变；任何调整都会生成新的草稿版本。</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="tat-policy-config" aria-label="报告时效策略配置">
+          <header class="configuration-guidance workspace-panel">
+            <div>
+              <p class="section-kicker">Report TAT Policy</p>
+              <h3>按业务类型配置报告时效</h3>
+              <p class="muted">
+                起点固定为病例登记时间。仓库不预设医院临床阈值；请完成业务确认后再启用。
+              </p>
+            </div>
+          </header>
+          <div class="config-table tat-policy-table">
+            <div class="config-row header">
+              <span>业务类型</span><span>起点</span><span>提醒（分钟）</span
+              ><span>目标（分钟）</span><span>启用</span><span></span>
+            </div>
+            <div
+              v-for="item in snapshot.reportTatPolicies"
+              :key="item.businessTypeId"
+              class="config-row"
+            >
+              <span
+                ><strong>{{ item.businessTypeName }}</strong
+                ><small>{{ item.businessTypeCode }}</small></span
+              >
+              <span>病例登记</span>
+              <label
+                ><span class="visually-hidden">{{ item.businessTypeName }}提醒分钟数</span
+                ><input v-model.number="item.warningMinutes" type="number" min="1" max="525599"
+              /></label>
+              <label
+                ><span class="visually-hidden">{{ item.businessTypeName }}目标分钟数</span
+                ><input v-model.number="item.targetMinutes" type="number" min="2" max="525600"
+              /></label>
+              <label class="inline-checkbox"
+                ><input v-model="item.enabled" type="checkbox" />{{
+                  item.enabled ? '已启用' : '未启用'
+                }}</label
+              >
+              <button
+                class="text-button"
+                type="button"
+                :disabled="
+                  saving ||
+                  !item.warningMinutes ||
+                  !item.targetMinutes ||
+                  item.targetMinutes <= item.warningMinutes
+                "
+                @click="saveTatPolicy(item)"
+              >
+                保存策略
+              </button>
             </div>
           </div>
         </div>

@@ -10,6 +10,7 @@ const configuration = {
   technicalProjects: [],
   diagnosisTemplates: [],
   reportTemplates: [],
+  reportTatPolicies: [],
 };
 
 describe('V2ConfigurationHub', () => {
@@ -319,5 +320,87 @@ describe('V2ConfigurationHub', () => {
       '肺肿瘤病理报告',
     );
     expect(wrapper.text()).toContain('完成业务审核后发布');
+  });
+
+  it('configures report TAT thresholds only after explicit hospital input', async () => {
+    let current = {
+      ...configuration,
+      businessTypes: [
+        {
+          id: 'BT-1',
+          code: 'HISTOLOGY',
+          displayName: '常规组织病理',
+          modalityCode: 'HISTOLOGY',
+          enabled: true,
+          configurationVersion: 1,
+        },
+      ],
+      reportTatPolicies: [
+        {
+          businessTypeId: 'BT-1',
+          businessTypeCode: 'HISTOLOGY',
+          businessTypeName: '常规组织病理',
+          startAnchorCode: 'CASE_REGISTERED',
+          enabled: false,
+          configurationVersion: 0,
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/configuration') && !init?.method) {
+        return new Response(JSON.stringify(current));
+      }
+      if (url.endsWith('/custody/locations') || url.endsWith('/assignment-rules')) {
+        return new Response(JSON.stringify([]));
+      }
+      if (url.endsWith('/report-template-presets') || url.endsWith('/report-templates')) {
+        return new Response(JSON.stringify([]));
+      }
+      if (url.endsWith('/configuration/tat-policies/BT-1') && init?.method === 'PUT') {
+        const body = JSON.parse(init.body as string);
+        current = {
+          ...current,
+          reportTatPolicies: [
+            {
+              ...current.reportTatPolicies[0],
+              ...body,
+              configurationVersion: 1,
+            },
+          ],
+        };
+        return new Response(JSON.stringify(current));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const wrapper = mount(V2ConfigurationHub);
+    await flushPromises();
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === '报告时效策略')
+      ?.trigger('click');
+    const policy = wrapper.get('[aria-label="报告时效策略配置"]');
+    const inputs = policy.findAll('input[type="number"]');
+    await inputs[0].setValue(2880);
+    await inputs[1].setValue(4320);
+    await policy.get('input[type="checkbox"]').setValue(true);
+    await policy
+      .findAll('button')
+      .find((button) => button.text() === '保存策略')
+      ?.trigger('click');
+    await flushPromises();
+
+    const saveCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith('/configuration/tat-policies/BT-1'),
+    );
+    expect(JSON.parse(saveCall?.[1]?.body as string)).toEqual({
+      warningMinutes: 2880,
+      targetMinutes: 4320,
+      enabled: true,
+      expectedVersion: 0,
+    });
+    expect(wrapper.text()).toContain('报告时效策略已保存');
   });
 });

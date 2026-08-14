@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -73,7 +74,21 @@ public class JdbcV2ConfigurationRepository {
                         """, (rs, rowNum) -> new ReportTemplateConfig(rs.getObject("id", UUID.class),
                         rs.getString("template_code"), rs.getString("template_name"), rs.getBoolean("enabled"),
                         rs.getInt("configuration_version"), rs.getString("business_type_code"),
-                        rs.getString("display_name"), rs.getInt("version_count")), organizationReference));
+                        rs.getString("display_name"), rs.getInt("version_count")), organizationReference),
+                jdbc.query("""
+                        SELECT p.id, bt.id AS business_type_id, bt.business_type_code, bt.display_name,
+                               COALESCE(p.start_anchor_code, 'CASE_REGISTERED') AS start_anchor_code,
+                               p.warning_minutes, p.target_minutes, COALESCE(p.enabled, FALSE) AS enabled,
+                               COALESCE(p.configuration_version, 0) AS configuration_version
+                        FROM pis_v2.business_type bt
+                        LEFT JOIN pis_v2.report_tat_policy p
+                          ON p.business_type_id = bt.id AND p.organization_reference = ?
+                        ORDER BY bt.business_type_code
+                        """, (rs, rowNum) -> new ReportTatPolicyConfig(rs.getObject("id", UUID.class),
+                        rs.getObject("business_type_id", UUID.class), rs.getString("business_type_code"),
+                        rs.getString("display_name"), rs.getString("start_anchor_code"),
+                        (Integer) rs.getObject("warning_minutes"), (Integer) rs.getObject("target_minutes"),
+                        rs.getBoolean("enabled"), rs.getInt("configuration_version")), organizationReference));
     }
 
     public boolean updateBusinessType(UUID id, String displayName, boolean enabled, Instant now, String actorRef) {
@@ -129,9 +144,38 @@ public class JdbcV2ConfigurationRepository {
                 """, templateName, enabled, Timestamp.from(now), actorRef, id) == 1;
     }
 
+    public boolean upsertReportTatPolicy(String organizationReference, UUID businessTypeId, int warningMinutes,
+            int targetMinutes, boolean enabled, int expectedVersion, Instant now, String actorRef) {
+        int updated = jdbc.update("""
+                UPDATE pis_v2.report_tat_policy
+                   SET warning_minutes = ?, target_minutes = ?, enabled = ?,
+                       configuration_version = configuration_version + 1,
+                       updated_at = ?, updated_by_ref = ?
+                 WHERE organization_reference = ? AND business_type_id = ? AND configuration_version = ?
+                """, warningMinutes, targetMinutes, enabled, Timestamp.from(now), actorRef,
+                organizationReference, businessTypeId, expectedVersion);
+        if (updated == 0 && expectedVersion == 0) {
+            try {
+                return jdbc.update("""
+                        INSERT INTO pis_v2.report_tat_policy
+                            (id, organization_reference, business_type_id, start_anchor_code,
+                             warning_minutes, target_minutes, enabled, configuration_version,
+                             created_at, created_by_ref, updated_at, updated_by_ref)
+                        SELECT ?, ?, bt.id, 'CASE_REGISTERED', ?, ?, ?, 1, ?, ?, ?, ?
+                        FROM pis_v2.business_type bt WHERE bt.id = ?
+                        """, UUID.randomUUID(), organizationReference, warningMinutes, targetMinutes, enabled,
+                        Timestamp.from(now), actorRef, Timestamp.from(now), actorRef, businessTypeId) == 1;
+            } catch (DuplicateKeyException conflict) {
+                return false;
+            }
+        }
+        return updated == 1;
+    }
+
     public record Snapshot(List<BusinessTypeConfig> businessTypes, List<ApplicationMappingConfig> applicationItemMappings,
             List<PathologyNumberRuleConfig> pathologyNumberRules, List<TechnicalProjectConfig> technicalProjects,
-            List<DiagnosisTemplateConfig> diagnosisTemplates, List<ReportTemplateConfig> reportTemplates) { }
+            List<DiagnosisTemplateConfig> diagnosisTemplates, List<ReportTemplateConfig> reportTemplates,
+            List<ReportTatPolicyConfig> reportTatPolicies) { }
     public record BusinessTypeConfig(UUID id, String code, String displayName, String modalityCode, boolean enabled,
             int configurationVersion) { }
     public record ApplicationMappingConfig(UUID id, String applicationItemCode, String defaultSpecimenKindCode,
@@ -147,4 +191,7 @@ public class JdbcV2ConfigurationRepository {
             long concurrencyVersion, String businessTypeCode, String businessTypeName, int versionCount) { }
     public record ReportTemplateConfig(UUID id, String templateCode, String templateName, boolean enabled,
             int configurationVersion, String businessTypeCode, String businessTypeName, int versionCount) { }
+    public record ReportTatPolicyConfig(UUID id, UUID businessTypeId, String businessTypeCode,
+            String businessTypeName, String startAnchorCode, Integer warningMinutes, Integer targetMinutes,
+            boolean enabled, int configurationVersion) { }
 }

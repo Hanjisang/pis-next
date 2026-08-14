@@ -36,7 +36,7 @@ class V39FrozenExistingDatabaseUpgradeTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT version FROM pis.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("48");
+                String.class)).isEqualTo("49");
         assertThat(counts(jdbc)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT round_no FROM pis_v2.frozen_round WHERE id = ?", Integer.class,
                 fixture.roundId())).isEqualTo(1);

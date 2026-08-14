@@ -8,9 +8,9 @@
 
 | Status | Count |
 |---|---:|
-| COMPLETE | 329 |
-| PARTIAL | 126 |
-| MISSING | 207 |
+| COMPLETE | 338 |
+| PARTIAL | 120 |
+| MISSING | 204 |
 | EXTERNAL_DEPENDENCY | 80 |
 | CONFLICT_RESOLVED_BY_V2 | 0 |
 | **TOTAL** | **742** |
@@ -5852,9 +5852,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N22 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N22 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md N22 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-022 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。报告中心按医院、业务类型的启用策略计算病例登记至当前或签发的分钟数，展示正常、临期、超期、按时签发和超期签发状态。
+- V2 Decision: TAT是报告域只读投影，不改变病例或诊断状态；策略未配置时明确显示UNCONFIGURED，不以猜测阈值参与临床提醒。
 
 ### RPT-023 — frozen report
 
@@ -10318,9 +10318,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB07 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB07 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB07 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 STAT-007 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。统计接口从病例登记与不可变报告签发事实计算平均签发分钟数、按时率、已完成和在途时效分布，质控统计页直接展示。
+- V2 Decision: 统计只读业务事实并应用当前医院启用的报告TAT策略，不创建或驱动通用任务。
 
 ### STAT-008 — overdue reports
 
@@ -10340,9 +10340,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB08 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB08 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AB08 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 STAT-008 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。统计页提供真实超期病例数量和病理号、患者引用、业务类型、耗时、目标时间、延迟登记状态明细。
+- V2 Decision: 超期明细来自当前医院病例、签发报告和策略查询；不使用fixture数字，且只作为监测和下钻入口。
 
 ### STAT-009 — TechnicalOrder
 
@@ -10934,9 +10934,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AC08 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AC08 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AC08 行及对应测试；缺口状态不得视为通过
-- Status: MISSING
-- Gap: 当前仓库未发现可验收的完整实现证据。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 CFG-008 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。管理员可按业务类型配置提醒分钟、目标分钟和启用状态，服务端校验阈值、按医院隔离、递增配置版本并记录审计。
+- V2 Decision: 起点采用病例登记时间；具体阈值待各医院业务确认，因此迁移不写入默认临床阈值，未显式启用时不产生提醒。
 
 ### CFG-009 — dictionaries
 
@@ -14520,9 +14520,9 @@ FC03C1 更新 Frozen Closure：`FROZEN-011`、`FROZEN-017` 由 PARTIAL 转为 CO
 - DB Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK10 行及对应 migration
 - Frontend Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK10 行及对应前端入口
 - Test Evidence: SRS-V14-V2-COVERAGE-MATRIX.md AK10 行及对应测试；缺口状态不得视为通过
-- Status: PARTIAL
-- Gap: 当前仅部分闭环；缺失的 UI、API、数据或测试证据须在后续对应原子任务中补齐。
-- V2 Decision: FC01A 仅记录该非 WB 缺口；后续以 RPT-035 独立立项、实现和验收。
+- Status: COMPLETE
+- Gap: 无。临期或超期待签发报告可登记受控原因、说明和预计签发时间，支持幂等关闭；策略版本和当时目标时间随记录保留。
+- V2 Decision: 延迟登记是报告域业务事实而非通用WorkItem；同一诊断只允许一个活动登记，人工关闭保留原因，正式签发在同一事务中自动关闭活动登记并保留审计。
 
 ### RPT-036 — delivery history
 

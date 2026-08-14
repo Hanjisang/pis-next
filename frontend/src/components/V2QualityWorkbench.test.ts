@@ -22,6 +22,31 @@ describe('V2QualityWorkbench', () => {
                 reportSignOutCount: 5,
               },
               businessTypeDistribution: [],
+              reportTat: {
+                policyCaseCount: 8,
+                completedCount: 5,
+                completedOnTime: 4,
+                completedOverdue: 1,
+                activeWarning: 1,
+                activeOverdue: 1,
+                activeDelayed: 1,
+                averageCompletedMinutes: 3210,
+                complianceRate: 80.0,
+                overdueCases: [
+                  {
+                    caseId: 'CASE-1',
+                    pathologyNo: 'H-2026-001',
+                    patientReference: 'SYNTH-PATIENT',
+                    businessTypeCode: 'HISTOLOGY',
+                    status: 'OVERDUE',
+                    elapsedMinutes: 5000,
+                    startedAt: '2026-08-10T00:00:00Z',
+                    warningAt: '2026-08-12T00:00:00Z',
+                    dueAt: '2026-08-13T00:00:00Z',
+                    delayed: true,
+                  },
+                ],
+              },
             }),
           ),
         );
@@ -34,6 +59,9 @@ describe('V2QualityWorkbench', () => {
     expect(wrapper.text()).toContain('登记病例');
     expect(wrapper.text()).toContain('标本');
     expect(wrapper.text()).toContain('报告签发');
+    expect(wrapper.text()).toContain('报告时效与超期病例');
+    expect(wrapper.text()).toContain('H-2026-001');
+    expect(wrapper.text()).toContain('80%');
     expect(wrapper.text()).not.toContain('registrationCount');
     expect(wrapper.text()).not.toContain('reportSignOutCount');
   });

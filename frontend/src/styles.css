@@ -4097,7 +4097,7 @@ textarea:focus {
   display: grid;
   grid-template-columns:
     minmax(130px, 1fr) minmax(100px, 1fr) minmax(140px, 1fr) minmax(120px, 1fr)
-    minmax(150px, auto) 70px;
+    minmax(170px, 1.1fr) minmax(150px, auto) minmax(110px, auto);
   align-items: center;
   gap: var(--space-3);
   width: 100%;
@@ -4105,7 +4105,7 @@ textarea:focus {
   border-bottom: 1px solid var(--border-subtle);
   background: white;
   color: var(--text-secondary);
-  cursor: pointer;
+  cursor: default;
   padding: var(--space-3) var(--space-4);
   text-align: left;
 }
@@ -4118,12 +4118,115 @@ textarea:focus {
   font-weight: 700;
 }
 
-button.dense-report-row:hover {
+.dense-report-row:not(.header):hover {
   background: var(--surface-selected);
 }
 
 .dense-report-row small {
+  display: block;
   color: var(--text-muted);
+}
+
+.report-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.report-center-page .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(15 23 42 / 42%);
+}
+
+.report-center-page .modal-card {
+  display: grid;
+  width: min(520px, 100%);
+  gap: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-base);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-5);
+}
+
+.report-center-page .modal-card label {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.report-center-page .dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.tat-policy-config {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.configuration-guidance {
+  padding: var(--space-4);
+}
+
+.configuration-guidance h3,
+.configuration-guidance p {
+  margin: 0;
+}
+
+.configuration-guidance p {
+  margin-top: var(--space-2);
+}
+
+.tat-policy-table .config-row {
+  grid-template-columns:
+    minmax(170px, 1.4fr) minmax(100px, 0.8fr) minmax(130px, 1fr)
+    minmax(130px, 1fr) minmax(100px, 0.8fr) 90px;
+}
+
+.tat-policy-table .config-row > span:first-child small {
+  display: block;
+  color: var(--text-muted);
+}
+
+.report-tat-statistics {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.tat-overdue-table {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.tat-overdue-row {
+  display: grid;
+  min-width: 780px;
+  grid-template-columns:
+    minmax(130px, 1fr) minmax(110px, 1fr) minmax(130px, 1fr)
+    minmax(100px, 0.8fr) minmax(160px, 1.2fr) minmax(90px, 0.7fr);
+  gap: var(--space-3);
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+}
+
+.tat-overdue-row:last-child {
+  border-bottom: 0;
+}
+
+.tat-overdue-row.header {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 700;
 }
 
 @media (max-width: 1100px) {

@@ -60,6 +60,17 @@ export type V2ConfigurationSnapshot = {
     businessTypeName: string | null;
     versionCount: number;
   }>;
+  reportTatPolicies: Array<{
+    id?: string;
+    businessTypeId: string;
+    businessTypeCode: string;
+    businessTypeName: string;
+    startAnchorCode: 'CASE_REGISTERED';
+    warningMinutes?: number;
+    targetMinutes?: number;
+    enabled: boolean;
+    configurationVersion: number;
+  }>;
 };
 
 export type V2ReportTemplatePreset = {

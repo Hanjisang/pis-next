@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hanjisang.pis.security.ActorContext;
 import com.hanjisang.pis.security.JdbcAuditEventRepository;
+import com.hanjisang.pis.security.JdbcAuditEventRepository.AuditChange;
 import com.hanjisang.pis.security.P15AuthorizationService;
 import com.hanjisang.pis.security.P15BusinessException;
 import com.hanjisang.pis.v2.configuration.infrastructure.JdbcV2ConfigurationRepository;
@@ -102,6 +103,39 @@ public class V2ConfigurationApplicationService {
         return repository.snapshot(actor.hospitalScope());
     }
 
+    @Transactional
+    public JdbcV2ConfigurationRepository.Snapshot updateReportTatPolicy(UUID businessTypeId,
+            UpdateReportTatPolicy command) {
+        ActorContext actor = authorization.require(ADMIN_PERMISSION);
+        if (command.warningMinutes() < 1 || command.targetMinutes() <= command.warningMinutes()
+                || command.targetMinutes() > 525600) {
+            throw new P15BusinessException("V2-CONFIG-TAT-INVALID", "报告时效必须满足提醒分钟数大于0、目标分钟数大于提醒且不超过一年", 400);
+        }
+        var snapshot = repository.snapshot(actor.hospitalScope());
+        if (snapshot.businessTypes().stream().noneMatch(item -> businessTypeId.equals(item.id()))) {
+            throw new P15BusinessException("V2-CONFIG-TAT-BUSINESS-TYPE-NOT-FOUND", "业务类型不存在", 404);
+        }
+        var before = snapshot.reportTatPolicies().stream()
+                .filter(item -> businessTypeId.equals(item.businessTypeId())).findFirst().orElse(null);
+        if (!repository.upsertReportTatPolicy(actor.hospitalScope(), businessTypeId, command.warningMinutes(),
+                command.targetMinutes(), command.enabled(), command.expectedVersion(), Instant.now(), actor.actorId())) {
+            throw new P15BusinessException("V2-CONFIG-TAT-CONFLICT", "报告时效策略已被其他管理员更新，请刷新后重试", 409);
+        }
+        audit.appendWithChanges("PIS-V2-CONFIG-REPORT-TAT-POLICY", ADMIN_PERMISSION, actor, "COMPLETED",
+                businessTypeId, "V2-REPORT-TAT-POLICY", UUID.randomUUID().toString(),
+                "hospital report TAT policy updated", java.util.List.of(
+                        new AuditChange("warningMinutes", "提醒分钟数",
+                                before == null ? null : String.valueOf(before.warningMinutes()),
+                                String.valueOf(command.warningMinutes())),
+                        new AuditChange("targetMinutes", "目标分钟数",
+                                before == null ? null : String.valueOf(before.targetMinutes()),
+                                String.valueOf(command.targetMinutes())),
+                        new AuditChange("enabled", "启用状态",
+                                before == null ? null : String.valueOf(before.enabled()),
+                                String.valueOf(command.enabled()))));
+        return repository.snapshot(actor.hospitalScope());
+    }
+
     private static void update(boolean changed, String message) {
         if (!changed) throw new P15BusinessException("V2-CONFIG-NOT-FOUND", message, 404);
     }
@@ -115,4 +149,5 @@ public class V2ConfigurationApplicationService {
     public record UpdateNumberRule(String prefix, int paddingWidth, boolean active) { }
     public record UpdateTechnicalProject(String projectName, boolean enabled, boolean requiredBeforeSignOutDefault) { }
     public record UpdateTemplate(String templateName, boolean enabled) { }
+    public record UpdateReportTatPolicy(int warningMinutes, int targetMinutes, boolean enabled, int expectedVersion) { }
 }

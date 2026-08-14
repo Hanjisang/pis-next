@@ -39,6 +39,7 @@ import com.hanjisang.pis.v2.report.domain.Report;
 import com.hanjisang.pis.v2.report.domain.ReportNature;
 import com.hanjisang.pis.v2.report.domain.ReportStatus;
 import com.hanjisang.pis.v2.report.domain.ReportTemplateVersion;
+import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportCenterRepository;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository.IdempotencyResult;
 import com.hanjisang.pis.v2.report.infrastructure.JdbcV2ReportRepository.TemplateCatalogRow;
@@ -54,6 +55,7 @@ public class V2ReportApplicationService {
     public static final String REPORT_TEMPLATE_MANAGE = "P14-PERM-042";
 
     private final JdbcV2ReportRepository repository;
+    private final JdbcV2ReportCenterRepository reportCenterRepository;
     private final JdbcV2DiagnosisRepository diagnosisRepository;
     private final JdbcV2RegistrationRepository registrationRepository;
     private final JdbcV2MaterialRepository materialRepository;
@@ -68,12 +70,14 @@ public class V2ReportApplicationService {
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
     public V2ReportApplicationService(JdbcV2ReportRepository repository,
+            JdbcV2ReportCenterRepository reportCenterRepository,
             JdbcV2DiagnosisRepository diagnosisRepository, JdbcV2RegistrationRepository registrationRepository,
             JdbcV2MaterialRepository materialRepository, JdbcV2TechnicalOrderRepository technicalRepository,
             V2TechnicalOrderApplicationService technicalOrderService, P15AuthorizationService authorization,
             JdbcAuditEventRepository audit, OutboxPort outbox,
             V2ReportPdfRenderer pdfRenderer, V2FrozenApplicationService frozenService) {
         this.repository = repository;
+        this.reportCenterRepository = reportCenterRepository;
         this.diagnosisRepository = diagnosisRepository;
         this.registrationRepository = registrationRepository;
         this.materialRepository = materialRepository;
@@ -418,6 +422,10 @@ public class V2ReportApplicationService {
                 fileReference, rendered.pdfContentHash(), actor.actorId(), now, null, null, null, 0, now, actor.actorId());
         repository.insertReport(report);
         repository.insertPdf(reportId, fileReference, rendered.pdf(), rendered.pdfContentHash(), now, actor.actorId());
+        if (nature == ReportNature.ORIGINAL) {
+            reportCenterRepository.resolveActiveDelayAfterSignOut(diagnosis.id(), actor.hospitalScope(), now,
+                    actor.actorId());
+        }
         if (nature == ReportNature.ORIGINAL && diagnosis.contextType() == com.hanjisang.pis.v2.diagnosis.domain.DiagnosisContextType.FROZEN_ROUND) {
             frozenService.markReportSigned(diagnosis.id(), actor.hospitalScope());
             frozenService.notifyReportSigned(diagnosis.id(), report.id(), report.reportNo(), actor.hospitalScope(), now);

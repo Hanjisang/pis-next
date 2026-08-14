@@ -146,6 +146,57 @@ onMounted(() => void load());
         </article>
       </section>
 
+      <section v-if="statistics?.reportTat" class="workspace-panel report-tat-statistics">
+        <header class="panel-title-row">
+          <div>
+            <p class="section-kicker">Report TAT</p>
+            <h3>报告时效与超期病例</h3>
+          </div>
+          <span class="status-pill" :class="{ warning: statistics.reportTat.activeOverdue }">
+            {{ statistics.reportTat.activeOverdue }} 例超期
+          </span>
+        </header>
+        <div class="statistics-count-grid">
+          <span
+            ><strong>{{ statistics.reportTat.complianceRate }}%</strong
+            ><small>按时签发率</small></span
+          ><span
+            ><strong>{{ statistics.reportTat.averageCompletedMinutes }}</strong
+            ><small>已签发平均分钟</small></span
+          ><span
+            ><strong>{{ statistics.reportTat.activeWarning }}</strong
+            ><small>临期病例</small></span
+          ><span
+            ><strong>{{ statistics.reportTat.activeDelayed }}</strong
+            ><small>已登记延迟</small></span
+          >
+        </div>
+        <div
+          v-if="statistics.reportTat.overdueCases.length"
+          class="tat-overdue-table"
+          role="table"
+          aria-label="超期报告明细"
+        >
+          <div class="tat-overdue-row header" role="row">
+            <span>病理号</span><span>患者</span><span>业务类型</span><span>已耗时</span
+            ><span>目标时间</span><span>延迟登记</span>
+          </div>
+          <div
+            v-for="item in statistics.reportTat.overdueCases"
+            :key="item.caseId"
+            class="tat-overdue-row"
+            role="row"
+          >
+            <strong>{{ item.pathologyNo }}</strong
+            ><span>{{ item.patientReference }}</span
+            ><span>{{ businessTypeName(item.businessTypeCode) }}</span
+            ><span>{{ item.elapsedMinutes }} 分钟</span><time>{{ formatDateTime(item.dueAt) }}</time
+            ><span>{{ item.delayed ? '已登记' : '未登记' }}</span>
+          </div>
+        </div>
+        <p v-else class="empty-state compact">当前没有超期报告。</p>
+      </section>
+
       <div class="quality-statistics-grid">
         <section class="workspace-panel">
           <header class="panel-title-row">

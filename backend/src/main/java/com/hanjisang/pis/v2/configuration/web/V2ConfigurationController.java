@@ -13,6 +13,7 @@ import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplication
 import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateBusinessType;
 import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateMapping;
 import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateNumberRule;
+import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateReportTatPolicy;
 import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateTechnicalProject;
 import com.hanjisang.pis.v2.configuration.application.V2ConfigurationApplicationService.UpdateTemplate;
 
@@ -55,5 +56,10 @@ public class V2ConfigurationController {
     @PutMapping("/report-templates/{id}")
     public Object reportTemplate(@PathVariable UUID id, @RequestBody UpdateTemplate request) {
         return service.updateReportTemplate(id, request);
+    }
+
+    @PutMapping("/tat-policies/{businessTypeId}")
+    public Object reportTatPolicy(@PathVariable UUID businessTypeId, @RequestBody UpdateReportTatPolicy request) {
+        return service.updateReportTatPolicy(businessTypeId, request);
     }
 }

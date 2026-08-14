@@ -535,6 +535,26 @@ INSERT INTO pis_v2.print_rule
 VALUES ('00000000-0000-0000-0000-00000000b011', 'LOCAL_HOSPITAL', NULL, 'SLIDE', 'ON_GROSSING_COMPLETE',
         'MOCK://SYNTH-PRINTER', TRUE, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'TEST');
 
+CREATE TABLE IF NOT EXISTS pis_v2.report_tat_policy (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
+    start_anchor_code VARCHAR(32) NOT NULL, warning_minutes INTEGER NOT NULL, target_minutes INTEGER NOT NULL,
+    enabled BOOLEAN NOT NULL, configuration_version INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by_ref VARCHAR(128) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_by_ref VARCHAR(128) NOT NULL,
+    UNIQUE (organization_reference, business_type_id)
+);
+CREATE TABLE IF NOT EXISTS pis_v2.report_delay_declaration (
+    id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, diagnosis_id UUID NOT NULL,
+    policy_id UUID NOT NULL, policy_version INTEGER NOT NULL,
+    tat_due_at TIMESTAMP WITH TIME ZONE NOT NULL, reason_code VARCHAR(32) NOT NULL,
+    reason_detail VARCHAR(1000) NOT NULL, expected_sign_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    declared_at TIMESTAMP WITH TIME ZONE NOT NULL, declared_by_ref VARCHAR(128) NOT NULL,
+    idempotency_key VARCHAR(128) NOT NULL, resolved_at TIMESTAMP WITH TIME ZONE,
+    resolved_by_ref VARCHAR(128), resolution_note VARCHAR(1000), resolution_idempotency_key VARCHAR(128),
+    concurrency_version BIGINT NOT NULL, UNIQUE (organization_reference, idempotency_key),
+    UNIQUE (organization_reference, resolution_idempotency_key),
+    CHECK (expected_sign_at > declared_at AND expected_sign_at > tat_due_at)
+);
 CREATE TABLE IF NOT EXISTS pis_v2.report_template (
     id UUID PRIMARY KEY, organization_reference VARCHAR(128) NOT NULL, business_type_id UUID NOT NULL,
     template_code VARCHAR(128) NOT NULL, template_name VARCHAR(256) NOT NULL, enabled BOOLEAN NOT NULL,
@@ -668,6 +688,8 @@ CREATE TABLE IF NOT EXISTS pis_v2.send_out_idempotency (
 DELETE FROM pis_v2.report_command_idempotency;
 DELETE FROM pis_v2.report_pdf_output;
 DELETE FROM pis_v2.report;
+DELETE FROM pis_v2.report_delay_declaration;
+DELETE FROM pis_v2.report_tat_policy;
 DELETE FROM pis_v2.report_template_version;
 DELETE FROM pis_v2.report_template;
 DELETE FROM pis_v2.report_template_preset;

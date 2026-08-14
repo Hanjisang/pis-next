@@ -43,9 +43,9 @@ class V2RegistrationPostgresIntegrationTest {
                 POSTGRES.getPassword()));
 
         assertThat(jdbc.queryForObject("SELECT version_code FROM pis_v2.schema_metadata WHERE schema_code = 'PIS_V2'",
-                String.class)).isEqualTo("RPT-TEMPLATE-DESIGNER-PRESETS");
+                String.class)).isEqualTo("REPORT-TAT-DELAY-CLOSURE");
         assertThat(jdbc.queryForObject("SELECT version FROM pis.flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
-                String.class)).isEqualTo("48");
+                String.class)).isEqualTo("49");
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema = 'pis_v2' AND table_name IN
@@ -78,6 +78,11 @@ class V2RegistrationPostgresIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_version", Integer.class)).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_template_preset", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.report_tat_policy", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2'
+                  AND table_name IN ('report_tat_policy', 'report_delay_declaration')
+                """, Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pis_v2.grossing", Integer.class)).isEqualTo(0);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'pis_v2' AND table_name IN ('auth_user', 'auth_user_permission', 'doctor_identity')", Integer.class))
                 .isEqualTo(3);

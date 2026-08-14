@@ -3,8 +3,10 @@ package com.hanjisang.pis.v2.report;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +46,7 @@ class V2ReportWebTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        jdbcTemplate.update("DELETE FROM pis_v2.report_tat_policy");
     }
 
     @Test
@@ -57,6 +60,60 @@ class V2ReportWebTest {
         String auditId = complete(diagnosisId, "/complete-initial", claimed.get("responsibilityId").asText(), 0, 0,
                 "AUDIT", 1, "complete-i05-initial").get("nextResponsibilityId").asText();
         complete(diagnosisId, "/complete-audit", auditId, 0, 1, null, 2, "complete-i05-audit");
+
+        JsonNode configured = json(mockMvc.perform(put("/api/v2/configuration/tat-policies/{businessTypeId}",
+                        "00000000-0000-0000-0000-00000000b001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"warningMinutes\":60,\"targetMinutes\":120,\"enabled\":true,\"expectedVersion\":0}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(configured.get("reportTatPolicies").toString()).contains("HISTOLOGY", "CASE_REGISTERED");
+        mockMvc.perform(put("/api/v2/configuration/tat-policies/{businessTypeId}",
+                        "00000000-0000-0000-0000-00000000b001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"warningMinutes\":60,\"targetMinutes\":180,\"enabled\":true,\"expectedVersion\":0}"))
+                .andExpect(status().isConflict());
+        jdbcTemplate.update("UPDATE pis_v2.pathology_case SET created_at = DATEADD('HOUR', -3, CURRENT_TIMESTAMP) WHERE id = ?",
+                UUID.fromString(caseId));
+        JsonNode reportCenter = json(mockMvc.perform(get("/api/v2/report-center"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(reportCenter.get("counts").get("overdue").asInt()).isEqualTo(1);
+        assertThat(reportCenter.get("items").get(0).get("tatStatus").asText()).isEqualTo("OVERDUE");
+        JsonNode delay = json(mockMvc.perform(post("/api/v2/report-center/delays")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"diagnosisId":"%s","reasonCode":"TECHNICAL_WORK",
+                         "reasonDetail":"合成技术工作待完成","expectedSignAt":"%s",
+                         "idempotencyKey":"delay-i05"}
+                        """.formatted(diagnosisId, Instant.now().plusSeconds(86400))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(delay.get("duplicate").asBoolean()).isFalse();
+        JsonNode delayReplay = json(mockMvc.perform(post("/api/v2/report-center/delays")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"diagnosisId":"%s","reasonCode":"TECHNICAL_WORK",
+                         "reasonDetail":"合成技术工作待完成","expectedSignAt":"%s",
+                         "idempotencyKey":"delay-i05"}
+                        """.formatted(diagnosisId, delay.get("expectedSignAt").asText())))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(delayReplay.get("duplicate").asBoolean()).isTrue();
+        mockMvc.perform(post("/api/v2/report-center/delays/{delayId}/resolve", delay.get("delayId").asText())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"resolutionNote":"合成人工关闭","idempotencyKey":"delay-resolve-i05"}
+                        """))
+                .andExpect(status().isOk());
+        JsonNode activeDelay = json(mockMvc.perform(post("/api/v2/report-center/delays")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"diagnosisId":"%s","reasonCode":"CONSULTATION",
+                         "reasonDetail":"合成会诊待完成","expectedSignAt":"%s",
+                         "idempotencyKey":"delay-i05-second"}
+                        """.formatted(diagnosisId, Instant.now().plusSeconds(172800))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(activeDelay.get("duplicate").asBoolean()).isFalse();
+        assertThat(json(mockMvc.perform(get("/api/v2/statistics/summary"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .get("reportTat").get("activeOverdue").asInt()).isEqualTo(1);
 
         JsonNode presets = json(mockMvc.perform(get("/api/v2/report-template-presets"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -113,6 +170,10 @@ class V2ReportWebTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(first.get("reportNo").asText()).isEqualTo("R001");
         assertThat(first.get("status").asText()).isEqualTo("EFFECTIVE");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pis_v2.report_delay_declaration
+                WHERE diagnosis_id = ? AND resolved_at IS NOT NULL
+                """, Integer.class, UUID.fromString(diagnosisId))).isEqualTo(2);
         String reportId = first.get("reportId").asText();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM pis_v2.report_pdf_output", Integer.class)).isEqualTo(1);
         byte[] formalPdf = mockMvc.perform(get("/api/v2/reports/%s/pdf".formatted(reportId)))
